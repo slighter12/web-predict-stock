@@ -2,8 +2,9 @@ const path = require('path');
 //const webpack = require('webpack');
 const nodeExternals = require('webpack-node-externals');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
-/*const serverConfig = {
+const serverConfig = {
     entry: {
         server: './server.js'
     },
@@ -28,7 +29,7 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
         }]
     },
 };
-*/
+
 const clientConfig = {
     entry: {
         index: './src/index.js'
@@ -42,13 +43,17 @@ const clientConfig = {
     module: {
         rules: [
         {
-            test: /.js$/,
+            test: /\.js$/,
             exclude: /node_module/,
             loader: 'babel-loader',
         },
         {
-            test: /.pug$/,
+            test: /\.pug$/,
             use: [ 'html-loader', 'pug-html-loader' ],
+        },
+        {
+            test: /\.(scss|sass)$/,
+            use: [ 'style-loader', MiniCssExtractPlugin.loader, 'css-loader', 'sass-loader' ],
         }
         ]
     },
@@ -56,9 +61,11 @@ const clientConfig = {
         new HtmlWebpackPlugin({
             template: './src/index.pug',
             filename: 'index.html',
+        }),
+        new MiniCssExtractPlugin({
+            filename: 'app.css'
         })
     ]
 };
 
-//module.exports = [ serverConfig, clientConfig ];
-module.exports = [clientConfig];
+module.exports = [ serverConfig, clientConfig ];
