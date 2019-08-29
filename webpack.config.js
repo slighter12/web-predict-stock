@@ -13,6 +13,7 @@ const serverConfig = {
         filename: '[name].js'
     },
     target: 'node',
+    externals: [nodeExternals()],
     node: {
         __dirname: false,
         __filename: false
@@ -31,6 +32,7 @@ const serverConfig = {
 };
 
 const clientConfig = {
+    mode: 'development',
     entry: {
         index: './src/index.js'
     },
@@ -38,8 +40,10 @@ const clientConfig = {
         path: path.join(__dirname, 'dist'),
         filename: '[name].js'
     },
-    externals: [nodeExternals()],
     target: 'web',
+    devServer: {
+        contentBase: './dist'
+    },
     module: {
         rules: [
         {

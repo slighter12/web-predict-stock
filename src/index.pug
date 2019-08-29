@@ -3,6 +3,15 @@ html
     head
         title stock predict
     body
-        div
-            #tag stock information
-            #tag predict stock
+        .nav
+            .tag stock information
+            .tag predict stock
+        .search-nav
+            - var img = "https://img.icons8.com/material-rounded/20/000000/search-database.png"
+            .search-bar
+                img(src=img)
+                input(
+                    type="search"
+                    class="search-info"
+                    placeholder="please input stock name or id"
+                )

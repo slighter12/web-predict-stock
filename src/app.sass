@@ -1,2 +1,47 @@
+=box-sizing($box-model)
+  -webkit-box-sizing: $box-model
+  -moz-box-sizing: $box-model
+  box-sizing: $box-model
+=vertical-center()
+  display: flex
+  align-items: center
 body
-  background: floralwhite
+  margin: 0.5em
+  padding: 0
+  background: #f2eef2
+  .nav
+    height: 50px
+    margin-bottom: 0
+    border-bottom: #88C6E5
+    border-bottom-style: solid
+    +box-sizing(border-box)
+    .tag
+      float: left
+      width: 15%
+      height: 100%
+      max-width: 175px
+      margin: auto 0.5em
+      padding: 1em
+      background: #88C6E5
+      +vertical-center
+      justify-content: center
+      +box-sizing(border-box)
+      border-top-left-radius: 1em
+      border-top-right-radius: 1em
+      &:hover
+        color: white
+        background: aqua
+  .search-nav
+    padding: 0.5em
+    .search-bar
+      height: 24px
+      max-width: 250px
+      border: 1px solid gray
+      padding-left: 0.5em
+      +vertical-center
+      .search-info
+        width: 100%
+        padding-left: 1em
+        background: none
+        outline-style: none
+        border: none
