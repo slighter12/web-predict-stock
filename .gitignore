@@ -2,3 +2,4 @@ db/
 .idea/
 dist/
 node_modules/
+.DS-Store

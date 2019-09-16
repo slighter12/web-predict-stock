@@ -38,7 +38,7 @@ const clientConfig = {
     },
     output: {
         path: path.join(__dirname, 'dist'),
-        filename: '[name].js'
+        filename: '[name].bundle.js'
     },
     target: 'web',
     devServer: {
