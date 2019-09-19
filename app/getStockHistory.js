@@ -33,6 +33,10 @@ if (codeIDs){
             if (moment().isBefore(durationEnd)) {
                 requestHistory(moment().format('YYYYMMDD'), Id);
                 timePointer.add(-1, 'month');
+                let tag = {
+                    code: Id,
+                    endDate:moment().format('YYYY-MM-DD')
+                };
             }
             (async ()=> {
                 while (durationStart.isBefore(timePointer)) {
@@ -53,6 +57,9 @@ function requestHistory(date,id) {
             console.log(err);
         } else {
             let data = JSON.parse(body).data;
+            if (data){
+                return undefined;
+            }
             for (let x = 0; x < data.length; x++){
                 let dayInfo = data[x];
                 let result = {
@@ -75,9 +82,11 @@ function requestHistory(date,id) {
 }
 
 async function upsertDb(key, data, dbName) {
-    await MongoClient.connect(dburi, { useNewUrlParser: true, useUnifiedTopology: true }, (err, database) => {
-        if (err) throw err;
-        let db = database.db('Stock');
+    const url = `${dburi}/Stock`;
+    let client;
+    try {
+        client = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
+        let db = client.db('Stock');
         let mongoOps = [{
             updateOne: {
                 filter: key,
@@ -86,8 +95,12 @@ async function upsertDb(key, data, dbName) {
             }
         }];
         db.collection(dbName).bulkWrite(mongoOps, err => {
-            if (err) throw err;
+            if (err) throw err
         });
-        database.close();
-    })
+    } catch (err) {
+        console.log(err.stack);
+    }
+    if (client) {
+        client.close();
+    }
 }
