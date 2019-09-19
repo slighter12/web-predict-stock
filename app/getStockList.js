@@ -27,6 +27,7 @@ async function getAllStockId() {
                 //console.log(response.statusCode);
                 console.log(`running sii ${codeId}`);
                 let stockDb = {};
+                //todo: using cheerio to get stock id list
                 let pattern = /<td rowspan=['"]2['"]>(.*?)<\/td>/g;
                 let preMatchArray = body.match( pattern );
                 if (preMatchArray) {
