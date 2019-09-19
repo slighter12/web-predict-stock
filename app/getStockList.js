@@ -11,7 +11,7 @@ const headers = {
 };
 
 async function getAllStockId() {
-    for(let id = 1; id < 34; id++) {
+    for(let id = 1; id < 36; id++) {
         let codeId = id.toString().padStart(2, '0');
         let options = {
             method: 'POST',
