@@ -1,4 +1,5 @@
 const request = require('request');
+const fs = require('fs');
 const moment = require('moment');
 //todo: change old async await setTimeout function
 const {promisify} = require('util');
@@ -23,8 +24,10 @@ if ( Array.isArray(codeIDs) && codeIDs.length ) {
                     //todo: get mongodb sii list
                 }
                 if (Id.match(patternId)){
-                    requestHistory(date, Id);
-                    await sleep(3000);
+                    if (!await checkDataExist(date, Id)) {
+                        requestHistory(date, Id);
+                        await sleep(3000);
+                    }
                 }
             }
         }
@@ -84,6 +87,7 @@ function requestHistory(date, id) {
             if (!data.data) {
                 return data;
             }
+            fs.writeFileSync(`data/${id}-${date}`, body);
             let result = {
                 code: id,
                 date: data.date,
