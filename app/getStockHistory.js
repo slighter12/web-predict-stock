@@ -72,6 +72,7 @@ function isValidDate(argvIn){
     if (!time.isValid()) throw new Error(argvIn + ' input date type is error!');
     if (moment().isBefore(time)) return moment();
     if (moment(time).isBefore("2010-01-31")) return moment("2010-01-31");
+    if (moment().isSame(time, 'month')) return time;
     return moment(time).endOf('month');
 }
 
@@ -148,7 +149,7 @@ async function checkDataExist(date, code) {
     try {
         client = await MongoClient.connect(url, {useNewUrlParser: true, useUnifiedTopology: true});
         let db = client.db('Stock');
-        console.log({date,code});
+        process.stdout.write(`\rDate: ${date}, code ID: ${code}`);
         db.collection('stock-history').find({date, code}).toArray((err,items) => {
             if (err) throw err;
             work = items.length;
