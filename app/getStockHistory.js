@@ -41,7 +41,7 @@ if ( Array.isArray(codeIDs) && codeIDs.length ) {
                 codeIDs.push(Id);
             }
         }
-        codeIDs.filter((item, index) => codeIDs.indexOf(item) === index);
+        codeIDs = [...new Set(codeIDs)];
         for (let date of duration) {
             for (let Id of codeIDs) {
                 if (!await checkDataExist(date, Id)){
