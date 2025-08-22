@@ -1,4 +1,4 @@
-const request = require('request');
+const axios = require('axios');
 const fs = require('fs');
 const moment = require('moment');
 //todo: change old async await setTimeout function
@@ -25,7 +25,7 @@ if ( Array.isArray(codeIDs) && codeIDs.length ) {
                 }
                 if (Id.match(patternId)){
                     if (!await checkDataExist(date, Id)) {
-                        requestHistory(date, Id);
+                        await requestHistory(date, Id);
                         await sleep(3000);
                     }
                 }
@@ -45,7 +45,7 @@ if ( Array.isArray(codeIDs) && codeIDs.length ) {
         for (let date of duration) {
             for (let Id of codeIDs) {
                 if (!await checkDataExist(date, Id)){
-                    requestHistory(date, Id);
+                    await requestHistory(date, Id);
                     await sleep(3000);
                 }
             }
@@ -76,28 +76,28 @@ function isValidDate(argvIn){
     return moment(time).endOf('month');
 }
 
-function requestHistory(date, id) {
+async function requestHistory(date, id) {
     let url = `https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=${date}&stockNo=${id}`;
     //console.log(url);
-    request(url, (err, response, body) => {
-        if (err || !body) {
-            console.log(err);
-        } else {
-            //console.log(JSON.parse(body));
-            let data = JSON.parse(body);
-            if (!data.data) {
-                return data;
-            }
-            fs.writeFileSync(`data/${id}-${date}`, body);
-            let result = {
-                code: id,
-                date: data.date,
-                data: data.data
-            };
-            //console.log(result);
-            upsertDb({code: result.code, date: result.date}, result, 'stock-history').then();
+    try {
+        const response = await axios.get(url);
+        const body = response.data;
+        //console.log(JSON.parse(body));
+        let data = body;
+        if (!data.data) {
+            return data;
         }
-    });
+        fs.writeFileSync(`data/${id}-${date}`, JSON.stringify(body));
+        let result = {
+            code: id,
+            date: data.date,
+            data: data.data
+        };
+        //console.log(result);
+        await upsertDb({code: result.code, date: result.date}, result, 'stock-history');
+    } catch (err) {
+        console.log(err);
+    }
 }
 
 async function upsertDb(key, data, dbName) {
