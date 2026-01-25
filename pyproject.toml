@@ -7,8 +7,17 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pandas",
+    "sqlalchemy",
+    "requests",
+    "yfinance",
     "vectorbt",
     "xgboost",
+    "scikit-learn",
     "statsmodels",
     "psycopg2-binary",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
 ]

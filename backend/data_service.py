@@ -1,18 +1,45 @@
+from datetime import date
+from typing import Sequence, Union
+
 import pandas as pd
 from sqlalchemy import select
-from datetime import date
 
 # Use a relative import for intra-package dependencies
-from .database import engine, DailyOHLCV
+from .database import DailyOHLCV, engine
 
-def get_data(symbol: str, start_date: date = None, end_date: date = None) -> pd.DataFrame:
+PRICE_COLS = ["open", "high", "low", "close"]
+
+
+def apply_price_adjustment(df: pd.DataFrame, factor_col: str = "adjust_factor") -> pd.DataFrame:
     """
-    Queries the database for daily OHLCV data for a given symbol and date range.
+    Return a copy of df with adjusted OHLC columns if an adjustment factor is provided.
+    The raw OHLC columns remain unchanged.
+    """
+    if df.empty or factor_col not in df.columns:
+        return df
+
+    adjusted = df.copy()
+    factor = pd.to_numeric(adjusted[factor_col], errors="coerce")
+    for col in PRICE_COLS:
+        adjusted[f"{col}_adj"] = adjusted[col] * factor
+    return adjusted
+
+def get_data(
+    symbols: Union[str, Sequence[str]],
+    start_date: date = None,
+    end_date: date = None,
+    source: str = None,
+    market: str = None,
+) -> pd.DataFrame:
+    """
+    Queries the database for daily OHLCV data for one or more symbols and a date range.
 
     Args:
-        symbol (str): The stock symbol to query (e.g., "2330").
+        symbols (str | Sequence[str]): The stock symbol(s) to query (e.g., "2330").
         start_date (date, optional): The start date of the query range. Defaults to None.
         end_date (date, optional): The end date of the query range. Defaults to None.
+        source (str, optional): Data source filter (e.g., "twse" or "yfinance").
+        market (str, optional): Market filter (e.g., "TW" or "US").
 
     Returns:
         pd.DataFrame: A DataFrame containing the OHLCV data, with the 'date' column as the index.
@@ -20,13 +47,21 @@ def get_data(symbol: str, start_date: date = None, end_date: date = None) -> pd.
     """
     try:
         # Build the base query
-        query = select(DailyOHLCV).where(DailyOHLCV.symbol == symbol)
+        if isinstance(symbols, str):
+            symbol_list = [symbols]
+        else:
+            symbol_list = list(symbols)
+        query = select(DailyOHLCV).where(DailyOHLCV.symbol.in_(symbol_list))
 
         # Add date range filters if they are provided
         if start_date:
             query = query.where(DailyOHLCV.date >= start_date)
         if end_date:
             query = query.where(DailyOHLCV.date <= end_date)
+        if source:
+            query = query.where(DailyOHLCV.source == source)
+        if market:
+            query = query.where(DailyOHLCV.market == market)
 
         # Order by date to ensure correct sequence for time-series analysis
         query = query.order_by(DailyOHLCV.date.asc())
@@ -36,17 +71,20 @@ def get_data(symbol: str, start_date: date = None, end_date: date = None) -> pd.
             df = pd.read_sql(query, connection)
 
         if df.empty:
-            print(f"No data found for symbol '{symbol}' in the specified date range.")
+            print(f"No data found for symbols '{symbol_list}' in the specified date range.")
             return pd.DataFrame()
 
-        # Set the 'date' column as the index, which is standard for time-series data
-        df.set_index('date', inplace=True)
+        # Set the index for time-series use; multi-symbol uses a MultiIndex
+        if len(symbol_list) == 1:
+            df.set_index("date", inplace=True)
+        else:
+            df.set_index(["date", "symbol"], inplace=True)
 
-        print(f"Successfully fetched {len(df)} records for symbol '{symbol}'.")
+        print(f"Successfully fetched {len(df)} records for symbols '{symbol_list}'.")
         return df
 
     except Exception as e:
-        print(f"An error occurred while fetching data for symbol '{symbol}': {e}")
+        print(f"An error occurred while fetching data for symbols '{symbol_list}': {e}")
         return pd.DataFrame()
 
 
@@ -58,7 +96,7 @@ if __name__ == '__main__':
     test_symbol = "2330"
 
     print(f"--- Fetching all data for symbol: {test_symbol} ---")
-    all_data_df = get_data(symbol=test_symbol)
+    all_data_df = get_data(symbols=test_symbol)
 
     if not all_data_df.empty:
         print(all_data_df.head())
@@ -69,7 +107,7 @@ if __name__ == '__main__':
     print(f"\n--- Fetching data for symbol: {test_symbol} with a date range ---")
     start = date(2025, 12, 1)
     end = date(2025, 12, 31)
-    ranged_data_df = get_data(symbol=test_symbol, start_date=start, end_date=end)
+    ranged_data_df = get_data(symbols=test_symbol, start_date=start, end_date=end)
 
     if not ranged_data_df.empty:
         print(ranged_data_df)
