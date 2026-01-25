@@ -55,6 +55,57 @@ Data merge rule: official exchange data overrides yfinance when both are availab
 
 Progress planning and milestones are tracked in PROPOSAL.md.
 
+## Local Setup
+
+Prereqs: Docker, Python 3.12+, and `uv`.
+
+1) Create or update `.env` (use `.env.example` as a base). Change `POSTGRES_PORT`
+   if you need a non-default port.
+2) Start the database:
+```bash
+docker-compose up -d
+```
+3) Create the virtual environment and install backend dependencies:
+```bash
+uv venv .venv
+uv sync
+```
+Optional (dev/test deps):
+```bash
+uv sync --group dev
+```
+4) Load environment variables (zsh):
+```bash
+set -a
+source .env
+set +a
+```
+5) Backfill + daily update (TWSE + yfinance):
+```bash
+.venv/bin/python scripts/scraper.py
+```
+6) Verify data query:
+```bash
+.venv/bin/python -m backend.data_service
+```
+
+## Troubleshooting
+
+- XGBoost import error on macOS (`libomp.dylib` missing): install OpenMP with
+  `brew install libomp`. Without it, training will fail when `train_xgboost` runs.
+
+## Testing
+
+Unit tests:
+```bash
+.venv/bin/python -m pytest -q
+```
+
+Smoke test (requires DB + data loaded):
+```bash
+.venv/bin/python scripts/smoke_backtest.py
+```
+
 ## Configuration (Example)
 
 This config is the reference format for implementation. All values are adjustable per run.

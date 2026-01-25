@@ -1,7 +1,8 @@
 import os
-from sqlalchemy import create_engine, Column, Date, String, Float, Integer
+from sqlalchemy import create_engine, Column, Date, DateTime, Float, Integer, String, Index
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql import func
 
 # --- Database Configuration ---
 # Load database connection details from environment variables with defaults
@@ -30,14 +31,20 @@ Base = declarative_base()
 # Define the DailyOHLCV model
 class DailyOHLCV(Base):
     __tablename__ = "daily_ohlcv"
+    __table_args__ = (
+        Index("idx_daily_ohlcv_symbol_date", "symbol", "date"),
+    )
 
     date = Column(Date, primary_key=True)
     symbol = Column(String, primary_key=True)
-    open = Column(Float)
-    high = Column(Float)
-    low = Column(Float)
-    close = Column(Float)
-    volume = Column(Integer)
+    source = Column(String, nullable=False, index=True, default="unknown")
+    market = Column(String, nullable=False, index=True, default="TW")
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 # --- Database Session Management ---

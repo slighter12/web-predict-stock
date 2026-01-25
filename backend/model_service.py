@@ -1,92 +1,136 @@
-import pandas as pd
+from typing import TYPE_CHECKING, Dict, Tuple
+
 import numpy as np
-from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+import pandas as pd
+from sklearn.metrics import mean_squared_error
 
 # Use a relative import to access other modules within the same package
 from .feature_engine import add_features
 
-def train_xgboost(df: pd.DataFrame):
-    """
-    Trains a simple XGBoost classifier to predict the next day's price movement.
+if TYPE_CHECKING:
+    from xgboost import XGBRegressor
 
-    Args:
-        df (pd.DataFrame): DataFrame containing OHLCV and feature data.
 
-    Returns:
-        tuple: A tuple containing:
-            - model (XGBClassifier): The trained XGBoost model.
-            - X_test (pd.DataFrame): The testing feature set.
-            - y_test (pd.Series): The testing target set.
-    """
-    # --- 1. Create the Target Variable ---
-    # The target is 1 if the next day's closing price is higher than the current day's, else 0.
-    df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
+def _load_xgboost_regressor():
+    try:
+        from xgboost import XGBRegressor
+    except Exception as exc:
+        raise RuntimeError(
+            "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
+        ) from exc
+    return XGBRegressor
 
-    # --- 2. Clean Data ---
-    # Drop rows with NaN values (e.g., the last row due to shifting, or from feature calculation)
-    df.dropna(inplace=True)
 
-    # --- 3. Define Features (X) and Target (y) ---
-    # Features are all columns except the original OHLCV, symbol, date, and the target itself.
-    # This assumes that any column not in the original set is a feature.
-    original_cols = ['open', 'high', 'low', 'close', 'volume', 'target', 'date', 'symbol']
+def compute_return_target(df: pd.DataFrame, return_target: str, horizon_days: int) -> pd.Series:
+    if horizon_days < 1:
+        raise ValueError("horizon_days must be >= 1")
+
+    if return_target == "open_to_open":
+        return df["open"].shift(-horizon_days) / df["open"] - 1.0
+    if return_target == "close_to_close":
+        return df["close"].shift(-horizon_days) / df["close"] - 1.0
+    if return_target == "open_to_close":
+        shift = -(horizon_days - 1)
+        return df["close"].shift(shift) / df["open"] - 1.0
+
+    raise ValueError(f"Unsupported return_target: {return_target}")
+
+
+def prepare_training_data(
+    df: pd.DataFrame,
+    return_target: str = "open_to_open",
+    horizon_days: int = 1,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
+    df = df.copy()
+    df["target"] = compute_return_target(df, return_target, horizon_days)
+    df = df.dropna()
+
+    original_cols = {
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "target",
+        "date",
+        "symbol",
+        "source",
+        "market",
+        "created_at",
+    }
     features = [col for col in df.columns if col not in original_cols]
-
-    X = df[features]
-    y = df['target']
-
-    if X.empty:
+    if not features:
         raise ValueError("No features available for training. Ensure the feature engine added columns.")
 
-    # --- 4. Split Data into Training and Testing Sets ---
-    # We use a time-series split, training on the past and testing on the most recent data.
-    # shuffle=False is crucial for time-series data.
-    test_size = 0.2
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, shuffle=False
-    )
+    X = df[features]
+    y = df["target"]
+    return df, X, y
 
-    if len(X_train) == 0 or len(X_test) == 0:
-        raise ValueError(f"Not enough data to create a training/test split with test_size={test_size}.")
 
-    # --- 5. Train the XGBoost Model ---
-    model = XGBClassifier(
-        objective='binary:logistic',
-        eval_metric='logloss',
-        n_estimators=100,
-        random_state=42,
-        use_label_encoder=False
-    )
+def time_series_split(
+    X: pd.DataFrame,
+    y: pd.Series,
+    test_size: float = 0.2,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    if not 0 < test_size < 1:
+        raise ValueError("test_size must be between 0 and 1.")
+
+    split_idx = int(len(X) * (1 - test_size))
+    if split_idx <= 0 or split_idx >= len(X):
+        raise ValueError(f"Not enough data to create a train/test split with test_size={test_size}.")
+
+    X_train = X.iloc[:split_idx]
+    X_test = X.iloc[split_idx:]
+    y_train = y.iloc[:split_idx]
+    y_test = y.iloc[split_idx:]
+    return X_train, X_test, y_train, y_test
+
+
+def fit_xgboost_regressor(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    model_params: Dict[str, object] = None,
+):
+    XGBRegressor = _load_xgboost_regressor()
+    params = {
+        "objective": "reg:squarederror",
+        "n_estimators": 200,
+        "random_state": 42,
+    }
+    if model_params:
+        params.update(model_params)
+    model = XGBRegressor(**params)
     model.fit(X_train, y_train)
+    return model
 
-    print(f"Model trained successfully. Test set accuracy: {accuracy_score(y_test, model.predict(X_test)):.4f}")
 
-    return model, X_test, y_test
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     # --- Example Usage ---
     # Create a sample DataFrame
     data = {
-        'open': np.random.rand(100) * 10 + 100,
-        'high': np.random.rand(100) * 10 + 102,
-        'low': np.random.rand(100) * 10 + 98,
-        'close': np.random.rand(100) * 10 + 100,
-        'volume': np.random.randint(1000, 5000, 100)
+        "open": np.random.rand(100) * 10 + 100,
+        "high": np.random.rand(100) * 10 + 102,
+        "low": np.random.rand(100) * 10 + 98,
+        "close": np.random.rand(100) * 10 + 100,
+        "volume": np.random.randint(1000, 5000, 100),
     }
-    sample_df = pd.DataFrame(data, index=pd.to_datetime(pd.date_range('2023-01-01', periods=100)))
+    sample_df = pd.DataFrame(data, index=pd.to_datetime(pd.date_range("2023-01-01", periods=100)))
 
     # 1. Add features
-    feature_config = {'ma': [5, 10, 20], 'rsi': 14}
+    feature_config = {"ma": [5, 10, 20], "rsi": 14}
     df_with_features = add_features(sample_df.copy(), feature_config)
 
     # 2. Train the model
     try:
-        trained_model, X_test_data, y_test_data = train_xgboost(df_with_features)
+        df_model, X, y = prepare_training_data(df_with_features)
+        X_train, X_test, y_train, y_test = time_series_split(X, y)
+        trained_model = fit_xgboost_regressor(X_train, y_train)
+        preds = trained_model.predict(X_test)
+
         print("\n--- Model Training Complete ---")
         print(f"Model: {trained_model}")
-        print(f"X_test shape: {X_test_data.shape}")
-        print(f"y_test shape: {y_test_data.shape}")
+        print(f"X_test shape: {X_test.shape}")
+        print(f"y_test shape: {y_test.shape}")
+        print(f"Test RMSE: {mean_squared_error(y_test, preds, squared=False):.6f}")
     except ValueError as e:
         print(f"Error during model training: {e}")

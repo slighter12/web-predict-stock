@@ -52,7 +52,7 @@ Default model behavior:
 
 ### Phase I: Infrastructure and Data
 
-Status: Not started
+Status: Completed
 
 - Define folder structure: backend/, frontend/, scripts/.
 - Add docker-compose for PostgreSQL + TimescaleDB.
@@ -70,7 +70,7 @@ Definition of done:
 
 ### Phase II: Backend Core Logic
 
-Status: Not started
+Status: Completed
 
 - feature_engine.py: add_features(df, config) for MA/RSI (extensible).
 - model_service.py: train_xgboost(df, target_shift=-1) with time-ordered split and return target.
@@ -111,3 +111,29 @@ Status: Not started
 
 Definition of done:
 - Basic test suite passes and README includes setup and run instructions.
+
+## Development Flow (Expanded)
+
+The detailed execution flow, acceptance criteria, and API contract draft are
+captured in `docs/plan.md`. This section summarizes the sequence only.
+
+Phase 0: Spec alignment
+- Freeze config shape, return targets, trading rules, and timing alignment.
+- Confirm data merge rule and corporate action policy.
+- Draft API request/response contract for /api/v1/backtest.
+
+Phase I: Infrastructure and data
+- DB + Timescale startup, schema, and ingestion (TWSE + yfinance backfill).
+- Multi-symbol support and data integrity checks.
+
+Phase II: Backend core
+- Feature engine, model training, validation methods, baselines.
+- Backtest service with matching model interface and trading rules.
+- Single API call returns KPIs and validation outputs.
+
+Phase III: Frontend
+- Svelte 5 UI for config inputs and run backtest.
+- Equity curve + KPI display from API.
+
+Phase IV: Hardening and quality
+- Logging, input validation, tests, fixtures, and docs.

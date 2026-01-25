@@ -1,11 +1,39 @@
-db/
-.idea/
-dist/
-node_modules/
-data/
+# --- General ---
 .DS_Store
-Proxy.db
+*.log
+
+# --- Python ---
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.ipynb_checkpoints/
 .env
-*.log
+.venv/
+*.sqlite3
+
+# --- JS ---
+node_modules/
+
+# --- IDE ---
+.idea/
+.vscode/
+
+# --- Project ---
+db/
+data/
+Proxy.db
