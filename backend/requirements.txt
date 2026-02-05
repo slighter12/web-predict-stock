@@ -125,7 +125,7 @@ plotly==6.5.2
     # via vectorbt
 prompt-toolkit==3.0.52
     # via ipython
-protobuf==6.33.4
+protobuf==6.33.5
     # via yfinance
 psycopg2-binary==2.9.11
     # via quant-platform (pyproject.toml)
