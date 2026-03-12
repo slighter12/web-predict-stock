@@ -2,7 +2,13 @@
 
 This document tracks the MVP execution plan and milestones. For the full spec and architecture, see README.md.
 
-## Current Assumptions (Confirmed)
+## Current Backend v1
+
+- `README.md` and `backend/api_models.py` are the source of truth for the live backend contract.
+- Current backend scope: `TW`/`US`, multi-symbol, `strategy.type=research_v1`, MA/RSI features, XGBoost model, baselines, validation, and averaged validation metrics including `avg_sharpe`.
+- Frontend is intentionally deferred. Any UI/dashboard items in this document describe the target architecture, not the current deliverable.
+
+## Target Architecture Assumptions
 
 - Prediction target is forward return (regression). Default is open-to-open, and the horizon is configurable.
 - Signals must be generated with data available before execution; default uses features up to t-1 close, trade at t open, evaluate to t+1 open.
@@ -70,20 +76,19 @@ Definition of done:
 
 ### Phase II: Backend Core Logic
 
-Status: Completed
+Status: Backend v1 contract completed; target-state expansion remains planned
 
 - feature_engine.py: add_features(df, config) for MA/RSI (extensible).
-- model_service.py: train_xgboost(df, target_shift=-1) with time-ordered split and return target.
+- model_service.py: XGBoost-based training with time-ordered split and return target.
 - define configurable return targets (open-to-open default) with no look-ahead alignment to execution timing.
 - evaluation module: implement multiple validation methods (walk-forward, rolling window, expanding window, holdout).
 - add baselines (buy-and-hold, naive momentum, moving average crossover) for comparison.
-- define minimum evaluation metrics: total return, Sharpe, max drawdown, turnover.
-- backtest_service.py: run_backtest(model, X_test, price_data) with fees, slippage, and a swappable matching model.
-- implement matching model interface and provide default OHLC-based TW/US implementations.
-- enforce trading rules: single rebalance per day, no leverage, same-day reinvest, compounding PnL.
-- implement multi-symbol selection: threshold filter + top-N, equal weight, keep cash if empty, all driven by config.
-- implement exit rule logic: proactive sells with next-open liquidation as default.
-- main.py: POST /api/v1/backtest with CORS enabled for localhost frontend.
+- define minimum evaluation metrics: total return, Sharpe, max drawdown, turnover, and `avg_sharpe`.
+- target-state: keep backtest_service extensible for fees, slippage, and swappable matching models.
+- target-state: keep matching model interface capable of multiple TW/US execution implementations.
+- target-state: keep room for explicit trading rules and exit rule configuration beyond backend v1.
+- current backend v1: multi-symbol threshold + top-N + equal weight + cash-if-empty via `strategy.type=research_v1`.
+- main.py: POST /api/v1/backtest for the backend-only workflow.
 
 Definition of done:
 - Single API call returns KPIs and validation metrics from a complete train -> backtest flow.
@@ -92,6 +97,7 @@ Definition of done:
 
 Status: Not started
 
+- Frontend is intentionally deferred. The backend contract is the current delivery target.
 - Initialize Svelte 5 + Vite + TypeScript scaffold.
 - Build sidebar for symbol, date range, and feature config using runes state.
 - Integrate ECharts equity curve component.
@@ -102,7 +108,7 @@ Definition of done:
 
 ### Phase IV: Hardening and Quality
 
-Status: Not started
+Status: In progress
 
 - Add logging, error handling, and input validation.
 - Add minimal tests for data pipeline and backtest outputs.
@@ -132,6 +138,7 @@ Phase II: Backend core
 - Single API call returns KPIs and validation outputs.
 
 Phase III: Frontend
+- Deferred until backend-only scope is stable.
 - Svelte 5 UI for config inputs and run backtest.
 - Equity curve + KPI display from API.
 

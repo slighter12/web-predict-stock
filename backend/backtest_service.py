@@ -1,12 +1,17 @@
+import logging
 from dataclasses import dataclass
 from math import sqrt
-from typing import Dict, Iterable, List, Literal, Tuple
+from typing import Dict, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
+from .strategy_service import get_strategy_runner, resolve_strategy_config
+
 Side = Literal["buy", "sell"]
+DEFAULT_MATCHING_MODEL = "ohlc_default"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,39 +44,6 @@ def match_price(
     if side == "buy":
         return max(open_price, low)
     return min(open_price, high)
-
-
-def build_weights_from_scores(
-    scores: pd.DataFrame,
-    threshold: float,
-    top_n: int,
-    allow_proactive_sells: bool,
-    weighting: str,
-) -> pd.DataFrame:
-    weights = pd.DataFrame(0.0, index=scores.index, columns=scores.columns)
-    current_holdings: set[str] = set()
-
-    for idx, row in scores.iterrows():
-        row = row.dropna()
-        eligible = row[row >= threshold]
-        selected = eligible.nlargest(top_n).index.tolist()
-
-        if allow_proactive_sells:
-            holdings = selected
-        else:
-            current_holdings.update(selected)
-            holdings = sorted(current_holdings)
-
-        if not holdings:
-            continue
-
-        if weighting != "equal":
-            raise ValueError(f"Unsupported weighting method: {weighting}")
-
-        weight = 1.0 / len(holdings)
-        weights.loc[idx, holdings] = weight
-
-    return weights
 
 
 def build_signals(scores: pd.DataFrame, weights: pd.DataFrame) -> List[dict]:
@@ -140,7 +112,7 @@ def validate_execution_prices(
     weights: pd.DataFrame,
     execution_price: pd.DataFrame,
     market: str,
-    matching_model: str,
+    matching_model: str = DEFAULT_MATCHING_MODEL,
 ) -> List[str]:
     warnings: List[str] = []
 
@@ -155,7 +127,7 @@ def validate_execution_prices(
     # Check matching model constraints for buy orders.
     changes = weights.diff().fillna(weights)
     buys = changes > 0
-    if matching_model == "ohlc_default" and market.upper() == "US":
+    if matching_model == DEFAULT_MATCHING_MODEL and market.upper() == "US":
         violations = (execution_price < close_df) & buys
         count = int(violations.sum().sum())
         if count:
@@ -181,9 +153,9 @@ def _build_execution_price(
     low_df: pd.DataFrame,
     close_df: pd.DataFrame,
     market: str,
-    matching_model: str,
+    matching_model: str = DEFAULT_MATCHING_MODEL,
 ) -> pd.DataFrame:
-    if matching_model != "ohlc_default":
+    if matching_model != DEFAULT_MATCHING_MODEL:
         raise ValueError(f"Unknown matching model: {matching_model}")
 
     changes = weights.diff().fillna(weights)
@@ -244,7 +216,7 @@ def run_backtest_from_weights(
         low_df=low_df.reindex(weights.index).ffill(),
         close_df=close_df.reindex(weights.index).ffill(),
         market=market,
-        matching_model=execution.matching_model,
+        matching_model=DEFAULT_MATCHING_MODEL,
     )
 
     pf = vbt.Portfolio.from_orders(
@@ -273,46 +245,25 @@ def run_backtest(
     high_df: pd.DataFrame,
     low_df: pd.DataFrame,
     close_df: pd.DataFrame,
-    selection: object,
-    trading_rules: object,
-    exit_rules: object,
+    strategy: object,
     execution: object,
     market: str,
     return_target: str,
 ) -> Tuple[Dict[str, float], List[dict], List[dict], List[str]]:
     warnings: List[str] = []
-
-    if selection.threshold_metric != "predicted_return":
-        warnings.append("threshold_metric is not supported; using predicted_return.")
-
-    if trading_rules.rebalance != "daily_open":
-        warnings.append("Only daily_open rebalance is supported; using daily_open.")
-
-    if trading_rules.allow_intraday:
-        warnings.append("Intraday trading is not supported; ignoring allow_intraday.")
-
-    if not trading_rules.allow_same_day_reinvest:
-        warnings.append("allow_same_day_reinvest is not supported; proceeds are reinvested daily.")
-
-    if trading_rules.allow_leverage:
-        warnings.append("Leverage is not supported; weights are capped to fully invested long-only.")
-
-    if exit_rules.default_liquidation != "next_open":
-        warnings.append("Only next_open liquidation is supported; using next_open.")
-
-    if execution.matching_model != "ohlc_default":
-        warnings.append("Only ohlc_default matching model is supported; using ohlc_default.")
-
-    weights = build_weights_from_scores(
-        scores=scores,
-        threshold=selection.threshold,
-        top_n=selection.top_n,
-        allow_proactive_sells=exit_rules.allow_proactive_sells,
-        weighting=selection.weighting,
-    )
+    strategy_config = resolve_strategy_config(strategy)
+    runner = get_strategy_runner(strategy_config.type)
+    weights = runner.build_weights(scores=scores, strategy=strategy_config)
 
     weights = weights.reindex(scores.index).fillna(0.0)
     weights = weights.sort_index()
+    logger.info(
+        "Running backtest strategy=%s market=%s symbols=%s periods=%s",
+        strategy_config.type,
+        market,
+        list(scores.columns),
+        len(scores.index),
+    )
 
     metrics, equity_curve = run_backtest_from_weights(
         weights=weights,
@@ -333,7 +284,7 @@ def run_backtest(
         low_df=low_df.reindex(weights.index).ffill(),
         close_df=close_df.reindex(weights.index).ffill(),
         market=market,
-        matching_model=execution.matching_model,
+        matching_model=DEFAULT_MATCHING_MODEL,
     )
 
     warnings.extend(
@@ -345,7 +296,7 @@ def run_backtest(
             weights=weights,
             execution_price=execution_price,
             market=market,
-            matching_model=execution.matching_model,
+            matching_model=DEFAULT_MATCHING_MODEL,
         )
     )
 

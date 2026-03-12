@@ -24,7 +24,6 @@ from backend.main import run_backtest_endpoint
 
 
 def main() -> None:
-
     request = BacktestRequest(
         market="TW",
         symbols=["2330"],
@@ -36,24 +35,13 @@ def main() -> None:
             {"name": "rsi", "window": 14, "source": "close", "shift": 1},
         ],
         model={"type": "xgboost", "params": {}},
-        selection={
-            "threshold_metric": "predicted_return",
+        strategy={
+            "type": "research_v1",
             "threshold": 0.003,
             "top_n": 5,
-            "weighting": "equal",
-        },
-        trading_rules={
-            "rebalance": "daily_open",
-            "allow_same_day_reinvest": True,
-            "allow_intraday": False,
-            "allow_leverage": False,
-        },
-        exit_rules={
             "allow_proactive_sells": True,
-            "default_liquidation": "next_open",
         },
         execution={
-            "matching_model": "ohlc_default",
             "slippage": 0.001,
             "fees": 0.002,
         },

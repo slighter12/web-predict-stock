@@ -1,4 +1,5 @@
 from datetime import date
+import logging
 from typing import Sequence, Union
 
 import pandas as pd
@@ -6,8 +7,10 @@ from sqlalchemy import select
 
 # Use a relative import for intra-package dependencies
 from .database import DailyOHLCV, engine
+from .errors import DataAccessError
 
 PRICE_COLS = ["open", "high", "low", "close"]
+logger = logging.getLogger(__name__)
 
 
 def apply_price_adjustment(df: pd.DataFrame, factor_col: str = "adjust_factor") -> pd.DataFrame:
@@ -45,47 +48,54 @@ def get_data(
         pd.DataFrame: A DataFrame containing the OHLCV data, with the 'date' column as the index.
                       Returns an empty DataFrame if no data is found.
     """
+    if isinstance(symbols, str):
+        symbol_list = [symbols]
+    else:
+        symbol_list = list(symbols)
+
+    query = select(DailyOHLCV).where(DailyOHLCV.symbol.in_(symbol_list))
+    if start_date:
+        query = query.where(DailyOHLCV.date >= start_date)
+    if end_date:
+        query = query.where(DailyOHLCV.date <= end_date)
+    if source:
+        query = query.where(DailyOHLCV.source == source)
+    if market:
+        query = query.where(DailyOHLCV.market == market)
+    query = query.order_by(DailyOHLCV.date.asc())
+
     try:
-        # Build the base query
-        if isinstance(symbols, str):
-            symbol_list = [symbols]
-        else:
-            symbol_list = list(symbols)
-        query = select(DailyOHLCV).where(DailyOHLCV.symbol.in_(symbol_list))
-
-        # Add date range filters if they are provided
-        if start_date:
-            query = query.where(DailyOHLCV.date >= start_date)
-        if end_date:
-            query = query.where(DailyOHLCV.date <= end_date)
-        if source:
-            query = query.where(DailyOHLCV.source == source)
-        if market:
-            query = query.where(DailyOHLCV.market == market)
-
-        # Order by date to ensure correct sequence for time-series analysis
-        query = query.order_by(DailyOHLCV.date.asc())
-
-        # Execute the query and load data into a DataFrame
         with engine.connect() as connection:
             df = pd.read_sql(query, connection)
+    except Exception as exc:
+        logger.exception(
+            "Failed to fetch OHLCV data symbols=%s market=%s start=%s end=%s source=%s",
+            symbol_list,
+            market,
+            start_date,
+            end_date,
+            source,
+        )
+        raise DataAccessError("Failed to fetch OHLCV data.") from exc
 
-        if df.empty:
-            print(f"No data found for symbols '{symbol_list}' in the specified date range.")
-            return pd.DataFrame()
-
-        # Set the index for time-series use; multi-symbol uses a MultiIndex
-        if len(symbol_list) == 1:
-            df.set_index("date", inplace=True)
-        else:
-            df.set_index(["date", "symbol"], inplace=True)
-
-        print(f"Successfully fetched {len(df)} records for symbols '{symbol_list}'.")
-        return df
-
-    except Exception as e:
-        print(f"An error occurred while fetching data for symbols '{symbol_list}': {e}")
+    if df.empty:
+        logger.info(
+            "No OHLCV rows found symbols=%s market=%s start=%s end=%s source=%s",
+            symbol_list,
+            market,
+            start_date,
+            end_date,
+            source,
+        )
         return pd.DataFrame()
+
+    if len(symbol_list) == 1:
+        df.set_index("date", inplace=True)
+    else:
+        df.set_index(["date", "symbol"], inplace=True)
+
+    logger.info("Fetched OHLCV rows=%s symbols=%s", len(df), symbol_list)
+    return df
 
 
 if __name__ == '__main__':

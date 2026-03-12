@@ -3,82 +3,77 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, conint, confloat, conlist, validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, conint, confloat, conlist, field_validator
 
+MarketCode = Literal["TW", "US"]
 PriceSource = Literal["open", "high", "low", "close", "volume"]
 FeatureName = Literal["ma", "rsi"]
 ReturnTarget = Literal["open_to_open", "close_to_close", "open_to_close"]
+ModelType = Literal["xgboost"]
+StrategyType = Literal["research_v1"]
+ValidationMethod = Literal["holdout", "walk_forward", "rolling_window", "expanding_window"]
+BaselineName = Literal["buy_and_hold", "naive_momentum", "ma_crossover"]
 
 
-class DateRange(BaseModel):
+class RequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class DateRange(RequestModel):
     start: date = Field(..., description="Inclusive start date.")
     end: date = Field(..., description="Inclusive end date.")
 
-    @validator("end")
-    def end_after_start(cls, value: date, values: Dict[str, date]) -> date:
-        start = values.get("start")
+    @field_validator("end")
+    @classmethod
+    def end_after_start(cls, value: date, info: ValidationInfo) -> date:
+        start = info.data.get("start")
         if start and value < start:
             raise ValueError("end must be on or after start")
         return value
 
 
-class FeatureSpec(BaseModel):
+class FeatureSpec(RequestModel):
     name: FeatureName
     window: conint(ge=1)  # type: ignore[valid-type]
     source: PriceSource = "close"
     shift: conint(ge=0) = 1  # type: ignore[valid-type]
 
 
-class ModelConfig(BaseModel):
-    type: str = Field(..., description="Model identifier, e.g. xgboost.")
+class ModelConfig(RequestModel):
+    type: ModelType = Field(default="xgboost", description="Model identifier.")
     params: Dict[str, object] = Field(default_factory=dict)
 
 
-class SelectionConfig(BaseModel):
-    threshold_metric: str
+class StrategyConfig(RequestModel):
+    type: StrategyType = Field(default="research_v1", description="Strategy identifier.")
     threshold: confloat(ge=0)  # type: ignore[valid-type]
     top_n: conint(ge=1)  # type: ignore[valid-type]
-    weighting: str = "equal"
-
-
-class TradingRules(BaseModel):
-    rebalance: str = "daily_open"
-    allow_same_day_reinvest: bool = True
-    allow_intraday: bool = False
-    allow_leverage: bool = False
-
-
-class ExitRules(BaseModel):
     allow_proactive_sells: bool = True
-    default_liquidation: str = "next_open"
 
 
-class ExecutionConfig(BaseModel):
-    matching_model: str = "ohlc_default"
+class ExecutionConfig(RequestModel):
     slippage: confloat(ge=0) = 0.0  # type: ignore[valid-type]
     fees: confloat(ge=0) = 0.0  # type: ignore[valid-type]
 
 
-class ValidationConfig(BaseModel):
-    method: str = "walk_forward"
+class ValidationConfig(RequestModel):
+    method: ValidationMethod = "walk_forward"
     splits: conint(ge=1) = 3  # type: ignore[valid-type]
     test_size: confloat(gt=0, lt=1) = 0.2  # type: ignore[valid-type]
 
 
-class BacktestRequest(BaseModel):
-    market: str = Field(..., description="Market code, e.g. TW or US.")
+class BacktestRequest(RequestModel):
+    market: MarketCode = Field(..., description="Market code.")
     symbols: conlist(str, min_length=1)  # type: ignore[valid-type]
     date_range: DateRange
     return_target: ReturnTarget = "open_to_open"
     horizon_days: conint(ge=1) = 1  # type: ignore[valid-type]
     features: List[FeatureSpec]
-    model: ModelConfig = Field(default_factory=lambda: ModelConfig(type="xgboost"))
-    selection: SelectionConfig
-    trading_rules: TradingRules = Field(default_factory=TradingRules)
-    exit_rules: ExitRules = Field(default_factory=ExitRules)
+    model: ModelConfig = Field(default_factory=ModelConfig)
+    strategy: StrategyConfig
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     validation: Optional[ValidationConfig] = None
-    baselines: List[str] = Field(default_factory=list)
+    baselines: List[BaselineName] = Field(default_factory=list)
 
 
 class Metrics(BaseModel):
@@ -101,7 +96,7 @@ class SignalPoint(BaseModel):
 
 
 class ValidationSummary(BaseModel):
-    method: str
+    method: ValidationMethod
     metrics: Dict[str, float]
 
 

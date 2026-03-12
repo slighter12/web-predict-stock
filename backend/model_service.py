@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Dict, Tuple
+import logging
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,8 @@ from .feature_engine import add_features
 
 if TYPE_CHECKING:
     from xgboost import XGBRegressor
+
+logger = logging.getLogger(__name__)
 
 
 def _load_xgboost_regressor():
@@ -64,6 +67,7 @@ def prepare_training_data(
 
     X = df[features]
     y = df["target"]
+    logger.info("Prepared training frame rows=%s features=%s", len(df), features)
     return df, X, y
 
 
@@ -83,6 +87,7 @@ def time_series_split(
     X_test = X.iloc[split_idx:]
     y_train = y.iloc[:split_idx]
     y_test = y.iloc[split_idx:]
+    logger.info("Created time-series split train=%s test=%s", len(X_train), len(X_test))
     return X_train, X_test, y_train, y_test
 
 
@@ -101,6 +106,7 @@ def fit_xgboost_regressor(
         params.update(model_params)
     model = XGBRegressor(**params)
     model.fit(X_train, y_train)
+    logger.info("Trained xgboost regressor rows=%s params=%s", len(X_train), params)
     return model
 
 

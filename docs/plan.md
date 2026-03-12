@@ -7,6 +7,13 @@ work.
 Status update:
 - Phase I complete (DB + ingestion + schema + integrity checks).
 - Phase II complete (features, model training, backtest, baselines, validation, API).
+- Frontend remains deferred; backend-only contract is the active deliverable.
+
+## Current Backend v1
+
+- `README.md` and `backend/api_models.py` define the live request/response contract.
+- Current backend scope: `TW`/`US`, multi-symbol, `strategy.type=research_v1`, MA/RSI features, XGBoost, baselines, validation, and averaged validation metrics including `avg_sharpe`.
+- The sections below keep the broader target-state plan, so frontend and more extensible strategy/execution ideas should be read as future work unless they also appear in README.
 
 Developer workflow notes are in `docs/dev.md`.
 
@@ -43,17 +50,17 @@ Acceptance
 
 Tasks
 - `feature_engine.py`: `add_features(df, config)` for MA/RSI (extensible).
-- `model_service.py`: `train_xgboost(df, target_shift=-1)` with time-ordered
+- `model_service.py`: XGBoost-based training with time-ordered
   split and configurable return targets.
 - Validation module: walk-forward, rolling window, expanding window, holdout.
 - Baselines: buy-and-hold, naive momentum, MA crossover.
-- Metrics: total return, Sharpe, max drawdown, turnover.
+- Metrics: total return, Sharpe, max drawdown, turnover, and `avg_sharpe`.
 - `backtest_service.py`: run backtest with fees/slippage and matching model.
 - Implement matching model interface and default TW/US OHLC behavior.
 - Trading rules: daily rebalance, no intraday, no leverage, same-day reinvest.
 - Multi-symbol selection: threshold + top-N, equal weight, cash if empty.
 - Exit rules: proactive sells, default liquidation at next open.
-- `main.py`: `POST /api/v1/backtest` with CORS for local frontend.
+- `main.py`: `POST /api/v1/backtest` for the backend-only workflow.
 
 Acceptance
 - One API call returns KPIs and validation metrics for a full train -> backtest
@@ -62,6 +69,7 @@ Acceptance
 ## Phase III: Frontend (Svelte 5)
 
 Tasks
+- Deferred until backend-only scope is stable.
 - Initialize Svelte 5 + Vite + TypeScript.
 - Sidebar config inputs (symbol, date range, features).
 - ECharts equity curve.
@@ -81,7 +89,12 @@ Tasks
 Acceptance
 - Basic test suite passes and docs describe the local workflow.
 
-## API Contract Draft
+## API Contract Draft (Target State)
+
+Current-state note:
+- The implemented backend v1 request is narrower than this draft.
+- For the live contract, use `README.md` and `backend/api_models.py` as the source of truth.
+- Current backend v1 already exposes `avg_sharpe` inside `validation.metrics` as a convenience metric.
 
 Request (minimal + extensible)
 ```json
@@ -96,24 +109,13 @@ Request (minimal + extensible)
     { "name": "rsi", "window": 14, "source": "close", "shift": 1 }
   ],
   "model": { "type": "xgboost", "params": {} },
-  "selection": {
-    "threshold_metric": "predicted_return",
+  "strategy": {
+    "type": "research_v1",
     "threshold": 0.003,
     "top_n": 5,
-    "weighting": "equal"
-  },
-  "trading_rules": {
-    "rebalance": "daily_open",
-    "allow_same_day_reinvest": true,
-    "allow_intraday": false,
-    "allow_leverage": false
-  },
-  "exit_rules": {
-    "allow_proactive_sells": true,
-    "default_liquidation": "next_open"
+    "allow_proactive_sells": true
   },
   "execution": {
-    "matching_model": "ohlc_default",
     "slippage": 0.001,
     "fees": 0.002
   },
@@ -144,7 +146,10 @@ Response (UI + report minimums)
   ],
   "validation": {
     "method": "walk_forward",
-    "metrics": { "avg_sharpe": 0.9 }
+    "metrics": {
+      "avg_sharpe": 0.9,
+      "sharpe": 0.9
+    }
   },
   "baselines": {
     "buy_and_hold": { "total_return": 0.08 }
@@ -163,24 +168,13 @@ Response (UI + report minimums)
   "features": [
     { "name": "ma", "window": 5, "source": "close", "shift": 1 }
   ],
-  "selection": {
-    "threshold_metric": "predicted_return",
+  "strategy": {
+    "type": "research_v1",
     "threshold": 0.003,
     "top_n": 5,
-    "weighting": "equal"
-  },
-  "trading_rules": {
-    "rebalance": "daily_open",
-    "allow_same_day_reinvest": true,
-    "allow_intraday": false,
-    "allow_leverage": false
-  },
-  "exit_rules": {
-    "allow_proactive_sells": true,
-    "default_liquidation": "next_open"
+    "allow_proactive_sells": true
   },
   "execution": {
-    "matching_model": "ohlc_default",
     "slippage": 0.001,
     "fees": 0.002
   }

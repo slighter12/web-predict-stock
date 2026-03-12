@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 
-from backend.backtest_service import _build_execution_price, build_weights_from_scores
+from backend.backtest_service import _build_execution_price, compute_metrics, compute_turnover
+from backend.strategy_service import build_weights_from_scores
 
 
 def test_build_weights_from_scores_proactive():
@@ -20,7 +21,6 @@ def test_build_weights_from_scores_proactive():
         threshold=0.005,
         top_n=2,
         allow_proactive_sells=True,
-        weighting="equal",
     )
 
     assert weights.loc[idx[0], "A"] == pytest.approx(0.5)
@@ -45,7 +45,6 @@ def test_build_weights_from_scores_hold():
         threshold=0.005,
         top_n=2,
         allow_proactive_sells=False,
-        weighting="equal",
     )
 
     assert weights.loc[idx[0]].sum() == pytest.approx(1.0)
@@ -61,21 +60,8 @@ def test_build_weights_from_scores_empty():
         threshold=0.01,
         top_n=2,
         allow_proactive_sells=True,
-        weighting="equal",
     )
     assert weights.loc[idx[0]].sum() == pytest.approx(0.0)
-
-
-def test_build_weights_from_scores_invalid_weighting():
-    scores = pd.DataFrame({"A": [0.01]}, index=[pd.Timestamp("2024-01-02")])
-    with pytest.raises(ValueError):
-        build_weights_from_scores(
-            scores=scores,
-            threshold=0.0,
-            top_n=1,
-            allow_proactive_sells=True,
-            weighting="custom",
-        )
 
 
 def test_build_execution_price_us_buy():
@@ -94,7 +80,6 @@ def test_build_execution_price_us_buy():
         low_df=low_df,
         close_df=close_df,
         market="US",
-        matching_model="ohlc_default",
     )
 
     assert price.loc[idx[0], "A"] == pytest.approx(105.0)
@@ -116,7 +101,17 @@ def test_build_execution_price_tw_buy():
         low_df=low_df,
         close_df=close_df,
         market="TW",
-        matching_model="ohlc_default",
     )
 
     assert price.loc[idx[0], "A"] == pytest.approx(100.0)
+
+
+def test_compute_turnover_boundary():
+    idx = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    weights = pd.DataFrame({"A": [0.0, 1.0], "B": [1.0, 0.0]}, index=idx)
+    assert compute_turnover(weights) == pytest.approx(0.5)
+
+
+def test_compute_metrics_empty_equity():
+    metrics = compute_metrics(pd.Series(dtype=float))
+    assert metrics == {"total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0}
