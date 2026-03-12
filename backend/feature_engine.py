@@ -1,8 +1,10 @@
 from typing import Iterable, Tuple, Union
+import logging
 
 import pandas as pd
 import vectorbt as vbt
 
+logger = logging.getLogger(__name__)
 
 def feature_col_name(name: str, window: int, source: str) -> str:
     suffix = "" if source == "close" else f"_{source}"
@@ -29,6 +31,7 @@ def _normalize_window_config(
         items.append((window, source))
     return items
 
+
 def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """
     Adds technical indicator features to an OHLCV DataFrame based on a configuration.
@@ -54,8 +57,15 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 series = df[source]
                 ma = vbt.MA.run(series, window=window, short_name=f"ma_{window}")
                 df[feature_col_name("MA", window, source)] = ma.ma
-            except Exception as e:
-                print(f"Could not calculate MA for window {window} on {source}: {e}")
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate MA window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    f"Could not calculate MA for window {window} on source '{source}'."
+                ) from exc
 
     # Calculate Relative Strength Index (RSI)
     if "rsi" in config and config["rsi"]:
@@ -64,8 +74,15 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 series = df[source]
                 rsi = vbt.RSI.run(series, window=window, short_name=f"rsi_{window}")
                 df[feature_col_name("RSI", window, source)] = rsi.rsi
-            except Exception as e:
-                print(f"Could not calculate RSI for window {window} on {source}: {e}")
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate RSI window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    f"Could not calculate RSI for window {window} on source '{source}'."
+                ) from exc
 
     return df
 

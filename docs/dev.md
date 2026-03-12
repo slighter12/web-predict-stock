@@ -12,7 +12,7 @@ uv sync
 
 Optional dev/test dependencies:
 ```bash
-uv sync --group dev
+uv sync --extra dev
 ```
 
 ## Makefile Shortcuts

@@ -33,6 +33,10 @@ def ma_crossover_weights(
 
     short_ma = vbt.MA.run(close_df, window=short_window).ma
     long_ma = vbt.MA.run(close_df, window=long_window).ma
+    if isinstance(short_ma.columns, pd.MultiIndex):
+        short_ma.columns = close_df.columns
+    if isinstance(long_ma.columns, pd.MultiIndex):
+        long_ma.columns = close_df.columns
     signal = (short_ma > long_ma).shift(1)
 
     weights = signal.astype(float)

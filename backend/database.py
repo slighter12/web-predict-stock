@@ -1,7 +1,7 @@
 import os
-from sqlalchemy import create_engine, Column, Date, DateTime, Float, Integer, String, Index
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+
+from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, String, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 
 # --- Database Configuration ---

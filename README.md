@@ -4,23 +4,24 @@ A personal, high-performance quantitative research platform designed for alpha d
 
 ## Vision
 
-Provide an efficient, visual research loop that allows users to define features, train models, run backtests, and evaluate strategies from a single workspace.
+Provide an efficient backend research loop that allows users to define features, train models, run backtests, and evaluate strategies from a single API.
 
 ## Key Features
 
 - F-01 Data Pipeline: Scheduled scraper for daily OHLCV data (TWSE), cleaned and stored in PostgreSQL.
 - F-01a Historical Backfill: Bootstrap 3-5 years of history via yfinance to enable immediate model training.
-- F-02 Dynamic Feature Engineering UI: A no-code interface for feature vector definitions.
-- F-03 Modeling Engine: Train ML models from user-defined feature configs.
-- F-04 Vectorized Backtesting: Use model signals with transaction costs and slippage.
-- F-05 Strategy Dashboard: Visualize equity curves, signals, and KPIs.
+- F-02 Feature Engineering API: Build MA and RSI features from request configs.
+- F-03 Modeling Engine: Train XGBoost models from backend request payloads.
+- F-04 Research Strategy Runner: Execute the `research_v1` threshold + top-N workflow with multi-symbol support.
+- F-05 Validation and Baselines: Compare model output with time-series validation and baseline portfolios.
+- Future: Svelte dashboard and interactive strategy UI remain TODO.
 
 ## Tech Stack
 
-- Language: Python 3.12+ (backend), TypeScript (frontend)
-- Package Manager: uv (backend), npm (frontend)
-- Backend: FastAPI (CORS enabled for local dev)
-- Frontend: Svelte 5 + Vite
+- Language: Python 3.12+ (backend)
+- Package Manager: uv
+- Backend: FastAPI
+- Frontend: Svelte 5 + Vite (planned, not implemented in this phase)
 - Database: PostgreSQL + TimescaleDB
 - Data Processing: Pandas, NumPy, yfinance, requests
 - Modeling: XGBoost, scikit-learn
@@ -34,20 +35,16 @@ Data merge rule: official exchange data overrides yfinance when both are availab
 ```bash
 .
 ├── backend/                # FastAPI application and core logic
-│   ├── main.py             # API entry point (CORS enabled)
+│   ├── main.py             # API entry point
 │   ├── database.py         # DB connection and ORM models
 │   ├── data_service.py     # Data fetching layer
 │   ├── feature_engine.py   # Dynamic feature generation
 │   ├── model_service.py    # XGBoost training and signal generation
 │   ├── backtest_service.py # VectorBT integration with fees/slippage
 │   └── requirements.txt    # Backend dependencies
-├── frontend/               # Svelte 5 application
-│   ├── src/
-│   │   ├── lib/            # Svelte components and stores
-│   │   └── App.svelte      # Main layout
-│   └── package.json
 ├── scripts/                # Utility scripts (scrapers, ETL)
-│   └── scraper.py          # TWSE daily updates + yfinance backfill
+│   ├── scraper.py          # TWSE + yfinance ingest entry point
+│   └── smoke_backtest.py   # Manual DB-backed smoke path
 └── docker-compose.yml      # PostgreSQL + TimescaleDB service
 ```
 
@@ -72,7 +69,7 @@ uv sync
 ```
 Optional (dev/test deps):
 ```bash
-uv sync --group dev
+uv sync --extra dev
 ```
 4) Load environment variables (zsh):
 ```bash
@@ -88,11 +85,15 @@ set +a
 ```bash
 .venv/bin/python -m backend.data_service
 ```
+7) Run the backend API:
+```bash
+.venv/bin/python -m uvicorn backend.main:app --reload
+```
 
 ## Troubleshooting
 
 - XGBoost import error on macOS (`libomp.dylib` missing): install OpenMP with
-  `brew install libomp`. Without it, training will fail when `train_xgboost` runs.
+  `brew install libomp`. Without it, training will fail when model training runs.
 
 ## Testing
 
@@ -106,83 +107,90 @@ Smoke test (requires DB + data loaded):
 .venv/bin/python scripts/smoke_backtest.py
 ```
 
+## Supported API Contract
+
+Current backend v1 support:
+
+- `market`: `TW`, `US`
+- `strategy.type`: `research_v1`
+- `features`: `ma`, `rsi`
+- `model.type`: `xgboost`
+- `validation.method`: `holdout`, `walk_forward`, `rolling_window`, `expanding_window`
+- `validation.metrics`: averaged standard metrics plus `avg_sharpe`
+- `baselines`: `buy_and_hold`, `naive_momentum`, `ma_crossover`
+
 ## Configuration (Example)
 
-This config is the reference format for implementation. All values are adjustable per run.
+This request shape reflects the currently supported backend contract.
 
 ```json
 {
   "market": "TW",
+  "symbols": ["2330"],
+  "date_range": { "start": "2019-01-01", "end": "2024-01-01" },
   "return_target": "open_to_open",
   "horizon_days": 1,
-  "selection": {
-    "threshold_metric": "predicted_return",
+  "features": [
+    { "name": "ma", "window": 5, "source": "close", "shift": 1 },
+    { "name": "rsi", "window": 14, "source": "close", "shift": 1 }
+  ],
+  "model": {
+    "type": "xgboost",
+    "params": {}
+  },
+  "strategy": {
+    "type": "research_v1",
     "threshold": 0.003,
     "top_n": 5,
-    "weighting": "equal"
-  },
-  "trading_rules": {
-    "rebalance": "daily_open",
-    "allow_same_day_reinvest": true,
-    "allow_intraday": false,
-    "allow_leverage": false
-  },
-  "exit_rules": {
-    "allow_proactive_sells": true,
-    "default_liquidation": "next_open"
+    "allow_proactive_sells": true
   },
   "execution": {
-    "matching_model": "ohlc_default",
     "slippage": 0.001,
     "fees": 0.002
-  }
+  },
+  "validation": {
+    "method": "walk_forward",
+    "splits": 3,
+    "test_size": 0.2
+  },
+  "baselines": ["buy_and_hold", "naive_momentum"]
 }
 ```
 
-## Reference Logic (Model + Backtest)
+## Smoke Path
 
-Model is swappable. It only needs to implement fit/predict and output a numeric score used by the selection threshold.
+Manual smoke test prerequisites:
 
-```python
-import vectorbt as vbt
-from sklearn.model_selection import train_test_split
+- PostgreSQL/TimescaleDB is running
+- Historical data has been loaded with `scripts/scraper.py`
+- `xgboost` imports correctly on your machine
 
-def build_model(config):
-    # Swap model implementation here (e.g., XGBoost regressor).
-    ...
+Expected output from `scripts/smoke_backtest.py`:
 
-def train_and_backtest_demo(df, config):
-    # Build features using data available at t-1 close.
-    df["MA_5"] = vbt.MA.run(df["close"], 5).ma.shift(1)
-    df["RSI"] = vbt.RSI.run(df["close"], 14).rsi.shift(1)
-
-    # Default target: open-to-open forward return.
-    df["target"] = (df["open"].shift(-1) / df["open"] - 1.0)
-    df = df.dropna()
-
-    feature_cols = ["MA_5", "RSI"]
-    X = df[feature_cols]
-    y = df["target"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, shuffle=False
-    )
-    model = build_model(config)
-    model.fit(X_train, y_train)
-
-    preds = model.predict(X_test)
-    threshold = config["selection"]["threshold"]
-    entries = preds >= threshold
-    exits = preds < threshold
-
-    price_data = df.loc[X_test.index]["open"]
-    pf = vbt.Portfolio.from_signals(
-        price_data,
-        entries,
-        exits,
-        fees=config["execution"]["fees"],
-        slippage=config["execution"]["slippage"],
-        freq="D",
-    )
-    return pf.stats()
+```json
+{
+  "run_id": "uuid",
+  "metrics": { "total_return": 0.12, "sharpe": 1.1 },
+  "equity_points": 120,
+  "signals": 25,
+  "baselines": { "buy_and_hold": { "total_return": 0.08 } },
+  "validation": {
+    "method": "walk_forward",
+    "metrics": {
+      "avg_sharpe": 0.9,
+      "total_return": 0.09,
+      "sharpe": 0.9,
+      "max_drawdown": -0.07,
+      "turnover": 0.25
+    }
+  },
+  "warnings": []
+}
 ```
+
+Common failure cases:
+
+- Database is empty or not reachable
+- Requested symbol/date range has no rows
+- Training split or validation split has too little data
+- `xgboost` cannot import because native dependencies are missing
