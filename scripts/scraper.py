@@ -1,7 +1,7 @@
 import logging
 import os
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -49,7 +49,9 @@ def to_yfinance_ticker(symbol: str, market: str) -> str:
     return symbol
 
 
-def validate_ohlcv_with_report(df: pd.DataFrame, label: str = "") -> tuple[pd.DataFrame, QualityReport]:
+def validate_ohlcv_with_report(
+    df: pd.DataFrame, label: str = ""
+) -> tuple[pd.DataFrame, QualityReport]:
     report = QualityReport(input_rows=len(df))
     if df.empty:
         return df, report
@@ -84,7 +86,11 @@ def validate_ohlcv_with_report(df: pd.DataFrame, label: str = "") -> tuple[pd.Da
         gap_days = sorted_dates.diff().dt.days
         report.gap_warnings = int((gap_days > 7).sum())
         if report.gap_warnings:
-            logger.warning("Detected long gaps in OHLCV data label=%s gaps=%s", label, report.gap_warnings)
+            logger.warning(
+                "Detected long gaps in OHLCV data label=%s gaps=%s",
+                label,
+                report.gap_warnings,
+            )
 
     report.output_rows = len(cleaned)
     logger.info("Validated OHLCV label=%s report=%s", label, report.to_dict())
@@ -118,7 +124,12 @@ def scrape_twse_data(symbol: str, date_str: str | None = None) -> pd.DataFrame:
     try:
         data = response.json()
         if data.get("stat") != "OK":
-            logger.warning("TWSE returned non-OK status symbol=%s date=%s detail=%s", symbol, date_str, data)
+            logger.warning(
+                "TWSE returned non-OK status symbol=%s date=%s detail=%s",
+                symbol,
+                date_str,
+                data,
+            )
             return pd.DataFrame()
 
         df = pd.DataFrame(data["data"], columns=data["fields"])
@@ -146,15 +157,33 @@ def scrape_twse_data(symbol: str, date_str: str | None = None) -> pd.DataFrame:
         )
 
         for col in ["volume", "open", "high", "low", "close"]:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(",", ""), errors="coerce"
+            ).fillna(0)
 
         df["volume"] = df["volume"].astype(int)
-        df = df[["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]]
-        logger.info("Scraped TWSE rows=%s symbol=%s month=%s", len(df), symbol, date_str[:6])
+        df = df[
+            [
+                "date",
+                "symbol",
+                "market",
+                "source",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
+        ]
+        logger.info(
+            "Scraped TWSE rows=%s symbol=%s month=%s", len(df), symbol, date_str[:6]
+        )
         cleaned, _ = validate_ohlcv_with_report(df, label=f"{symbol}:{SOURCE_TWSE}")
         return cleaned
     except Exception:
-        logger.exception("TWSE payload parsing failed symbol=%s date=%s", symbol, date_str)
+        logger.exception(
+            "TWSE payload parsing failed symbol=%s date=%s", symbol, date_str
+        )
         return pd.DataFrame()
 
 
@@ -172,14 +201,18 @@ def load_to_db(df: pd.DataFrame) -> dict:
         "official_overrides": 0,
     }
     if validated_df.empty:
-        logger.info("Skipping DB load because validated DataFrame is empty summary=%s", summary)
+        logger.info(
+            "Skipping DB load because validated DataFrame is empty summary=%s", summary
+        )
         return summary
 
     temp_table_name = "daily_ohlcv_temp"
     try:
         with engine.connect() as conn:
             with conn.begin():
-                validated_df.to_sql(temp_table_name, conn, if_exists="replace", index=False)
+                validated_df.to_sql(
+                    temp_table_name, conn, if_exists="replace", index=False
+                )
 
                 override_count = conn.execute(
                     text(
@@ -220,7 +253,11 @@ def load_to_db(df: pd.DataFrame) -> dict:
                     {"official_source": SOURCE_TWSE},
                 )
         summary["official_overrides"] = int(override_count)
-        summary["upserted_rows"] = result.rowcount if result.rowcount and result.rowcount > 0 else len(validated_df)
+        summary["upserted_rows"] = (
+            result.rowcount
+            if result.rowcount and result.rowcount > 0
+            else len(validated_df)
+        )
         logger.info("Loaded OHLCV rows summary=%s", summary)
         return summary
     except Exception:
@@ -239,7 +276,9 @@ def scrape_daily_twse(symbol: str, date_str: str | None = None) -> pd.DataFrame:
     return latest
 
 
-def backfill_history(symbol: str, years: int = 5, market: str = MARKET_TW) -> pd.DataFrame:
+def backfill_history(
+    symbol: str, years: int = 5, market: str = MARKET_TW
+) -> pd.DataFrame:
     if years < 1:
         raise ValueError("years must be >= 1")
 
@@ -250,7 +289,9 @@ def backfill_history(symbol: str, years: int = 5, market: str = MARKET_TW) -> pd
         ticker = yf.Ticker(ticker_symbol)
         hist = ticker.history(start=start_date, auto_adjust=False, actions=False)
     except Exception:
-        logger.exception("Failed to fetch yfinance data symbol=%s market=%s", symbol, market)
+        logger.exception(
+            "Failed to fetch yfinance data symbol=%s market=%s", symbol, market
+        )
         return pd.DataFrame()
 
     if hist.empty:
@@ -279,8 +320,15 @@ def backfill_history(symbol: str, years: int = 5, market: str = MARKET_TW) -> pd
     hist["source"] = SOURCE_YFINANCE
     hist["market"] = market
     hist["volume"] = hist["volume"].fillna(0).astype(int)
-    hist = hist[["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]]
-    logger.info("Fetched yfinance history rows=%s symbol=%s market=%s", len(hist), symbol, market)
+    hist = hist[
+        ["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]
+    ]
+    logger.info(
+        "Fetched yfinance history rows=%s symbol=%s market=%s",
+        len(hist),
+        symbol,
+        market,
+    )
     cleaned, _ = validate_ohlcv_with_report(hist, label=f"{symbol}:{SOURCE_YFINANCE}")
     return cleaned
 

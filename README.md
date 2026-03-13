@@ -4,7 +4,7 @@ A personal, high-performance quantitative research platform designed for alpha d
 
 ## Vision
 
-Provide an efficient backend research loop that allows users to define features, train models, run backtests, and evaluate strategies from a single API.
+Provide an efficient research loop that allows users to define features, train models, run backtests, and evaluate strategies from a single API and dashboard.
 
 ## Key Features
 
@@ -14,14 +14,14 @@ Provide an efficient backend research loop that allows users to define features,
 - F-03 Modeling Engine: Train XGBoost models from backend request payloads.
 - F-04 Research Strategy Runner: Execute the `research_v1` threshold + top-N workflow with multi-symbol support.
 - F-05 Validation and Baselines: Compare model output with time-series validation and baseline portfolios.
-- Future: Svelte dashboard and interactive strategy UI remain TODO.
+- F-06 Research Dashboard: Guided Svelte dashboard for configuring and reviewing backtests from one screen.
 
 ## Tech Stack
 
 - Language: Python 3.12+ (backend)
-- Package Manager: uv
+- Package Manager: uv (backend), bun (frontend)
 - Backend: FastAPI
-- Frontend: Svelte 5 + Vite (planned, not implemented in this phase)
+- Frontend: Svelte 5 + Vite + TanStack Svelte Query + ECharts
 - Database: PostgreSQL + TimescaleDB
 - Data Processing: Pandas, NumPy, yfinance, requests
 - Modeling: XGBoost, scikit-learn
@@ -42,6 +42,9 @@ Data merge rule: official exchange data overrides yfinance when both are availab
 │   ├── model_service.py    # XGBoost training and signal generation
 │   ├── backtest_service.py # VectorBT integration with fees/slippage
 │   └── requirements.txt    # Backend dependencies
+├── frontend/               # Bun-based Svelte dashboard
+│   ├── src/                # UI components, API client, styles
+│   └── package.json        # Frontend dependency manifest
 ├── scripts/                # Utility scripts (scrapers, ETL)
 │   ├── scraper.py          # TWSE + yfinance ingest entry point
 │   └── smoke_backtest.py   # Manual DB-backed smoke path
@@ -54,41 +57,79 @@ Progress planning and milestones are tracked in PROPOSAL.md.
 
 ## Local Setup
 
-Prereqs: Docker, Python 3.12+, and `uv`.
+Prereqs: Docker, Python 3.12+, `uv`, and `bun`.
 
 1) Create or update `.env` (use `.env.example` as a base). Change `POSTGRES_PORT`
-   if you need a non-default port.
+    if you need a non-default port.
+
 2) Start the database:
-```bash
-docker-compose up -d
-```
+
+    ```bash
+    docker-compose up -d
+    ```
+
 3) Create the virtual environment and install backend dependencies:
-```bash
-uv venv .venv
-uv sync
-```
-Optional (dev/test deps):
-```bash
-uv sync --extra dev
-```
+
+    ```bash
+    uv venv .venv
+    uv sync
+    ```
+
+    Optional (dev/test deps):
+
+    ```bash
+    uv sync --extra dev
+    ```
+
 4) Load environment variables (zsh):
-```bash
-set -a
-source .env
-set +a
-```
+
+    ```bash
+
+    set -a
+    source .env
+    set +a
+
+    ```
+
 5) Backfill + daily update (TWSE + yfinance):
-```bash
-.venv/bin/python scripts/scraper.py
-```
+
+    ```bash
+    .venv/bin/python scripts/scraper.py
+    ```
+
 6) Verify data query:
-```bash
-.venv/bin/python -m backend.data_service
-```
+
+    ```bash
+    .venv/bin/python -m backend.data_service
+    ```
+
 7) Run the backend API:
-```bash
-.venv/bin/python -m uvicorn backend.main:app --reload
-```
+
+    ```bash
+    .venv/bin/python -m uvicorn backend.main:app --reload
+    ```
+
+8) Install frontend dependencies:
+
+    ```bash
+    cd frontend
+    bun install
+    cp .env.example .env
+    ```
+
+9) Run the research dashboard:
+
+    ```bash
+    bun run dev
+    ```
+
+Frontend env:
+
+- `VITE_API_BASE_URL`: backend base URL, default `http://127.0.0.1:8000`
+
+Backend env:
+
+- `CORS_ALLOWED_ORIGINS`: comma-separated origins allowed by FastAPI CORS, default `http://localhost:5173,http://127.0.0.1:5173`
 
 ## Troubleshooting
 
@@ -98,14 +139,27 @@ set +a
 ## Testing
 
 Unit tests:
+
 ```bash
 .venv/bin/python -m pytest -q
 ```
 
 Smoke test (requires DB + data loaded):
+
 ```bash
 .venv/bin/python scripts/smoke_backtest.py
 ```
+
+Frontend build:
+
+```bash
+cd frontend
+bun run build
+```
+
+Browser automation note:
+
+- If you use `agent-browser` auth state or session files locally, keep them out of git. Common state paths are already ignored in `.gitignore`.
 
 ## Supported API Contract
 
@@ -118,6 +172,24 @@ Current backend v1 support:
 - `validation.method`: `holdout`, `walk_forward`, `rolling_window`, `expanding_window`
 - `validation.metrics`: averaged standard metrics plus `avg_sharpe`
 - `baselines`: `buy_and_hold`, `naive_momentum`, `ma_crossover`
+- `GET /api/v1/health`: frontend connectivity check
+
+Error responses from `/api/v1/backtest` use:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "請檢查輸入內容",
+    "details": {
+      "fields": []
+    }
+  },
+  "meta": {
+    "request_id": "req_abc123"
+  }
+}
+```
 
 ## Configuration (Example)
 

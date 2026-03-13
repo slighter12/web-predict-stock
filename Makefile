@@ -1,4 +1,4 @@
-.PHONY: setup venv install dev test smoke db-up db-down
+.PHONY: setup venv install dev test smoke db-up db-down frontend-install frontend-dev frontend-build
 
 setup: venv install dev
 
@@ -22,3 +22,12 @@ db-up:
 
 db-down:
 	docker-compose down
+
+frontend-install:
+	cd frontend && bun install
+
+frontend-dev:
+	cd frontend && bun run dev
+
+frontend-build:
+	cd frontend && bun run build

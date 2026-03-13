@@ -1,6 +1,15 @@
 import os
 
-from sqlalchemy import Column, Date, DateTime, Float, Index, Integer, String, create_engine
+from sqlalchemy import (
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    create_engine,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.sql import func
 
@@ -8,7 +17,8 @@ from sqlalchemy.sql import func
 # Load database connection details from environment variables with defaults
 DB_USER = os.getenv("POSTGRES_USER", "user")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "password")
-DB_HOST = os.getenv("POSTGRES_HOST", "localhost") # Use 'localhost' for host scripts, 'db' for dockerized app
+# Use 'localhost' for host scripts, 'db' for dockerized app
+DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
 DB_PORT = os.getenv("POSTGRES_PORT", "5432")
 DB_NAME = os.getenv("POSTGRES_DB", "quant_platform")
 
@@ -31,9 +41,7 @@ Base = declarative_base()
 # Define the DailyOHLCV model
 class DailyOHLCV(Base):
     __tablename__ = "daily_ohlcv"
-    __table_args__ = (
-        Index("idx_daily_ohlcv_symbol_date", "symbol", "date"),
-    )
+    __table_args__ = (Index("idx_daily_ohlcv_symbol_date", "symbol", "date"),)
 
     date = Column(Date, primary_key=True)
     symbol = Column(String, primary_key=True)

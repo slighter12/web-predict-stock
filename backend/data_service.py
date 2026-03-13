@@ -1,5 +1,5 @@
-from datetime import date
 import logging
+from datetime import date
 from typing import Sequence, Union
 
 import pandas as pd
@@ -13,7 +13,9 @@ PRICE_COLS = ["open", "high", "low", "close"]
 logger = logging.getLogger(__name__)
 
 
-def apply_price_adjustment(df: pd.DataFrame, factor_col: str = "adjust_factor") -> pd.DataFrame:
+def apply_price_adjustment(
+    df: pd.DataFrame, factor_col: str = "adjust_factor"
+) -> pd.DataFrame:
     """
     Return a copy of df with adjusted OHLC columns if an adjustment factor is provided.
     The raw OHLC columns remain unchanged.
@@ -98,7 +100,7 @@ def get_data(
     return df
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # --- Example Usage ---
     # This example assumes you have the database running and have loaded some data,
     # for example, by running `scripts/scraper.py`.

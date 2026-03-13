@@ -6,7 +6,7 @@ This document tracks the MVP execution plan and milestones. For the full spec an
 
 - `README.md` and `backend/api_models.py` are the source of truth for the live backend contract.
 - Current backend scope: `TW`/`US`, multi-symbol, `strategy.type=research_v1`, MA/RSI features, XGBoost model, baselines, validation, and averaged validation metrics including `avg_sharpe`.
-- Frontend is intentionally deferred. Any UI/dashboard items in this document describe the target architecture, not the current deliverable.
+- Frontend dashboard is now in scope for the local MVP. Deployment-oriented UI work remains out of scope.
 
 ## Target Architecture Assumptions
 
@@ -95,16 +95,15 @@ Definition of done:
 
 ### Phase III: Frontend (Svelte 5)
 
-Status: Not started
+Status: Completed for local MVP
 
-- Frontend is intentionally deferred. The backend contract is the current delivery target.
-- Initialize Svelte 5 + Vite + TypeScript scaffold.
-- Build sidebar for symbol, date range, and feature config using runes state.
+- Initialize Svelte 5 + Vite + TypeScript scaffold with bun.
+- Build a single-screen dashboard for symbol, date range, features, strategy, validation, and baselines.
 - Integrate ECharts equity curve component.
-- Connect Run Backtest to backend API and render KPIs.
+- Connect Run Backtest to backend API and render KPIs, validation, baselines, warnings, and signals.
 
 Definition of done:
-- User can run a backtest from the UI and see a chart and KPI summary.
+- User can run a backtest from the UI and see chart, KPI summary, validation output, baselines, warnings, and signals.
 
 ### Phase IV: Hardening and Quality
 

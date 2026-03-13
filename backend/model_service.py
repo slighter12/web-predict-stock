@@ -1,5 +1,5 @@
-from typing import TYPE_CHECKING, Dict, Tuple
 import logging
+from typing import TYPE_CHECKING, Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,7 +24,9 @@ def _load_xgboost_regressor():
     return XGBRegressor
 
 
-def compute_return_target(df: pd.DataFrame, return_target: str, horizon_days: int) -> pd.Series:
+def compute_return_target(
+    df: pd.DataFrame, return_target: str, horizon_days: int
+) -> pd.Series:
     if horizon_days < 1:
         raise ValueError("horizon_days must be >= 1")
 
@@ -120,7 +122,9 @@ if __name__ == "__main__":
         "close": np.random.rand(100) * 10 + 100,
         "volume": np.random.randint(1000, 5000, 100),
     }
-    sample_df = pd.DataFrame(data, index=pd.to_datetime(pd.date_range("2023-01-01", periods=100)))
+    sample_df = pd.DataFrame(
+        data, index=pd.to_datetime(pd.date_range("2023-01-01", periods=100))
+    )
 
     # 1. Add features
     feature_config = {"ma": [5, 10, 20], "rsi": 14}

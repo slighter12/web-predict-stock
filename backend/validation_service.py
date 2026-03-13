@@ -46,7 +46,9 @@ def generate_splits(
             train_end = train_start + train_len
             test_start = train_end
             test_end = test_start + test_len
-            split_ranges.append((range(train_start, train_end), range(test_start, test_end)))
+            split_ranges.append(
+                (range(train_start, train_end), range(test_start, test_end))
+            )
         return split_ranges
 
     raise ValueError(f"Unknown validation method: {method}")
