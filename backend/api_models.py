@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, conint, confloat, conlist, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    confloat,
+    conint,
+    conlist,
+    field_validator,
+)
 
 MarketCode = Literal["TW", "US"]
 PriceSource = Literal["open", "high", "low", "close", "volume"]
@@ -74,6 +83,34 @@ class BacktestRequest(RequestModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     validation: Optional[ValidationConfig] = None
     baselines: List[BaselineName] = Field(default_factory=list)
+
+    @field_validator("symbols")
+    @classmethod
+    def symbols_must_be_unique(cls, value: List[str]) -> List[str]:
+        normalized = [symbol.strip() for symbol in value]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("symbols must not contain duplicates")
+        return normalized
+
+    @field_validator("features")
+    @classmethod
+    def features_must_be_unique(cls, value: List[FeatureSpec]) -> List[FeatureSpec]:
+        seen: set[tuple[str, int, str]] = set()
+        for feature in value:
+            key = (feature.name, feature.window, feature.source)
+            if key in seen:
+                raise ValueError(
+                    "features must not contain duplicates with the same name, window, and source"
+                )
+            seen.add(key)
+        return value
+
+    @field_validator("baselines")
+    @classmethod
+    def baselines_must_be_unique(cls, value: List[BaselineName]) -> List[BaselineName]:
+        if len(value) != len(set(value)):
+            raise ValueError("baselines must not contain duplicates")
+        return value
 
 
 class Metrics(BaseModel):

@@ -6,6 +6,7 @@ from typing import Any
 class _DepthLimitExceeded(Exception):
     pass
 
+
 _PARSE_DICT_GUARDED = False
 
 
@@ -66,7 +67,9 @@ def install_protobuf_json_guard() -> None:
         descriptor_pool: Any | None = None,
         max_recursion_depth: int | None = None,
     ) -> Any:
-        depth_limit = default_depth if max_recursion_depth is None else max_recursion_depth
+        depth_limit = (
+            default_depth if max_recursion_depth is None else max_recursion_depth
+        )
         if depth_limit is not None:
             try:
                 _ensure_max_depth(js_dict, depth_limit)

@@ -28,6 +28,15 @@ htmlcov/
 
 # --- JS ---
 node_modules/
+frontend/dist/
+
+# --- Browser Automation ---
+.agents/skills/agent-browser/
+.agent-browser/
+browser-data/
+agent-browser*.json
+auth.json
+skills-lock.json
 
 # --- IDE ---
 .idea/
@@ -36,4 +45,5 @@ node_modules/
 # --- Project ---
 db/
 data/
+var/
 Proxy.db

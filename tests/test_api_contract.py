@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from backend import main
@@ -72,11 +72,15 @@ def test_backtest_endpoint_success(monkeypatch):
         ),
     )
 
-    result = main.run_backtest_endpoint(BacktestRequest(**make_payload()))
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=make_payload())
+    result = response.json()
 
-    assert result.metrics.total_return == 0.12
-    assert result.signals[0].symbol == "2330"
-    assert result.warnings == []
+    assert response.status_code == 200
+    assert response.headers["X-Request-Id"]
+    assert result["metrics"]["total_return"] == 0.12
+    assert result["signals"][0]["symbol"] == "2330"
+    assert result["warnings"] == []
 
 
 def test_compute_validation_summary_adds_avg_sharpe(monkeypatch):
@@ -139,11 +143,13 @@ def test_backtest_endpoint_symbol_not_found(monkeypatch):
 
     monkeypatch.setattr(main, "_load_symbol_data", fake_load)
 
-    with pytest.raises(HTTPException) as exc:
-        main.run_backtest_endpoint(BacktestRequest(**make_payload()))
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=make_payload())
 
-    assert exc.value.status_code == 404
-    assert "No data found for symbol" in exc.value.detail
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "RESOURCE_NOT_FOUND"
+    assert "No data found for symbol" in response.json()["error"]["message"]
+    assert response.json()["meta"]["request_id"]
 
 
 def test_backtest_endpoint_insufficient_data(monkeypatch):
@@ -152,8 +158,9 @@ def test_backtest_endpoint_insufficient_data(monkeypatch):
 
     monkeypatch.setattr(main, "_load_symbol_data", fake_load)
 
-    with pytest.raises(HTTPException) as exc:
-        main.run_backtest_endpoint(BacktestRequest(**make_payload()))
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=make_payload())
 
-    assert exc.value.status_code == 400
-    assert "Not enough data" in exc.value.detail
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INSUFFICIENT_DATA"
+    assert "Not enough data" in response.json()["error"]["message"]

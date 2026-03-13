@@ -5,33 +5,37 @@ acceptance criteria, and a draft API contract to unblock backend and frontend
 work.
 
 Status update:
+
 - Phase I complete (DB + ingestion + schema + integrity checks).
 - Phase II complete (features, model training, backtest, baselines, validation, API).
-- Frontend remains deferred; backend-only contract is the active deliverable.
+- Frontend dashboard is part of the local MVP deliverable.
 
 ## Current Backend v1
 
 - `README.md` and `backend/api_models.py` define the live request/response contract.
 - Current backend scope: `TW`/`US`, multi-symbol, `strategy.type=research_v1`, MA/RSI features, XGBoost, baselines, validation, and averaged validation metrics including `avg_sharpe`.
-- The sections below keep the broader target-state plan, so frontend and more extensible strategy/execution ideas should be read as future work unless they also appear in README.
+- The sections below keep the broader target-state plan, while README captures the live local MVP contract and workflow.
 
 Developer workflow notes are in `docs/dev.md`.
 
 ## Phase 0: Spec Alignment
 
 Goals
+
 - Freeze config shape and defaults (market, return target, horizon).
 - Confirm timing alignment (t-1 features, t open execution, t+1 evaluation).
 - Confirm data merge rule (official exchange overrides yfinance).
 - Draft the API contract for /api/v1/backtest (request/response).
 
 Acceptance
+
 - A minimal config example is agreed and versioned.
 - API request/response draft is recorded and referenced by backend/frontend.
 
 ## Phase I: Infrastructure and Data
 
 Tasks
+
 - Confirm `docker-compose.yml` launches PostgreSQL + TimescaleDB.
 - Implement `DailyOHLCV` schema in `backend/database.py` with multi-symbol
   indexing (e.g., unique on (symbol, date, source) or (symbol, date)).
@@ -42,6 +46,7 @@ Tasks
 - Define market defaults (TW/US fees, slippage, matching model).
 
 Acceptance
+
 - DB container starts cleanly and is reachable from backend.
 - Data loads for symbol 2330 with no duplicate rows.
 - Sample query returns OHLCV rows for a known date range.
@@ -49,6 +54,7 @@ Acceptance
 ## Phase II: Backend Core Logic
 
 Tasks
+
 - `feature_engine.py`: `add_features(df, config)` for MA/RSI (extensible).
 - `model_service.py`: XGBoost-based training with time-ordered
   split and configurable return targets.
@@ -63,12 +69,14 @@ Tasks
 - `main.py`: `POST /api/v1/backtest` for the backend-only workflow.
 
 Acceptance
+
 - One API call returns KPIs and validation metrics for a full train -> backtest
   flow.
 
 ## Phase III: Frontend (Svelte 5)
 
 Tasks
+
 - Deferred until backend-only scope is stable.
 - Initialize Svelte 5 + Vite + TypeScript.
 - Sidebar config inputs (symbol, date range, features).
@@ -76,27 +84,32 @@ Tasks
 - Run Backtest -> API -> render KPIs.
 
 Acceptance
+
 - User can run a backtest and see a chart + KPI summary.
 
 ## Phase IV: Hardening and Quality
 
 Tasks
+
 - Logging, error handling, and input validation.
 - Minimal tests for data pipeline and backtest outputs.
 - Fixtures for validation methods and baseline comparisons.
 - README setup and run instructions.
 
 Acceptance
+
 - Basic test suite passes and docs describe the local workflow.
 
 ## API Contract Draft (Target State)
 
 Current-state note:
+
 - The implemented backend v1 request is narrower than this draft.
 - For the live contract, use `README.md` and `backend/api_models.py` as the source of truth.
 - Current backend v1 already exposes `avg_sharpe` inside `validation.metrics` as a convenience metric.
 
 Request (minimal + extensible)
+
 ```json
 {
   "market": "TW",
@@ -129,6 +142,7 @@ Request (minimal + extensible)
 ```
 
 Response (UI + report minimums)
+
 ```json
 {
   "run_id": "uuid",

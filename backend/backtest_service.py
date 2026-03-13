@@ -202,7 +202,12 @@ def run_backtest_from_weights(
     return_target: str,
 ) -> Tuple[Dict[str, float], List[dict]]:
     if weights.empty:
-        return {"total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0, "turnover": 0.0}, []
+        return {
+            "total_return": 0.0,
+            "sharpe": 0.0,
+            "max_drawdown": 0.0,
+            "turnover": 0.0,
+        }, []
 
     close = _select_close(
         open_df=open_df.reindex(weights.index).ffill(),

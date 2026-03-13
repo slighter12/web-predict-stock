@@ -23,8 +23,7 @@ class StrategyRunner(Protocol):
         self,
         scores: pd.DataFrame,
         strategy: ResearchStrategyConfig,
-    ) -> pd.DataFrame:
-        ...
+    ) -> pd.DataFrame: ...
 
 
 def build_weights_from_scores(

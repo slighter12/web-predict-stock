@@ -1,10 +1,11 @@
-from typing import Iterable, Tuple, Union
 import logging
+from typing import Iterable, Tuple, Union
 
 import pandas as pd
 import vectorbt as vbt
 
 logger = logging.getLogger(__name__)
+
 
 def feature_col_name(name: str, window: int, source: str) -> str:
     suffix = "" if source == "close" else f"_{source}"
@@ -86,23 +87,23 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
 
     return df
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # --- Example Usage ---
     # Create a sample DataFrame
     data = {
-        'open': [100, 102, 101, 103, 105, 104, 106, 108, 107, 109],
-        'high': [103, 104, 103, 105, 106, 106, 109, 110, 109, 111],
-        'low': [99, 101, 100, 102, 104, 103, 105, 107, 106, 108],
-        'close': [102, 103, 102, 104, 105, 105, 108, 109, 108, 110],
-        'volume': [1000, 1500, 1200, 1800, 2000, 1700, 2200, 2500, 2300, 2800]
+        "open": [100, 102, 101, 103, 105, 104, 106, 108, 107, 109],
+        "high": [103, 104, 103, 105, 106, 106, 109, 110, 109, 111],
+        "low": [99, 101, 100, 102, 104, 103, 105, 107, 106, 108],
+        "close": [102, 103, 102, 104, 105, 105, 108, 109, 108, 110],
+        "volume": [1000, 1500, 1200, 1800, 2000, 1700, 2200, 2500, 2300, 2800],
     }
-    sample_df = pd.DataFrame(data, index=pd.to_datetime(pd.date_range('2023-01-01', periods=10)))
+    sample_df = pd.DataFrame(
+        data, index=pd.to_datetime(pd.date_range("2023-01-01", periods=10))
+    )
 
     # Define the feature configuration
-    feature_config = {
-        'ma': [3, 5],
-        'rsi': 4
-    }
+    feature_config = {"ma": [3, 5], "rsi": 4}
 
     # Add features to the DataFrame
     df_with_features = add_features(sample_df.copy(), feature_config)
