@@ -1,196 +1,145 @@
-# Development Flow and Implementation Plan
+# Implementation Roadmap V2
 
-This document expands the MVP phases from `PROPOSAL.md` into actionable tasks,
-acceptance criteria, and a draft API contract to unblock backend and frontend
-work.
+## Purpose
 
-Status update:
+Define delivery sequencing, dependency rules, and phase-level completion logic.
 
-- Phase I complete (DB + ingestion + schema + integrity checks).
-- Phase II complete (features, model training, backtest, baselines, validation, API).
-- Frontend dashboard is part of the local MVP deliverable.
+## Owns
 
-## Current Backend v1
+- phase order and dependency rules
+- phase exit-gate mapping
+- operational validation ordering
+- allowed parallelization boundaries
 
-- `README.md` and `backend/api_models.py` define the live request/response contract.
-- Current backend scope: `TW`/`US`, multi-symbol, `strategy.type=research_v1`, MA/RSI features, XGBoost, baselines, validation, and averaged validation metrics including `avg_sharpe`.
-- The sections below keep the broader target-state plan, while README captures the live local MVP contract and workflow.
+## Does Not Own
 
-Developer workflow notes are in `docs/dev.md`.
+- runtime or execution semantics
+- KPI formulas, thresholds, or gate truth conditions
+- local developer workflow
+- open decision definitions
 
-## Phase 0: Spec Alignment
+## Consumes
 
-Goals
+- `docs/project-goals.md` for strategic priority
+- `docs/research-spec.md` for normative behavior and metadata requirements
+- `docs/validation-gates.md` for gate IDs and pass conditions
+- `docs/decision-register.md` for open `TBD-*` decision status
 
-- Freeze config shape and defaults (market, return target, horizon).
-- Confirm timing alignment (t-1 features, t open execution, t+1 evaluation).
-- Confirm data merge rule (official exchange overrides yfinance).
-- Draft the API contract for /api/v1/backtest (request/response).
+## Produces
 
-Acceptance
+- phase IDs `P0` to `P11`
+- delivery order and dependency policy
+- phase-to-gate mapping used for planning and review
 
-- A minimal config example is agreed and versioned.
-- API request/response draft is recorded and referenced by backend/frontend.
+## Decision Rule
 
-## Phase I: Infrastructure and Data
+Use this document when deciding what should be built next, which phases can run
+in parallel, and which phase gates should unblock downstream work.
 
-Tasks
+## Planning Model
 
-- Confirm `docker-compose.yml` launches PostgreSQL + TimescaleDB.
-- Implement `DailyOHLCV` schema in `backend/database.py` with multi-symbol
-  indexing (e.g., unique on (symbol, date, source) or (symbol, date)).
-- Implement `backfill_history(symbol, years=3-5)` via yfinance.
-- Implement `scrape_daily_twse()` for daily updates from official data.
-- Apply merge rule: official exchange data overwrites yfinance for conflicts.
-- Add minimal integrity checks (missing dates, nulls, negatives).
-- Define market defaults (TW/US fees, slippage, matching model).
+The roadmap uses three completion states and two gate layers:
 
-Acceptance
+- `structural-complete`
+  required artifacts and metadata exist
+- `sample-complete`
+  the phase has enough reproducible sample history to evaluate its linked KPIs
+- `performance-qualified`
+  optional claim state for policy, adoption, or performance assertions after
+  structural and sample completion
+- phase exit gate
+  engineering-completion gate that unblocks dependent work
+- operational validation gate
+  observation-window gate that unlocks mature monitoring or governance claims
 
-- DB container starts cleanly and is reachable from backend.
-- Data loads for symbol 2330 with no duplicate rows.
-- Sample query returns OHLCV rows for a known date range.
+## Planning Rules
 
-## Phase II: Backend Core Logic
+- Each phase should reach a usable baseline before dependent phases begin.
+- A phase may be `structural-complete` before its long-window KPI history
+  exists.
+- Dependent engineering work should be gated by the phase exit gate, not by
+  the operational validation gate, unless the downstream phase explicitly
+  depends on a mature observation window.
+- No phase should depend on metadata introduced only by a later phase in order
+  to become `structural-complete`.
+- `performance-qualified` should remain optional unless a policy or performance
+  claim is being made.
 
-Tasks
+## Phase Summary
 
-- `feature_engine.py`: `add_features(df, config)` for MA/RSI (extensible).
-- `model_service.py`: XGBoost-based training with time-ordered
-  split and configurable return targets.
-- Validation module: walk-forward, rolling window, expanding window, holdout.
-- Baselines: buy-and-hold, naive momentum, MA crossover.
-- Metrics: total return, Sharpe, max drawdown, turnover, and `avg_sharpe`.
-- `backtest_service.py`: run backtest with fees/slippage and matching model.
-- Implement matching model interface and default TW/US OHLC behavior.
-- Trading rules: daily rebalance, no intraday, no leverage, same-day reinvest.
-- Multi-symbol selection: threshold + top-N, equal weight, cash if empty.
-- Exit rules: proactive sells, default liquidation at next open.
-- `main.py`: `POST /api/v1/backtest` for the backend-only workflow.
+| Phase | Primary goals | Primary outcome | Exit gate | Operational gate |
+| --- | --- | --- | --- | --- |
+| `P0` | `G2`, `G3`, `G9` | runtime and comparison alignment | `GATE-P0-001` | none |
+| `P1` | `G1`, `G2` | TW daily ingestion and recovery | `GATE-P1-001` | `GATE-P1-OPS-001` |
+| `P2` | `G1`, `G2`, `G8` | tick archive preservation | `GATE-P2-001` | `GATE-P2-OPS-001` |
+| `P3` | `G1`, `G3`, `G9` | tradability-state and execution-universe gating | `GATE-P3-001` | `GATE-P3-OPS-001` |
+| `P4` | `G2`, `G3`, `G5` | run registry and comparison governance | `GATE-P4-001` | `GATE-P4-OPS-001` |
+| `P5` | `G3`, `G9` | daily strategy and backtest alignment | `GATE-P5-001` | `GATE-P5-OPS-001` |
+| `P6` | `G4` | model-family expansion on a shared contract | `GATE-P6-001` | `GATE-P6-OPS-001` |
+| `P7` | `G5`, `G6` | external signals and factor expansion | `GATE-P7-001` | `GATE-P7-OPS-001` |
+| `P8` | `G7` | clustering and peer inference | `GATE-P8-001` | `GATE-P8-OPS-001` |
+| `P9` | `G9` | simulation platform integration | `GATE-P9-001` | `GATE-P9-OPS-001` |
+| `P10` | `G9` | guarded broker execution | `GATE-P10-001` | `GATE-LIVEQ-001` |
+| `P11` | `G10` | RL and adaptive extensions | `GATE-P11-001` | none |
 
-Acceptance
+## Delivery Order
 
-- One API call returns KPIs and validation metrics for a full train -> backtest
-  flow.
+The intended order is:
 
-## Phase III: Frontend (Svelte 5)
+1. `P0`
+2. `P1`
+3. `P2`
+4. `P3`
+5. `P4`
+6. `P5`
+7. selected work in `P6`, `P7`, and `P8`
+8. `P9`, `P10`, and `P11`
 
-Tasks
+## Dependency Rules
 
-- Deferred until backend-only scope is stable.
-- Initialize Svelte 5 + Vite + TypeScript.
-- Sidebar config inputs (symbol, date range, features).
-- ECharts equity curve.
-- Run Backtest -> API -> render KPIs.
+### Must Exist Before Later Phases
 
-Acceptance
+- `P0` before any phase that depends on runtime-mode or default-bundle clarity
+- `P1` before any claim that depends on durable raw-data recovery
+- `P3` before any investability or execution-readiness workflow
+- `P4` before governance-heavy comparison workflows
+- `P5` before benchmark-relative strategy claims
 
-- User can run a backtest and see a chart + KPI summary.
+### Safe Parallelization
 
-## Phase IV: Hardening and Quality
+After `P3`, selected work in `P6`, `P7`, and `P8` may run in parallel when all
+participants use the same active spec contract and the same gate vocabulary.
 
-Tasks
+### Must Remain Downstream
 
-- Logging, error handling, and input validation.
-- Minimal tests for data pipeline and backtest outputs.
-- Fixtures for validation methods and baseline comparisons.
-- README setup and run instructions.
+- `P9` should not start as a primary workstream before the baseline research
+  stack is stable
+- `P10` should remain downstream of simulation-path controls
+- `P11` should remain downstream of the accepted non-adaptive baseline
 
-Acceptance
+## Phase Details
 
-- Basic test suite passes and docs describe the local workflow.
+| Phase | Goal | Depends on | Exit gate | Operational gate | Decision dependency |
+| --- | --- | --- | --- | --- | --- |
+| `P0` | align runtime modes, default-bundle behavior, and comparison labels | none | `GATE-P0-001` | none | none |
+| `P1` | build durable TW-first daily ingestion with replay and recovery | `P0` | `GATE-P1-001` | `GATE-P1-OPS-001` | none |
+| `P2` | preserve raw tick archives before formal intraday claims | `P1` | `GATE-P2-001` | `GATE-P2-OPS-001` | `TBD-002` for durable operational qualification |
+| `P3` | add explicit tradability-state and execution-universe logic | `P1` | `GATE-P3-001` | `GATE-P3-OPS-001` | none |
+| `P4` | make runs reproducible, comparable, and reviewable | `P0`, `P3` | `GATE-P4-001` | `GATE-P4-OPS-001` | none |
+| `P5` | align labels, execution semantics, threshold policy, and benchmark reporting | `P3`, `P4` | `GATE-P5-001` | `GATE-P5-OPS-001` | `TBD-001` for durable policy qualification |
+| `P6` | add ML and DL families without breaking the shared contract | `P4`, `P5` | `GATE-P6-001` | `GATE-P6-OPS-001` | `TBD-004` for cross-family default policy hardening |
+| `P7` | add external signals and factor expansion without timing leakage | `P4`, `P5` | `GATE-P7-001` | `GATE-P7-OPS-001` | none |
+| `P8` | add point-in-time clustering and peer inference | `P4`, `P5` | `GATE-P8-001` | `GATE-P8-OPS-001` | none |
+| `P9` | connect the stack to a simulation environment with readback | `P5` | `GATE-P9-001` | `GATE-P9-OPS-001` | `TBD-003` for durable operational qualification |
+| `P10` | move from simulation to guarded broker execution | `P9` | `GATE-P10-001` | `GATE-LIVEQ-001` | none |
+| `P11` | isolate adaptive methods from the default baseline | `P5` | `GATE-P11-001` | none | none |
 
-## API Contract Draft (Target State)
+## Practical Reading Order
 
-Current-state note:
+When planning a change:
 
-- The implemented backend v1 request is narrower than this draft.
-- For the live contract, use `README.md` and `backend/api_models.py` as the source of truth.
-- Current backend v1 already exposes `avg_sharpe` inside `validation.metrics` as a convenience metric.
-
-Request (minimal + extensible)
-
-```json
-{
-  "market": "TW",
-  "symbols": ["2330"],
-  "date_range": { "start": "2019-01-01", "end": "2024-01-01" },
-  "return_target": "open_to_open",
-  "horizon_days": 1,
-  "features": [
-    { "name": "ma", "window": 5, "source": "close", "shift": 1 },
-    { "name": "rsi", "window": 14, "source": "close", "shift": 1 }
-  ],
-  "model": { "type": "xgboost", "params": {} },
-  "strategy": {
-    "type": "research_v1",
-    "threshold": 0.003,
-    "top_n": 5,
-    "allow_proactive_sells": true
-  },
-  "execution": {
-    "slippage": 0.001,
-    "fees": 0.002
-  },
-  "validation": {
-    "method": "walk_forward",
-    "splits": 3,
-    "test_size": 0.2
-  },
-  "baselines": ["buy_and_hold", "naive_momentum"]
-}
-```
-
-Response (UI + report minimums)
-
-```json
-{
-  "run_id": "uuid",
-  "metrics": {
-    "total_return": 0.12,
-    "sharpe": 1.1,
-    "max_drawdown": -0.08,
-    "turnover": 0.3
-  },
-  "equity_curve": [
-    { "date": "2023-01-02", "equity": 1.0 }
-  ],
-  "signals": [
-    { "date": "2023-01-02", "symbol": "2330", "score": 0.004, "position": 0.2 }
-  ],
-  "validation": {
-    "method": "walk_forward",
-    "metrics": {
-      "avg_sharpe": 0.9,
-      "sharpe": 0.9
-    }
-  },
-  "baselines": {
-    "buy_and_hold": { "total_return": 0.08 }
-  },
-  "warnings": []
-}
-```
-
-## Minimal Config Example
-
-```json
-{
-  "market": "TW",
-  "return_target": "open_to_open",
-  "horizon_days": 1,
-  "features": [
-    { "name": "ma", "window": 5, "source": "close", "shift": 1 }
-  ],
-  "strategy": {
-    "type": "research_v1",
-    "threshold": 0.003,
-    "top_n": 5,
-    "allow_proactive_sells": true
-  },
-  "execution": {
-    "slippage": 0.001,
-    "fees": 0.002
-  }
-}
-```
+1. confirm the work matters under `docs/project-goals.md`
+2. confirm required behavior in `docs/research-spec.md`
+3. locate the phase in this file
+4. confirm the gate in `docs/validation-gates.md`
+5. check `docs/decision-register.md` when a `TBD-*` dependency appears
