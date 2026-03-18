@@ -4,6 +4,16 @@ export type FeatureName = "ma" | "rsi";
 export type ReturnTarget = "open_to_open" | "close_to_close" | "open_to_close";
 export type ValidationMethod = "holdout" | "walk_forward" | "rolling_window" | "expanding_window";
 export type BaselineName = "buy_and_hold" | "naive_momentum" | "ma_crossover";
+export type RuntimeMode = "runtime_compatibility_mode" | "vnext_spec_mode";
+export type DefaultBundleVersion = "research_spec_v1";
+export type ConfigValueSource = "request_override" | "spec_default";
+export type FallbackOutcome = "not_needed" | "accepted" | "rejected";
+export type ComparisonEligibility =
+  | "comparison_metadata_only"
+  | "sample_window_pending"
+  | "strategy_pair_comparable"
+  | "research_only_comparable"
+  | "unresolved_event_quarantine";
 
 export interface FeatureSpec {
   name: FeatureName;
@@ -19,6 +29,8 @@ export interface ValidationConfig {
 }
 
 export interface BacktestRequest {
+  runtime_mode: RuntimeMode;
+  default_bundle_version?: DefaultBundleVersion;
   market: MarketCode;
   symbols: string[];
   date_range: {
@@ -34,8 +46,8 @@ export interface BacktestRequest {
   };
   strategy: {
     type: "research_v1";
-    threshold: number;
-    top_n: number;
+    threshold?: number;
+    top_n?: number;
     allow_proactive_sells: boolean;
   };
   execution: {
@@ -78,6 +90,34 @@ export interface BacktestResponse {
   validation: ValidationSummary | null;
   baselines: Record<string, Record<string, number>>;
   warnings: string[];
+  runtime_mode: RuntimeMode;
+  default_bundle_version: DefaultBundleVersion | null;
+  effective_strategy: {
+    threshold: number;
+    top_n: number;
+  };
+  config_sources: {
+    strategy: {
+      threshold: ConfigValueSource;
+      top_n: ConfigValueSource;
+    };
+  };
+  fallback_audit: {
+    strategy: {
+      threshold: {
+        attempted: boolean;
+        outcome: FallbackOutcome;
+      };
+      top_n: {
+        attempted: boolean;
+        outcome: FallbackOutcome;
+      };
+    };
+  };
+  threshold_policy_version: string | null;
+  price_basis_version: string | null;
+  benchmark_comparability_gate: boolean;
+  comparison_eligibility: ComparisonEligibility;
 }
 
 export interface HealthResponse {
@@ -120,6 +160,8 @@ export interface FormFeatureRow {
 }
 
 export interface DashboardFormState {
+  runtimeMode: RuntimeMode;
+  defaultBundleVersion: DefaultBundleVersion | null;
   market: MarketCode;
   symbolsInput: string;
   startDate: string;
@@ -127,8 +169,8 @@ export interface DashboardFormState {
   returnTarget: ReturnTarget;
   horizonDays: number;
   features: FormFeatureRow[];
-  threshold: number;
-  topN: number;
+  threshold: number | null;
+  topN: number | null;
   allowProactiveSells: boolean;
   slippage: number;
   fees: number;

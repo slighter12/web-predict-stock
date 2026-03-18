@@ -8,6 +8,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     create_engine,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -52,6 +53,24 @@ class DailyOHLCV(Base):
     low = Column(Float, nullable=False)
     close = Column(Float, nullable=False)
     volume = Column(Integer, nullable=False)
+    raw_payload_id = Column(Integer, nullable=True, index=True)
+    archive_object_reference = Column(String, nullable=True)
+    parser_version = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RawIngestAudit(Base):
+    __tablename__ = "raw_ingest_audit"
+
+    id = Column(Integer, primary_key=True)
+    source_name = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    fetch_timestamp = Column(DateTime(timezone=True), nullable=False)
+    parser_version = Column(String, nullable=False)
+    fetch_status = Column(String, nullable=False)
+    expected_symbol_context = Column(String, nullable=False)
+    payload_body = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -72,7 +91,5 @@ def create_tables():
 
 
 if __name__ == "__main__":
-    # This will create the tables if you run this script directly
-    print("Creating database tables...")
-    create_tables()
-    print("Tables created successfully.")
+    # Use `alembic upgrade head` to create/migrate tables.
+    print("Run 'uv run alembic upgrade head' to create or migrate database tables.")

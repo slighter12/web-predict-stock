@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
-from .strategy_service import get_strategy_runner, resolve_strategy_config
+from .api_models import StrategyConfig
+from .strategy_service import ResearchStrategyConfig, get_strategy_runner, resolve_strategy_config
 
 Side = Literal["buy", "sell"]
 DEFAULT_MATCHING_MODEL = "ohlc_default"
@@ -250,7 +251,7 @@ def run_backtest(
     high_df: pd.DataFrame,
     low_df: pd.DataFrame,
     close_df: pd.DataFrame,
-    strategy: object,
+    strategy: StrategyConfig | ResearchStrategyConfig,
     execution: object,
     market: str,
     return_target: str,

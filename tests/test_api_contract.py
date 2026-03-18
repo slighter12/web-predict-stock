@@ -10,6 +10,7 @@ from backend.errors import DataNotFoundError, InsufficientDataError
 
 def make_payload() -> dict:
     return {
+        "runtime_mode": "runtime_compatibility_mode",
         "market": "TW",
         "symbols": ["2330"],
         "date_range": {"start": "2022-01-01", "end": "2024-01-01"},
@@ -81,6 +82,27 @@ def test_backtest_endpoint_success(monkeypatch):
     assert result["metrics"]["total_return"] == 0.12
     assert result["signals"][0]["symbol"] == "2330"
     assert result["warnings"] == []
+    assert result["runtime_mode"] == "runtime_compatibility_mode"
+    assert result["default_bundle_version"] is None
+    assert result["effective_strategy"] == {
+        "threshold": 0.003,
+        "top_n": 3,
+    }
+    assert result["config_sources"]["strategy"] == {
+        "threshold": "request_override",
+        "top_n": "request_override",
+    }
+    assert result["fallback_audit"]["strategy"]["threshold"] == {
+        "attempted": False,
+        "outcome": "not_needed",
+    }
+    assert result["fallback_audit"]["strategy"]["top_n"] == {
+        "attempted": False,
+        "outcome": "not_needed",
+    }
+    assert result["threshold_policy_version"] == "static_absolute_gross_label_v1"
+    assert result["benchmark_comparability_gate"] is False
+    assert result["comparison_eligibility"] == "comparison_metadata_only"
 
 
 def test_compute_validation_summary_adds_avg_sharpe(monkeypatch):
@@ -114,7 +136,11 @@ def test_compute_validation_summary_adds_avg_sharpe(monkeypatch):
 
     monkeypatch.setattr(main.backtest_service, "run_backtest", fake_run_backtest)
 
-    summary = main.compute_validation_summary([fake_symbol_data()], request)
+    summary = main.compute_validation_summary(
+        [fake_symbol_data()],
+        request,
+        request.strategy,
+    )
 
     assert summary is not None
     assert summary.metrics["sharpe"] == pytest.approx(0.9)
@@ -164,3 +190,226 @@ def test_backtest_endpoint_insufficient_data(monkeypatch):
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INSUFFICIENT_DATA"
     assert "Not enough data" in response.json()["error"]["message"]
+
+
+def test_backtest_endpoint_vnext_defaults_apply(monkeypatch):
+    payload = make_payload()
+    payload["runtime_mode"] = "vnext_spec_mode"
+    payload["default_bundle_version"] = "research_spec_v1"
+    del payload["strategy"]["threshold"]
+    del payload["strategy"]["top_n"]
+
+    monkeypatch.setattr(main, "_load_symbol_data", lambda *args, **kwargs: fake_symbol_data())
+    captured_strategy = {}
+
+    def fake_run_backtest(**kwargs):
+        captured_strategy["threshold"] = kwargs["strategy"].threshold
+        captured_strategy["top_n"] = kwargs["strategy"].top_n
+        return (
+            {
+                "total_return": 0.12,
+                "sharpe": 1.1,
+                "max_drawdown": -0.08,
+                "turnover": 0.3,
+            },
+            [{"date": pd.Timestamp("2024-01-02").date(), "equity": 1.0}],
+            [{"date": pd.Timestamp("2024-01-02").date(), "symbol": "2330", "score": 0.01, "position": 0.1}],
+            [],
+        )
+
+    monkeypatch.setattr(main.backtest_service, "run_backtest", fake_run_backtest)
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["runtime_mode"] == "vnext_spec_mode"
+    assert result["default_bundle_version"] == "research_spec_v1"
+    assert result["effective_strategy"] == {
+        "threshold": 0.01,
+        "top_n": 10,
+    }
+    assert result["config_sources"]["strategy"] == {
+        "threshold": "spec_default",
+        "top_n": "spec_default",
+    }
+    assert result["fallback_audit"]["strategy"]["threshold"] == {
+        "attempted": True,
+        "outcome": "accepted",
+    }
+    assert result["fallback_audit"]["strategy"]["top_n"] == {
+        "attempted": True,
+        "outcome": "accepted",
+    }
+    assert captured_strategy == {
+        "threshold": pytest.approx(0.01),
+        "top_n": 10,
+    }
+
+
+def test_backtest_endpoint_vnext_mixed_override_and_default(monkeypatch):
+    payload = make_payload()
+    payload["runtime_mode"] = "vnext_spec_mode"
+    payload["default_bundle_version"] = "research_spec_v1"
+    payload["strategy"]["threshold"] = 0.02
+    del payload["strategy"]["top_n"]
+
+    monkeypatch.setattr(main, "_load_symbol_data", lambda *args, **kwargs: fake_symbol_data())
+    captured_strategy = {}
+
+    def fake_run_backtest(**kwargs):
+        captured_strategy["threshold"] = kwargs["strategy"].threshold
+        captured_strategy["top_n"] = kwargs["strategy"].top_n
+        return (
+            {
+                "total_return": 0.12,
+                "sharpe": 1.1,
+                "max_drawdown": -0.08,
+                "turnover": 0.3,
+            },
+            [{"date": pd.Timestamp("2024-01-02").date(), "equity": 1.0}],
+            [{"date": pd.Timestamp("2024-01-02").date(), "symbol": "2330", "score": 0.01, "position": 0.1}],
+            [],
+        )
+
+    monkeypatch.setattr(main.backtest_service, "run_backtest", fake_run_backtest)
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["default_bundle_version"] == "research_spec_v1"
+    assert result["effective_strategy"] == {
+        "threshold": 0.02,
+        "top_n": 10,
+    }
+    assert result["config_sources"]["strategy"] == {
+        "threshold": "request_override",
+        "top_n": "spec_default",
+    }
+    assert result["fallback_audit"]["strategy"]["threshold"] == {
+        "attempted": False,
+        "outcome": "not_needed",
+    }
+    assert result["fallback_audit"]["strategy"]["top_n"] == {
+        "attempted": True,
+        "outcome": "accepted",
+    }
+    assert captured_strategy == {
+        "threshold": pytest.approx(0.02),
+        "top_n": 10,
+    }
+
+
+def test_backtest_endpoint_rejects_missing_threshold_in_compatibility():
+    payload = make_payload()
+    del payload["strategy"]["threshold"]
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "UNSUPPORTED_CONFIGURATION"
+    assert "strategy.threshold is required" in response.json()["error"]["message"]
+
+
+def test_backtest_endpoint_rejects_missing_top_n_in_compatibility():
+    payload = make_payload()
+    del payload["strategy"]["top_n"]
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "UNSUPPORTED_CONFIGURATION"
+    assert "strategy.top_n is required" in response.json()["error"]["message"]
+
+
+def test_backtest_endpoint_rejects_vnext_without_default_bundle():
+    payload = make_payload()
+    payload["runtime_mode"] = "vnext_spec_mode"
+    del payload["strategy"]["threshold"]
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "UNSUPPORTED_CONFIGURATION"
+    assert "default_bundle_version is required" in response.json()["error"]["message"]
+
+
+def test_backtest_endpoint_allows_explicit_vnext_without_bundle(monkeypatch):
+    payload = make_payload()
+    payload["runtime_mode"] = "vnext_spec_mode"
+
+    monkeypatch.setattr(main, "_load_symbol_data", lambda *args, **kwargs: fake_symbol_data())
+    captured_strategy = {}
+
+    def fake_run_backtest(**kwargs):
+        captured_strategy["threshold"] = kwargs["strategy"].threshold
+        captured_strategy["top_n"] = kwargs["strategy"].top_n
+        return (
+            {
+                "total_return": 0.12,
+                "sharpe": 1.1,
+                "max_drawdown": -0.08,
+                "turnover": 0.3,
+            },
+            [{"date": pd.Timestamp("2024-01-02").date(), "equity": 1.0}],
+            [{"date": pd.Timestamp("2024-01-02").date(), "symbol": "2330", "score": 0.01, "position": 0.1}],
+            [],
+        )
+
+    monkeypatch.setattr(main.backtest_service, "run_backtest", fake_run_backtest)
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["runtime_mode"] == "vnext_spec_mode"
+    assert result["default_bundle_version"] is None
+    assert result["effective_strategy"] == {
+        "threshold": 0.003,
+        "top_n": 3,
+    }
+    assert result["config_sources"]["strategy"] == {
+        "threshold": "request_override",
+        "top_n": "request_override",
+    }
+    assert captured_strategy == {
+        "threshold": pytest.approx(0.003),
+        "top_n": 3,
+    }
+
+
+def test_backtest_endpoint_non_gross_target_uses_provisional_metadata(monkeypatch):
+    payload = make_payload()
+    payload["return_target"] = "close_to_close"
+
+    monkeypatch.setattr(main, "_load_symbol_data", lambda *args, **kwargs: fake_symbol_data())
+    monkeypatch.setattr(
+        main.backtest_service,
+        "run_backtest",
+        lambda **kwargs: (
+            {
+                "total_return": 0.12,
+                "sharpe": 1.1,
+                "max_drawdown": -0.08,
+                "turnover": 0.3,
+            },
+            [{"date": pd.Timestamp("2024-01-02").date(), "equity": 1.0}],
+            [{"date": pd.Timestamp("2024-01-02").date(), "symbol": "2330", "score": 0.01, "position": 1.0}],
+            [],
+        ),
+    )
+
+    client = TestClient(main.app)
+    response = client.post("/api/v1/backtest", json=payload)
+    result = response.json()
+
+    assert response.status_code == 200
+    assert result["threshold_policy_version"] is None
+    assert result["price_basis_version"] is None
