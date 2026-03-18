@@ -18,13 +18,28 @@ from . import (
     model_service,
     validation_service,
 )
-from .api_models import BacktestRequest, BacktestResponse, Metrics, ValidationSummary
+from .api_models import (
+    BacktestRequest,
+    BacktestResponse,
+    ConfigSources,
+    EffectiveStrategyConfig,
+    FallbackAudit,
+    Metrics,
+    ValidationSummary,
+)
 from .errors import (
     BacktestError,
     DataAccessError,
     DataNotFoundError,
     InsufficientDataError,
     UnsupportedConfigurationError,
+)
+from .strategy_service import (
+    COMPARISON_ELIGIBILITY,
+    ResearchStrategyConfig,
+    build_threshold_policy_version,
+    build_price_basis_version,
+    resolve_runtime_strategy,
 )
 
 logging.basicConfig(
@@ -355,6 +370,7 @@ def _load_symbol_data(
 def compute_validation_summary(
     symbol_data: list[dict],
     request: BacktestRequest,
+    strategy: ResearchStrategyConfig,
 ) -> ValidationSummary | None:
     if request.validation is None:
         return None
@@ -399,7 +415,7 @@ def compute_validation_summary(
                 high_df=high_df,
                 low_df=low_df,
                 close_df=close_df,
-                strategy=request.strategy,
+                strategy=strategy,
                 execution=request.execution,
                 market=request.market,
                 return_target=request.return_target,
@@ -447,6 +463,12 @@ def run_backtest_endpoint(request: BacktestRequest) -> BacktestResponse:
         request.market,
         request.symbols,
     )
+    runtime_context = resolve_runtime_strategy(
+        strategy=request.strategy,
+        runtime_mode=request.runtime_mode,
+        default_bundle_version=request.default_bundle_version,
+    )
+    resolved_strategy = runtime_context["strategy"]
     feature_config, shift_map = build_feature_config(request)
     test_size = request.validation.test_size if request.validation else 0.2
 
@@ -469,7 +491,7 @@ def run_backtest_endpoint(request: BacktestRequest) -> BacktestResponse:
         high_df=high_df,
         low_df=low_df,
         close_df=close_df,
-        strategy=request.strategy,
+        strategy=resolved_strategy,
         execution=request.execution,
         market=request.market,
         return_target=request.return_target,
@@ -492,11 +514,11 @@ def run_backtest_endpoint(request: BacktestRequest) -> BacktestResponse:
             )
             baselines[baseline] = base_metrics
 
-    validation_summary = compute_validation_summary(symbol_data, request)
+    validation_summary = compute_validation_summary(symbol_data, request, resolved_strategy)
     logger.info(
         "Backtest request completed request_id=%s strategy=%s market=%s symbols=%s warnings=%s",
         request_id_var.get(),
-        request.strategy.type,
+        resolved_strategy.type,
         request.market,
         request.symbols,
         len(warnings),
@@ -509,6 +531,18 @@ def run_backtest_endpoint(request: BacktestRequest) -> BacktestResponse:
         validation=validation_summary,
         baselines=baselines,
         warnings=warnings,
+        runtime_mode=request.runtime_mode,
+        default_bundle_version=runtime_context["default_bundle_version"],
+        effective_strategy=EffectiveStrategyConfig(
+            threshold=resolved_strategy.threshold,
+            top_n=resolved_strategy.top_n,
+        ),
+        config_sources=ConfigSources(**runtime_context["config_sources"]),
+        fallback_audit=FallbackAudit(**runtime_context["fallback_audit"]),
+        threshold_policy_version=build_threshold_policy_version(request.return_target),
+        price_basis_version=build_price_basis_version(request.return_target),
+        benchmark_comparability_gate=False,
+        comparison_eligibility=COMPARISON_ELIGIBILITY,
     )
 
 

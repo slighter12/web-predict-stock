@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Personal Quantitative Research Platform"
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.18.4",
   "fastapi",
   "pandas",
   "psycopg2-binary",

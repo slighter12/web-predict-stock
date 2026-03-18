@@ -22,6 +22,17 @@ ModelType = Literal["xgboost"]
 StrategyType = Literal["research_v1"]
 ValidationMethod = Literal["holdout", "walk_forward", "rolling_window", "expanding_window"]
 BaselineName = Literal["buy_and_hold", "naive_momentum", "ma_crossover"]
+RuntimeMode = Literal["runtime_compatibility_mode", "vnext_spec_mode"]
+DefaultBundleVersion = Literal["research_spec_v1"]
+ConfigValueSource = Literal["request_override", "spec_default"]
+FallbackOutcome = Literal["not_needed", "accepted", "rejected"]
+ComparisonEligibility = Literal[
+    "comparison_metadata_only",
+    "sample_window_pending",
+    "strategy_pair_comparable",
+    "research_only_comparable",
+    "unresolved_event_quarantine",
+]
 
 
 class RequestModel(BaseModel):
@@ -55,8 +66,8 @@ class ModelConfig(RequestModel):
 
 class StrategyConfig(RequestModel):
     type: StrategyType = Field(default="research_v1", description="Strategy identifier.")
-    threshold: confloat(ge=0)  # type: ignore[valid-type]
-    top_n: conint(ge=1)  # type: ignore[valid-type]
+    threshold: Optional[confloat(ge=0)] = None  # type: ignore[valid-type]
+    top_n: Optional[conint(ge=1)] = None  # type: ignore[valid-type]
     allow_proactive_sells: bool = True
 
 
@@ -72,6 +83,8 @@ class ValidationConfig(RequestModel):
 
 
 class BacktestRequest(RequestModel):
+    runtime_mode: RuntimeMode = "runtime_compatibility_mode"
+    default_bundle_version: Optional[DefaultBundleVersion] = None
     market: MarketCode = Field(..., description="Market code.")
     symbols: conlist(str, min_length=1)  # type: ignore[valid-type]
     date_range: DateRange
@@ -137,6 +150,34 @@ class ValidationSummary(BaseModel):
     metrics: Dict[str, float]
 
 
+class StrategyConfigSources(BaseModel):
+    threshold: ConfigValueSource
+    top_n: ConfigValueSource
+
+
+class ConfigSources(BaseModel):
+    strategy: StrategyConfigSources
+
+
+class FallbackAuditEntry(BaseModel):
+    attempted: bool
+    outcome: FallbackOutcome
+
+
+class StrategyFallbackAudit(BaseModel):
+    threshold: FallbackAuditEntry
+    top_n: FallbackAuditEntry
+
+
+class FallbackAudit(BaseModel):
+    strategy: StrategyFallbackAudit
+
+
+class EffectiveStrategyConfig(BaseModel):
+    threshold: float
+    top_n: int
+
+
 class BacktestResponse(BaseModel):
     run_id: str
     metrics: Metrics
@@ -145,3 +186,12 @@ class BacktestResponse(BaseModel):
     validation: Optional[ValidationSummary] = None
     baselines: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
+    runtime_mode: RuntimeMode
+    default_bundle_version: Optional[DefaultBundleVersion] = None
+    effective_strategy: EffectiveStrategyConfig
+    config_sources: ConfigSources
+    fallback_audit: FallbackAudit
+    threshold_policy_version: Optional[str] = None
+    price_basis_version: Optional[str] = None
+    benchmark_comparability_gate: bool
+    comparison_eligibility: ComparisonEligibility

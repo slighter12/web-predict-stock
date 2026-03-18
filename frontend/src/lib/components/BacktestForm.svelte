@@ -1,12 +1,24 @@
 <script lang="ts">
-  import { createDefaultFormState, availableBaselines } from "../defaults";
+  import {
+    DEFAULT_BUNDLE_VERSION,
+    DEFAULT_RUNTIME_MODE,
+    DEFAULT_THRESHOLD,
+    DEFAULT_TOP_N,
+    SPEC_BUNDLE_THRESHOLD,
+    SPEC_BUNDLE_TOP_N,
+    VNEXT_SPEC_MODE,
+    createDefaultFormState,
+    availableBaselines,
+  } from "../defaults";
   import type {
     BacktestRequest,
     BaselineName,
+    DefaultBundleVersion,
     DashboardFormState,
     FeatureName,
     FormFeatureRow,
     PriceSource,
+    RuntimeMode,
   } from "../types";
 
   export let isSubmitting = false;
@@ -14,6 +26,15 @@
 
   let form: DashboardFormState = createDefaultFormState();
   let errors: Record<string, string> = {};
+  const runtimeUsesDefaults = () => form.runtimeMode === VNEXT_SPEC_MODE;
+
+  const parseOptionalNumber = (value: string): number | null => {
+    if (value.trim() === "") {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   const addFeature = () => {
     form.features = [
@@ -53,6 +74,21 @@
       .map((symbol) => symbol.trim())
       .filter(Boolean);
 
+  const handleRuntimeModeChange = (value: RuntimeMode) => {
+    const previousMode = form.runtimeMode;
+    form.runtimeMode = value;
+    form.defaultBundleVersion =
+      value === VNEXT_SPEC_MODE ? form.defaultBundleVersion ?? DEFAULT_BUNDLE_VERSION : null;
+    if (previousMode === VNEXT_SPEC_MODE && value === DEFAULT_RUNTIME_MODE) {
+      if (form.threshold === null) {
+        form.threshold = DEFAULT_THRESHOLD;
+      }
+      if (form.topN === null) {
+        form.topN = DEFAULT_TOP_N;
+      }
+    }
+  };
+
   function validate(): boolean {
     const nextErrors: Record<string, string> = {};
     const symbols = parseSymbols();
@@ -70,11 +106,27 @@
     if (form.horizonDays < 1) {
       nextErrors.horizonDays = "Horizon must be at least 1 day.";
     }
-    if (form.threshold < 0) {
-      nextErrors.threshold = "Threshold cannot be negative.";
-    }
-    if (form.topN < 1) {
-      nextErrors.topN = "Top N must be at least 1.";
+    if (runtimeUsesDefaults()) {
+      if (!form.defaultBundleVersion) {
+        nextErrors.runtime = "Default bundle is required in vnext spec mode.";
+      }
+      if (form.threshold !== null && form.threshold < 0) {
+        nextErrors.threshold = "Threshold cannot be negative.";
+      }
+      if (form.topN !== null && form.topN < 1) {
+        nextErrors.topN = "Top N must be at least 1.";
+      }
+    } else {
+      if (form.threshold === null) {
+        nextErrors.threshold = "Threshold is required in compatibility mode.";
+      } else if (form.threshold < 0) {
+        nextErrors.threshold = "Threshold cannot be negative.";
+      }
+      if (form.topN === null) {
+        nextErrors.topN = "Top N is required in compatibility mode.";
+      } else if (form.topN < 1) {
+        nextErrors.topN = "Top N must be at least 1.";
+      }
     }
     if (form.slippage < 0 || form.fees < 0) {
       nextErrors.execution = "Fees and slippage cannot be negative.";
@@ -106,7 +158,20 @@
   }
 
   function buildPayload(): BacktestRequest {
+    const strategy: BacktestRequest["strategy"] = {
+      type: "research_v1",
+      allow_proactive_sells: form.allowProactiveSells,
+    };
+    if (form.threshold !== null) {
+      strategy.threshold = form.threshold;
+    }
+    if (form.topN !== null) {
+      strategy.top_n = form.topN;
+    }
+
     return {
+      runtime_mode: form.runtimeMode,
+      default_bundle_version: form.runtimeMode === VNEXT_SPEC_MODE ? form.defaultBundleVersion ?? undefined : undefined,
       market: form.market,
       symbols: parseSymbols(),
       date_range: {
@@ -125,12 +190,7 @@
         type: "xgboost",
         params: {},
       },
-      strategy: {
-        type: "research_v1",
-        threshold: form.threshold,
-        top_n: form.topN,
-        allow_proactive_sells: form.allowProactiveSells,
-      },
+      strategy,
       execution: {
         slippage: form.slippage,
         fees: form.fees,
@@ -180,6 +240,33 @@
       <span>Symbols</span>
       <input bind:value={form.symbolsInput} placeholder="2330, 2317, AAPL" />
       {#if errors.symbolsInput}<small>{errors.symbolsInput}</small>{/if}
+    </label>
+  </div>
+
+  <div class="group">
+    <label>
+      <span>Runtime Mode</span>
+      <select
+        value={form.runtimeMode}
+        onchange={(event) =>
+          handleRuntimeModeChange((event.currentTarget as HTMLSelectElement).value as RuntimeMode)}
+      >
+        <option value={DEFAULT_RUNTIME_MODE}>runtime_compatibility_mode</option>
+        <option value={VNEXT_SPEC_MODE}>vnext_spec_mode</option>
+      </select>
+    </label>
+    <label>
+      <span>Default Bundle</span>
+      <select
+        value={form.defaultBundleVersion ?? ""}
+        disabled={!runtimeUsesDefaults()}
+        onchange={(event) =>
+          (form.defaultBundleVersion = ((event.currentTarget as HTMLSelectElement).value || null) as DefaultBundleVersion | null)}
+      >
+        <option value="">none</option>
+        <option value={DEFAULT_BUNDLE_VERSION}>{DEFAULT_BUNDLE_VERSION}</option>
+      </select>
+      {#if errors.runtime}<small>{errors.runtime}</small>{/if}
     </label>
   </div>
 
@@ -283,12 +370,27 @@
   <div class="group triple">
     <label>
       <span>Threshold</span>
-      <input type="number" min="0" step="0.001" bind:value={form.threshold} />
+      <input
+        type="number"
+        min="0"
+        step="0.001"
+        value={form.threshold ?? ""}
+        placeholder={runtimeUsesDefaults() ? `spec default (${SPEC_BUNDLE_THRESHOLD})` : "0.003"}
+        oninput={(event) =>
+          (form.threshold = parseOptionalNumber((event.currentTarget as HTMLInputElement).value))}
+      />
       {#if errors.threshold}<small>{errors.threshold}</small>{/if}
     </label>
     <label>
       <span>Top N</span>
-      <input type="number" min="1" bind:value={form.topN} />
+      <input
+        type="number"
+        min="1"
+        value={form.topN ?? ""}
+        placeholder={runtimeUsesDefaults() ? `spec default (${SPEC_BUNDLE_TOP_N})` : "5"}
+        oninput={(event) =>
+          (form.topN = parseOptionalNumber((event.currentTarget as HTMLInputElement).value))}
+      />
       {#if errors.topN}<small>{errors.topN}</small>{/if}
     </label>
     <label class="toggle">

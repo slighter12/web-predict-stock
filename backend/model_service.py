@@ -61,6 +61,9 @@ def prepare_training_data(
         "symbol",
         "source",
         "market",
+        "raw_payload_id",
+        "archive_object_reference",
+        "parser_version",
         "created_at",
     }
     features = [col for col in df.columns if col not in original_cols]
