@@ -1,7 +1,11 @@
 import pandas as pd
 import pytest
 
-from backend.backtest_service import _build_execution_price, compute_metrics, compute_turnover
+from backend.backtest_service import (
+    _build_execution_price,
+    compute_metrics,
+    compute_turnover,
+)
 from backend.strategy_service import build_weights_from_scores
 
 

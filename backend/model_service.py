@@ -68,7 +68,9 @@ def prepare_training_data(
     }
     features = [col for col in df.columns if col not in original_cols]
     if not features:
-        raise ValueError("No features available for training. Ensure the feature engine added columns.")
+        raise ValueError(
+            "No features available for training. Ensure the feature engine added columns."
+        )
 
     X = df[features]
     y = df["target"]
@@ -86,7 +88,9 @@ def time_series_split(
 
     split_idx = int(len(X) * (1 - test_size))
     if split_idx <= 0 or split_idx >= len(X):
-        raise ValueError(f"Not enough data to create a train/test split with test_size={test_size}.")
+        raise ValueError(
+            f"Not enough data to create a train/test split with test_size={test_size}."
+        )
 
     X_train = X.iloc[:split_idx]
     X_test = X.iloc[split_idx:]

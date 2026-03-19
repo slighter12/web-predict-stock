@@ -1,8 +1,12 @@
 # Personal Quant Research Platform
 
-This repository is a TW-first quantitative research platform for market-data
-ingestion, feature generation, model training, backtesting, and
-dashboard-based review.
+This repository is a docs-first quantitative research platform for two
+workspaces:
+
+- `research runs`: model execution, validation, comparison metadata, and run
+  registry
+- `data plane`: raw ingest preservation, replay, recovery drills, lifecycle
+  records, and important events
 
 This file is descriptive and navigational. Normative rules live in the
 governance documents under `docs/`.
@@ -78,7 +82,7 @@ Use the document that owns the question you are trying to answer.
 - Database: PostgreSQL + TimescaleDB
 - Modeling: XGBoost and scikit-learn based research workflows
 - Data sources: TWSE plus yfinance bootstrap or backfill support
-- Backtesting: VectorBT with fees and slippage support
+- Research execution: VectorBT with fees and slippage support
 
 ## Quickstart
 
@@ -103,8 +107,8 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 
 ```bash
 .
-├── backend/                # FastAPI application and research services
-├── frontend/               # Svelte dashboard
+├── backend/                # app, api, schemas, services, repositories, runtime, domain
+├── frontend/               # Svelte workspaces for research runs and data plane
 ├── scripts/                # ingestion and smoke utilities
 ├── docs/                   # goals, spec, plan, validation, dev, snapshots
 ├── tests/                  # repository tests

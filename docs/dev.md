@@ -95,6 +95,16 @@ Run the API locally:
 .venv/bin/python -m uvicorn backend.main:app --reload
 ```
 
+Current backend ownership is:
+
+- `backend/app.py`: FastAPI app, middleware, exception registration, router include
+- `backend/api/`: HTTP routes for `system`, `research_runs`, and `data_plane`
+- `backend/schemas/`: request and response contracts
+- `backend/services/`: orchestration and domain-facing operations
+- `backend/repositories/`: DB persistence and row mapping
+- `backend/runtime/`: request-id, run-id, and error-envelope helpers
+- `backend/domain/`: version-pack and runtime-bundle rules
+
 ## Data Loading
 
 Populate market data into the configured database:
@@ -135,20 +145,27 @@ make frontend-dev
 make frontend-build
 ```
 
+Current frontend ownership is:
+
+- `frontend/src/lib/api/`: typed HTTP clients grouped by domain
+- `frontend/src/lib/types/`: domain contracts and UI-facing shared types
+- `frontend/src/lib/state/`: form defaults and payload mappers
+- `frontend/src/lib/components/research-runs/`: research-run form and inspector
+- `frontend/src/lib/components/data-plane/`: ingestion, replay, recovery, lifecycle, important-event panels
+- `frontend/src/lib/components/layout/`: shared workspace shells
+
 ## Smoke and Test Commands
 
 These commands exist in the repository. Run them only when the task requires
 execution.
 
 ```bash
-make smoke
 make test
 ```
 
 Equivalent direct commands:
 
 ```bash
-.venv/bin/python scripts/smoke_backtest.py
 .venv/bin/python -m pytest -q
 ```
 

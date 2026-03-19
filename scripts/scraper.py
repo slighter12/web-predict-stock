@@ -1,9 +1,11 @@
+import json
 import logging
 import os
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from functools import partial
+from io import StringIO
 
 import pandas as pd
 import requests
@@ -16,7 +18,9 @@ try:
     from backend.database import DailyOHLCV, RawIngestAudit, engine
     from backend.time_utils import utc_now
 except ImportError:
-    print("Error: Could not import from backend.database. Make sure the backend directory is in the Python path.")
+    print(
+        "Error: Could not import from backend.database. Make sure the backend directory is in the Python path."
+    )
     sys.exit(1)
 
 logging.basicConfig(
@@ -51,10 +55,14 @@ class RawTraceMetadata:
     parser_version: str | None = None
 
     @classmethod
-    def from_ingest(cls, raw_payload_id: int | None, parser_version: str) -> "RawTraceMetadata":
+    def from_ingest(
+        cls, raw_payload_id: int | None, parser_version: str
+    ) -> "RawTraceMetadata":
         return cls(
             raw_payload_id=raw_payload_id,
-            archive_object_reference=f"raw_ingest_audit:{raw_payload_id}" if raw_payload_id else None,
+            archive_object_reference=f"raw_ingest_audit:{raw_payload_id}"
+            if raw_payload_id
+            else None,
             parser_version=parser_version,
         )
 
@@ -87,8 +95,10 @@ def persist_raw_ingest_record(
     }
     try:
         with engine.begin() as conn:
-            insert_stmt = RawIngestAudit.__table__.insert().values(record).returning(
-                RawIngestAudit.id
+            insert_stmt = (
+                RawIngestAudit.__table__.insert()
+                .values(record)
+                .returning(RawIngestAudit.id)
             )
             return conn.execute(insert_stmt).scalar_one()
     except Exception as exc:
@@ -100,7 +110,9 @@ def persist_raw_ingest_record(
         raise RuntimeError("Failed to persist raw ingest audit record.") from exc
 
 
-def _try_persist(persist_fn, *, fetch_status: str, payload_body: str, context_label: str) -> int | None:
+def _try_persist(
+    persist_fn, *, fetch_status: str, payload_body: str, context_label: str
+) -> int | None:
     try:
         return persist_fn(fetch_status=fetch_status, payload_body=payload_body)
     except RuntimeError:
@@ -125,7 +137,9 @@ def validate_ohlcv_with_report(
     required_cols = ["date", "symbol", "open", "high", "low", "close", "volume"]
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
-        logger.warning("Missing columns in OHLCV data label=%s missing=%s", label, missing)
+        logger.warning(
+            "Missing columns in OHLCV data label=%s missing=%s", label, missing
+        )
         return pd.DataFrame(), report
 
     cleaned = df.copy()
@@ -168,6 +182,135 @@ def validate_ohlcv(df: pd.DataFrame, label: str = "") -> pd.DataFrame:
     return cleaned
 
 
+def _attach_stage_metadata(summary: dict, metadata: RawTraceMetadata | None) -> dict:
+    enriched = dict(summary)
+    enriched["raw_payload_id"] = metadata.raw_payload_id if metadata else None
+    enriched["archive_object_reference"] = (
+        metadata.archive_object_reference if metadata else None
+    )
+    enriched["parser_version"] = metadata.parser_version if metadata else None
+    return enriched
+
+
+def parse_twse_payload_body(
+    payload_body: str,
+    symbol: str,
+    raw_payload_id: int | None = None,
+) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    data = json.loads(payload_body)
+    if data.get("stat") != "OK":
+        raise ValueError(f"TWSE payload is not replayable for symbol '{symbol}'.")
+
+    df = pd.DataFrame(data["data"], columns=data["fields"])
+    column_mapping = {
+        "日期": "date",
+        "成交股數": "volume",
+        "成交金額": "trade_value",
+        "開盤價": "open",
+        "最高價": "high",
+        "最低價": "low",
+        "收盤價": "close",
+        "漲跌價差": "price_change",
+        "成交筆數": "trade_count",
+    }
+    df.rename(columns=column_mapping, inplace=True)
+    df["symbol"] = symbol
+    df["source"] = SOURCE_TWSE
+    df["market"] = MARKET_TW
+    df["date"] = df["date"].apply(
+        lambda d: datetime.strptime(
+            f"{int(d.split('/')[0]) + 1911}/{d.split('/')[1]}/{d.split('/')[2]}",
+            "%Y/%m/%d",
+        ).date()
+    )
+
+    for col in ["volume", "open", "high", "low", "close"]:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace(",", ""),
+            errors="coerce",
+        ).fillna(0)
+
+    df["volume"] = df["volume"].astype(int)
+    df = df[
+        [
+            "date",
+            "symbol",
+            "market",
+            "source",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]
+    ]
+    cleaned, _ = validate_ohlcv_with_report(df, label=f"{symbol}:{SOURCE_TWSE}:replay")
+    return cleaned, RawTraceMetadata.from_ingest(raw_payload_id, TWSE_PARSER_VERSION)
+
+
+def parse_yfinance_payload_body(
+    payload_body: str,
+    symbol: str,
+    market: str,
+    raw_payload_id: int | None = None,
+) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    hist = pd.read_json(StringIO(payload_body), orient="table")
+    hist.rename(
+        columns={
+            "Date": "date",
+            "Datetime": "date",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+        },
+        inplace=True,
+    )
+    for col in ["open", "high", "low", "close", "volume"]:
+        hist[col] = pd.to_numeric(hist[col], errors="coerce")
+
+    hist["date"] = pd.to_datetime(hist["date"]).dt.date
+    hist["symbol"] = symbol
+    hist["source"] = SOURCE_YFINANCE
+    hist["market"] = market
+    hist["volume"] = hist["volume"].fillna(0).astype(int)
+    hist = hist[
+        ["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]
+    ]
+    cleaned, _ = validate_ohlcv_with_report(
+        hist, label=f"{symbol}:{SOURCE_YFINANCE}:replay"
+    )
+    return cleaned, RawTraceMetadata.from_ingest(
+        raw_payload_id, YFINANCE_PARSER_VERSION
+    )
+
+
+def replay_raw_ingest_record(raw_record) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    if not getattr(raw_record, "payload_body", None):
+        raise ValueError(
+            f"Raw payload '{raw_record.id}' does not contain replayable content."
+        )
+
+    if raw_record.source_name == SOURCE_TWSE:
+        return parse_twse_payload_body(
+            payload_body=raw_record.payload_body,
+            symbol=raw_record.symbol,
+            raw_payload_id=raw_record.id,
+        )
+    if raw_record.source_name == SOURCE_YFINANCE:
+        return parse_yfinance_payload_body(
+            payload_body=raw_record.payload_body,
+            symbol=raw_record.symbol,
+            market=raw_record.market,
+            raw_payload_id=raw_record.id,
+        )
+
+    raise ValueError(
+        f"Unsupported source '{raw_record.source_name}' for raw payload replay."
+    )
+
+
 def scrape_twse_data(
     symbol: str, date_str: str | None = None
 ) -> tuple[pd.DataFrame, RawTraceMetadata | None]:
@@ -203,7 +346,12 @@ def scrape_twse_data(
         payload_body = response.text
     except requests.exceptions.RequestException:
         logger.exception("TWSE request failed symbol=%s date=%s", symbol, date_str)
-        _try_persist(_persist, fetch_status=FETCH_STATUS_FAILED, payload_body=payload_body, context_label=f"TWSE fetch failure {symbol}")
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"TWSE fetch failure {symbol}",
+        )
         return pd.DataFrame(), None
 
     raw_payload_id = _persist(
@@ -220,64 +368,37 @@ def scrape_twse_data(
                 date_str,
                 data,
             )
-            _try_persist(_persist, fetch_status=FETCH_STATUS_FAILED, payload_body=payload_body, context_label=f"TWSE non-OK {symbol}")
+            _try_persist(
+                _persist,
+                fetch_status=FETCH_STATUS_FAILED,
+                payload_body=payload_body,
+                context_label=f"TWSE non-OK {symbol}",
+            )
             return pd.DataFrame(), None
 
-        df = pd.DataFrame(data["data"], columns=data["fields"])
-        column_mapping = {
-            "日期": "date",
-            "成交股數": "volume",
-            "成交金額": "trade_value",
-            "開盤價": "open",
-            "最高價": "high",
-            "最低價": "low",
-            "收盤價": "close",
-            "漲跌價差": "price_change",
-            "成交筆數": "trade_count",
-        }
-        df.rename(columns=column_mapping, inplace=True)
-
-        df["symbol"] = symbol
-        df["source"] = SOURCE_TWSE
-        df["market"] = MARKET_TW
-        df["date"] = df["date"].apply(
-            lambda d: datetime.strptime(
-                f"{int(d.split('/')[0]) + 1911}/{d.split('/')[1]}/{d.split('/')[2]}",
-                "%Y/%m/%d",
-            ).date()
+        cleaned, metadata = parse_twse_payload_body(
+            payload_body=payload_body,
+            symbol=symbol,
+            raw_payload_id=raw_payload_id,
         )
 
-        for col in ["volume", "open", "high", "low", "close"]:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(",", ""), errors="coerce"
-            ).fillna(0)
-
-        df["volume"] = df["volume"].astype(int)
-        df = df[
-            [
-                "date",
-                "symbol",
-                "market",
-                "source",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-            ]
-        ]
-        cleaned, _ = validate_ohlcv_with_report(df, label=f"{symbol}:{SOURCE_TWSE}")
-        metadata = RawTraceMetadata.from_ingest(raw_payload_id, TWSE_PARSER_VERSION)
-
         logger.info(
-            "Scraped TWSE rows=%s symbol=%s month=%s", len(df), symbol, date_str[:6]
+            "Scraped TWSE rows=%s symbol=%s month=%s",
+            len(cleaned),
+            symbol,
+            date_str[:6],
         )
         return cleaned, metadata
     except Exception:
         logger.exception(
             "TWSE payload parsing failed symbol=%s date=%s", symbol, date_str
         )
-        _try_persist(_persist, fetch_status=FETCH_STATUS_FAILED, payload_body=payload_body, context_label=f"TWSE parse failure {symbol}")
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"TWSE parse failure {symbol}",
+        )
         return pd.DataFrame(), None
 
 
@@ -413,12 +534,22 @@ def backfill_history(
         logger.exception(
             "Failed to fetch yfinance data symbol=%s market=%s", symbol, market
         )
-        _try_persist(_persist, fetch_status=FETCH_STATUS_FAILED, payload_body=payload_body, context_label=f"yfinance fetch failure {symbol}")
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"yfinance fetch failure {symbol}",
+        )
         return pd.DataFrame(), None
 
     if hist.empty:
         logger.warning("No yfinance data returned symbol=%s market=%s", symbol, market)
-        _try_persist(_persist, fetch_status=FETCH_STATUS_SUCCESS, payload_body=payload_body, context_label=f"yfinance empty fetch {symbol}")
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_SUCCESS,
+            payload_body=payload_body,
+            context_label=f"yfinance empty fetch {symbol}",
+        )
         return pd.DataFrame(), None
 
     hist = hist.reset_index()
@@ -429,38 +560,18 @@ def backfill_history(
         payload_body=raw_payload_body,
     )
 
-    hist.rename(
-        columns={
-            "Date": "date",
-            "Datetime": "date",
-            "Open": "open",
-            "High": "high",
-            "Low": "low",
-            "Close": "close",
-            "Volume": "volume",
-        },
-        inplace=True,
+    cleaned, metadata = parse_yfinance_payload_body(
+        payload_body=raw_payload_body,
+        symbol=symbol,
+        market=market,
+        raw_payload_id=raw_payload_id,
     )
-
-    for col in ["open", "high", "low", "close", "volume"]:
-        hist[col] = pd.to_numeric(hist[col], errors="coerce")
-
-    hist["date"] = pd.to_datetime(hist["date"]).dt.date
-    hist["symbol"] = symbol
-    hist["source"] = SOURCE_YFINANCE
-    hist["market"] = market
-    hist["volume"] = hist["volume"].fillna(0).astype(int)
-    hist = hist[
-        ["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]
-    ]
     logger.info(
         "Fetched yfinance history rows=%s symbol=%s market=%s",
-        len(hist),
+        len(cleaned),
         symbol,
         market,
     )
-    cleaned, _ = validate_ohlcv_with_report(hist, label=f"{symbol}:{SOURCE_YFINANCE}")
-    metadata = RawTraceMetadata.from_ingest(raw_payload_id, YFINANCE_PARSER_VERSION)
     return cleaned, metadata
 
 
@@ -478,24 +589,35 @@ def ingest_symbol(
         "daily_update": {},
     }
 
-    backfill_df, backfill_meta = backfill_history(symbol=symbol, years=years, market=market_code)
-    summary["backfill"] = load_to_db(backfill_df, metadata=backfill_meta)
+    backfill_df, backfill_meta = backfill_history(
+        symbol=symbol, years=years, market=market_code
+    )
+    summary["backfill"] = _attach_stage_metadata(
+        load_to_db(backfill_df, metadata=backfill_meta),
+        backfill_meta,
+    )
 
     if market_code == MARKET_TW:
         daily_df, daily_meta = scrape_daily_twse(symbol=symbol, date_str=date_str)
-        summary["daily_update"] = load_to_db(daily_df, metadata=daily_meta)
+        summary["daily_update"] = _attach_stage_metadata(
+            load_to_db(daily_df, metadata=daily_meta),
+            daily_meta,
+        )
     else:
-        summary["daily_update"] = {
-            "input_rows": 0,
-            "validated_rows": 0,
-            "dropped_rows": 0,
-            "duplicates_removed": 0,
-            "null_rows_removed": 0,
-            "invalid_rows_removed": 0,
-            "gap_warnings": 0,
-            "upserted_rows": 0,
-            "official_overrides": 0,
-        }
+        summary["daily_update"] = _attach_stage_metadata(
+            {
+                "input_rows": 0,
+                "validated_rows": 0,
+                "dropped_rows": 0,
+                "duplicates_removed": 0,
+                "null_rows_removed": 0,
+                "invalid_rows_removed": 0,
+                "gap_warnings": 0,
+                "upserted_rows": 0,
+                "official_overrides": 0,
+            },
+            None,
+        )
 
     logger.info("Ingest completed summary=%s", summary)
     return summary
@@ -503,7 +625,9 @@ def ingest_symbol(
 
 if __name__ == "__main__":
     # Use `alembic upgrade head` to create/migrate tables.
-    print("Run 'uv run alembic upgrade head' to create or migrate database tables before ingesting.")
+    print(
+        "Run 'uv run alembic upgrade head' to create or migrate database tables before ingesting."
+    )
 
     symbol = os.getenv("INGEST_SYMBOL", "2330")
     market = os.getenv("INGEST_MARKET", MARKET_TW).upper()

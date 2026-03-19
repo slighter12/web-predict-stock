@@ -19,12 +19,12 @@ def load_env(path: Path) -> None:
 
 load_env(Path(".env"))
 
-from backend.api_models import BacktestRequest
-from backend.main import run_backtest_endpoint
+from backend.schemas.research_runs import ResearchRunCreateRequest
+from backend.services.backtest_engine_service import execute_research_run
 
 
 def main() -> None:
-    request = BacktestRequest(
+    request = ResearchRunCreateRequest(
         market="TW",
         symbols=["2330"],
         date_range={"start": "2022-01-01", "end": "2024-01-01"},
@@ -49,8 +49,8 @@ def main() -> None:
         baselines=["buy_and_hold", "naive_momentum"],
     )
 
-    result = run_backtest_endpoint(request)
-    payload = result.model_dump()
+    artifacts = execute_research_run(run_id="smoke-backtest", request=request)
+    payload = artifacts.response.model_dump()
 
     print(
         {
