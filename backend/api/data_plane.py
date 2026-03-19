@@ -30,12 +30,7 @@ router = APIRouter()
     "/api/v1/data/ingestions", tags=["Data Plane"], response_model=DataIngestionResponse
 )
 def create_data_ingestion(request: DataIngestionRequest) -> DataIngestionResponse:
-    summary = ingest_market_data(
-        symbol=request.symbol,
-        market=request.market,
-        years=request.years,
-        date_str=request.date_str,
-    )
+    summary = ingest_market_data(request)
     return DataIngestionResponse(**summary)
 
 
@@ -89,9 +84,7 @@ def read_recovery_drills() -> list[RecoveryDrillResponse]:
     response_model=LifecycleRecordResponse,
 )
 def create_lifecycle_record(request: LifecycleRecordUpsert) -> LifecycleRecordResponse:
-    return LifecycleRecordResponse(
-        **save_lifecycle_record(request.model_dump(mode="python"))
-    )
+    return LifecycleRecordResponse(**save_lifecycle_record(request))
 
 
 @router.get(
@@ -109,9 +102,7 @@ def read_lifecycle_records() -> list[LifecycleRecordResponse]:
     response_model=ImportantEventResponse,
 )
 def create_important_event(request: ImportantEventUpsert) -> ImportantEventResponse:
-    return ImportantEventResponse(
-        **save_important_event(request.model_dump(mode="python"))
-    )
+    return ImportantEventResponse(**save_important_event(request))
 
 
 @router.get(

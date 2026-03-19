@@ -21,13 +21,19 @@ from .runtime.errors import (
     validation_error_details,
 )
 from .runtime.request_context import (
-    build_request_research_run_payload,
+    clear_request_run_id,
     ensure_request_run_id,
     get_request_id,
     get_request_run_id,
-    persist_request_research_run,
-    read_request_payload,
+    mark_request_research_run_persist_attempted,
+    mark_request_research_run_persisted,
     request_id_var,
+    request_research_run_persist_attempted,
+)
+from .runtime.request_payload import read_request_payload
+from .services.research_run_registry_service import (
+    record_unexpected_failure,
+    record_validation_failure,
 )
 
 logging.basicConfig(
@@ -126,30 +132,27 @@ async def handle_request_validation_error(
 ):
     current_request_id = get_request_id(request)
     run_id = ensure_request_run_id(request)
-    if request.url.path == "/api/v1/research/runs" and not getattr(
-        request.state, "research_run_persist_attempted", False
+    if request.url.path == "/api/v1/research/runs" and not request_research_run_persist_attempted(
+        request
     ):
         payload = await read_request_payload(request)
-        persist_request_research_run(
-            request,
-            build_request_research_run_payload(
+        mark_request_research_run_persist_attempted(request)
+        try:
+            record_validation_failure(
                 run_id=run_id,
                 request_id=current_request_id,
-                status="validation_failed",
                 request_payload=payload,
-                strategy_type=((payload or {}).get("strategy") or {}).get("type"),
-                market=(payload or {}).get("market"),
-                symbols=(payload or {}).get("symbols")
-                if isinstance((payload or {}).get("symbols"), list)
-                else [],
-                validation_outcome={
-                    "error_code": "VALIDATION_FAILED",
-                    "details": validation_error_details(exc),
-                },
-                rejection_reason="請檢查輸入內容。",
-            ),
-            raise_on_failure=False,
-        )
+                details=validation_error_details(exc),
+            )
+        except DataAccessError:
+            clear_request_run_id(request)
+            logger.exception(
+                "Failed to record validation failure request_id=%s run_id=%s",
+                current_request_id,
+                run_id,
+            )
+        else:
+            mark_request_research_run_persisted(request)
         run_id = get_request_run_id(request)
     return build_error_response(
         status_code=422,
@@ -202,29 +205,29 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException):
 async def handle_unexpected_error(request: Request, exc: Exception):
     current_request_id = get_request_id(request)
     run_id = get_request_run_id(request)
-    if request.url.path == "/api/v1/research/runs" and not getattr(
-        request.state, "research_run_persist_attempted", False
+    if request.url.path == "/api/v1/research/runs" and not request_research_run_persist_attempted(
+        request
     ):
         payload = await read_request_payload(request)
         if run_id is None:
             run_id = ensure_request_run_id(request)
-        persist_request_research_run(
-            request,
-            build_request_research_run_payload(
+        mark_request_research_run_persist_attempted(request)
+        try:
+            record_unexpected_failure(
                 run_id=run_id,
                 request_id=current_request_id,
-                status="failed",
                 request_payload=payload,
-                strategy_type=((payload or {}).get("strategy") or {}).get("type"),
-                market=(payload or {}).get("market"),
-                symbols=(payload or {}).get("symbols")
-                if isinstance((payload or {}).get("symbols"), list)
-                else [],
-                validation_outcome={"error_code": "INTERNAL_SERVER_ERROR"},
                 rejection_reason="伺服器發生未預期錯誤。",
-            ),
-            raise_on_failure=False,
-        )
+            )
+        except DataAccessError:
+            clear_request_run_id(request)
+            logger.exception(
+                "Failed to record unexpected failure request_id=%s run_id=%s",
+                current_request_id,
+                run_id,
+            )
+        else:
+            mark_request_research_run_persisted(request)
         run_id = get_request_run_id(request)
     logger.exception(
         "Unexpected error request_id=%s path=%s", current_request_id, request.url.path

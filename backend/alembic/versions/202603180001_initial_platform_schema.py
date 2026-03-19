@@ -23,9 +23,25 @@ def _has_index(table_name: str, index_name: str) -> bool:
     return any(index["name"] == index_name for index in indexes)
 
 
+def _has_column(table_name: str, column_name: str) -> bool:
+    if not _has_table(table_name):
+        return False
+    columns = sa.inspect(op.get_bind()).get_columns(table_name)
+    return any(column["name"] == column_name for column in columns)
+
+
+def _add_column_if_missing(table_name: str, column: sa.Column) -> None:
+    if _has_table(table_name) and not _has_column(table_name, column.name):
+        op.add_column(table_name, column)
+
+
 def _create_index_if_missing(
     index_name: str, table_name: str, columns: list[str]
 ) -> None:
+    if not _has_table(table_name):
+        return
+    if not all(_has_column(table_name, column_name) for column_name in columns):
+        return
     if not _has_index(table_name, index_name):
         op.create_index(index_name, table_name, columns)
 
@@ -64,6 +80,16 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("date", "symbol"),
         )
+    _add_column_if_missing(
+        "daily_ohlcv", sa.Column("raw_payload_id", sa.Integer(), nullable=True)
+    )
+    _add_column_if_missing(
+        "daily_ohlcv",
+        sa.Column("archive_object_reference", sa.String(), nullable=True),
+    )
+    _add_column_if_missing(
+        "daily_ohlcv", sa.Column("parser_version", sa.String(), nullable=True)
+    )
     _create_index_if_missing(
         "idx_daily_ohlcv_symbol_date", "daily_ohlcv", ["symbol", "date"]
     )

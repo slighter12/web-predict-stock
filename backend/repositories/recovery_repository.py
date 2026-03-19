@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -9,12 +8,7 @@ from sqlalchemy import desc, select
 from ..database import RecoveryDrill, SessionLocal
 from ..errors import DataAccessError
 from ..time_utils import utc_now
-from ._shared import (
-    MEMORY_DRILLS,
-    append_memory_record,
-    next_memory_id,
-    normalize_created_at,
-)
+from ._shared import clone_payload, normalize_created_at
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +31,7 @@ def _recovery_row_to_dict(row: RecoveryDrill) -> dict[str, Any]:
 
 
 def persist_recovery_record(payload: dict[str, Any]) -> dict[str, Any]:
-    record = deepcopy(payload)
+    record = clone_payload(payload)
     record.setdefault("created_at", utc_now())
 
     try:
@@ -57,17 +51,13 @@ def persist_recovery_record(payload: dict[str, Any]) -> dict[str, Any]:
             session.add(row)
             session.commit()
             session.refresh(row)
-            persisted = _recovery_row_to_dict(row)
-    except Exception:
+            return _recovery_row_to_dict(row)
+    except Exception as exc:
         logger.exception(
-            "Falling back to in-memory recovery drill persistence raw_payload_id=%s",
+            "Failed to persist recovery drill raw_payload_id=%s",
             record["raw_payload_id"],
         )
-        record["id"] = next_memory_id("drill")
-        append_memory_record(MEMORY_DRILLS, record)
-        persisted = deepcopy(record)
-
-    return persisted
+        raise DataAccessError("Failed to persist recovery drill.") from exc
 
 
 def list_recovery_records(limit: int = 20) -> list[dict[str, Any]]:
@@ -84,8 +74,4 @@ def list_recovery_records(limit: int = 20) -> list[dict[str, Any]]:
             ]
     except Exception as exc:
         logger.exception("Failed to list recovery drills from DB")
-        if MEMORY_DRILLS:
-            return deepcopy(
-                sorted(MEMORY_DRILLS, key=lambda item: item["id"], reverse=True)[:limit]
-            )
         raise DataAccessError("Failed to list recovery drills.") from exc

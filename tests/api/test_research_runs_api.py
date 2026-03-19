@@ -134,8 +134,16 @@ def test_create_research_run_success(monkeypatch):
 
 
 def test_create_research_run_validation_failed(monkeypatch):
+    captured: dict = {}
+
+    def capture_record_validation_failure(**kwargs):
+        captured.update(kwargs)
+        return {}
+
     monkeypatch.setattr(
-        backend_app, "persist_request_research_run", lambda *args, **kwargs: True
+        backend_app,
+        "record_validation_failure",
+        capture_record_validation_failure,
     )
     payload = make_payload()
     payload["symbols"] = ["2330", "2330"]
@@ -146,6 +154,29 @@ def test_create_research_run_validation_failed(monkeypatch):
     assert response.json()["error"]["code"] == "VALIDATION_FAILED"
     assert response.json()["meta"]["request_id"]
     assert response.json()["meta"]["run_id"]
+    assert captured["run_id"] == response.json()["meta"]["run_id"]
+    assert captured["details"]["fields"]
+
+
+def test_create_research_run_validation_failed_omits_run_id_on_registry_failure(
+    monkeypatch,
+):
+    def raise_data_access_error(**kwargs):
+        raise DataAccessError("db unavailable")
+
+    monkeypatch.setattr(
+        backend_app,
+        "record_validation_failure",
+        raise_data_access_error,
+    )
+    payload = make_payload()
+    payload["symbols"] = ["2330", "2330"]
+
+    response = client.post("/api/v1/research/runs", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+    assert "run_id" not in response.json()["meta"]
 
 
 def test_create_research_run_rejected(monkeypatch):
@@ -171,6 +202,58 @@ def test_create_research_run_data_access_failed(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "DATA_ACCESS_FAILED"
+
+
+def test_create_research_run_unexpected_failed(monkeypatch):
+    captured: dict = {}
+
+    def raise_unexpected(**kwargs):
+        raise RuntimeError("boom")
+
+    def capture_record_unexpected_failure(**kwargs):
+        captured.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(research_runs_api, "create_research_run", raise_unexpected)
+    monkeypatch.setattr(
+        backend_app,
+        "record_unexpected_failure",
+        capture_record_unexpected_failure,
+    )
+    local_client = TestClient(app, raise_server_exceptions=False)
+
+    response = local_client.post("/api/v1/research/runs", json=make_payload())
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+    assert response.json()["meta"]["request_id"]
+    assert response.json()["meta"]["run_id"]
+    assert captured["run_id"] == response.json()["meta"]["run_id"]
+    assert captured["rejection_reason"] == "伺服器發生未預期錯誤。"
+
+
+def test_create_research_run_unexpected_failed_omits_run_id_on_registry_failure(
+    monkeypatch,
+):
+    def raise_unexpected(**kwargs):
+        raise RuntimeError("boom")
+
+    def raise_data_access_error(**kwargs):
+        raise DataAccessError("db unavailable")
+
+    monkeypatch.setattr(research_runs_api, "create_research_run", raise_unexpected)
+    monkeypatch.setattr(
+        backend_app,
+        "record_unexpected_failure",
+        raise_data_access_error,
+    )
+    local_client = TestClient(app, raise_server_exceptions=False)
+
+    response = local_client.post("/api/v1/research/runs", json=make_payload())
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+    assert "run_id" not in response.json()["meta"]
 
 
 def test_get_research_run(monkeypatch):

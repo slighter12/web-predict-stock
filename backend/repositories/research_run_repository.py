@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -11,11 +10,10 @@ from ..domain.runtime_bundle import build_version_pack_payload
 from ..errors import DataAccessError, DataNotFoundError
 from ..time_utils import utc_now
 from ._shared import (
-    MEMORY_RUNS,
+    clone_payload,
     json_dumps,
     json_loads,
     normalize_created_at,
-    remember_memory_mapping,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +61,7 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
 
 
 def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
-    record = deepcopy(payload)
+    record = clone_payload(payload)
     record.setdefault("symbols", [])
     record.setdefault("warnings", [])
     record.setdefault("created_at", utc_now())
@@ -100,16 +98,13 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             session.add(row)
             session.commit()
             session.refresh(row)
-            persisted = _run_row_to_dict(row)
-    except Exception:
+            return _run_row_to_dict(row)
+    except Exception as exc:
         logger.exception(
-            "Falling back to in-memory research run persistence run_id=%s",
+            "Failed to persist research run record run_id=%s",
             record["run_id"],
         )
-        persisted = deepcopy(record)
-
-    remember_memory_mapping(MEMORY_RUNS, persisted["run_id"], persisted)
-    return persisted
+        raise DataAccessError("Failed to persist research run record.") from exc
 
 
 def get_research_run_record(run_id: str) -> dict[str, Any]:
@@ -120,12 +115,7 @@ def get_research_run_record(run_id: str) -> dict[str, Any]:
                 return _run_row_to_dict(row)
     except Exception as exc:
         logger.exception("Failed to load research run from DB run_id=%s", run_id)
-        if run_id in MEMORY_RUNS:
-            return deepcopy(MEMORY_RUNS[run_id])
         raise DataAccessError("Failed to load research run.") from exc
-
-    if run_id in MEMORY_RUNS:
-        return deepcopy(MEMORY_RUNS[run_id])
 
     raise DataNotFoundError(f"Research run '{run_id}' was not found.")
 
@@ -143,12 +133,4 @@ def list_research_run_records(limit: int = 20) -> list[dict[str, Any]]:
             ]
     except Exception as exc:
         logger.exception("Failed to list research runs from DB")
-        if MEMORY_RUNS:
-            return list(
-                sorted(
-                    MEMORY_RUNS.values(),
-                    key=lambda item: item["created_at"],
-                    reverse=True,
-                )[:limit]
-            )
         raise DataAccessError("Failed to list research runs.") from exc

@@ -12,7 +12,7 @@ def test_create_data_ingestion(monkeypatch):
     monkeypatch.setattr(
         data_plane_api,
         "ingest_market_data",
-        lambda **kwargs: {
+        lambda request: {
             "symbol": "2330",
             "market": "TW",
             "backfill": {
@@ -136,11 +136,11 @@ def test_recovery_lifecycle_and_important_event_endpoints(monkeypatch):
         data_plane_api, "list_recovery_drills", lambda: [recovery_payload]
     )
     monkeypatch.setattr(
-        data_plane_api, "save_lifecycle_record", lambda payload: lifecycle_payload
+        data_plane_api, "save_lifecycle_record", lambda request: lifecycle_payload
     )
     monkeypatch.setattr(data_plane_api, "list_lifecycle", lambda: [lifecycle_payload])
     monkeypatch.setattr(
-        data_plane_api, "save_important_event", lambda payload: important_event_payload
+        data_plane_api, "save_important_event", lambda request: important_event_payload
     )
     monkeypatch.setattr(
         data_plane_api, "list_important_events", lambda: [important_event_payload]
