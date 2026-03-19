@@ -1,6 +1,10 @@
 import pandas as pd
 
-from backend.baseline_service import buy_and_hold_weights, ma_crossover_weights, naive_momentum_weights
+from backend.baseline_service import (
+    buy_and_hold_weights,
+    ma_crossover_weights,
+    naive_momentum_weights,
+)
 
 
 def test_buy_and_hold_weights_shape():

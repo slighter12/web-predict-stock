@@ -31,7 +31,9 @@ def test_generate_splits_walk_forward():
 
 
 def test_generate_splits_rolling():
-    splits = generate_splits(length=100, method="rolling_window", splits=2, test_size=0.2)
+    splits = generate_splits(
+        length=100, method="rolling_window", splits=2, test_size=0.2
+    )
     assert len(splits) == 2
 
     train_range, test_range = splits[0]
@@ -48,7 +50,9 @@ def test_generate_splits_rolling():
 
 
 def test_generate_splits_expanding_window():
-    splits = generate_splits(length=100, method="expanding_window", splits=2, test_size=0.2)
+    splits = generate_splits(
+        length=100, method="expanding_window", splits=2, test_size=0.2
+    )
     assert len(splits) == 2
 
     train_range, test_range = splits[0]

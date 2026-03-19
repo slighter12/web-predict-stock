@@ -29,6 +29,7 @@ def apply_price_adjustment(
         adjusted[f"{col}_adj"] = adjusted[col] * factor
     return adjusted
 
+
 def get_data(
     symbols: Union[str, Sequence[str]],
     start_date: date = None,

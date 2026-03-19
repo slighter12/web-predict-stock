@@ -5,8 +5,8 @@ from typing import Dict, Literal, Protocol
 
 import pandas as pd
 
-from .api_models import StrategyConfig
 from .errors import UnsupportedConfigurationError
+from .schemas.research_runs import StrategyConfig
 
 RUNTIME_COMPATIBILITY_MODE = "runtime_compatibility_mode"
 VNEXT_SPEC_MODE = "vnext_spec_mode"
@@ -109,7 +109,9 @@ STRATEGY_RUNNERS: Dict[str, StrategyRunner] = {
 }
 
 
-def resolve_strategy_config(strategy: StrategyConfig | ResearchStrategyConfig) -> ResearchStrategyConfig:
+def resolve_strategy_config(
+    strategy: StrategyConfig | ResearchStrategyConfig,
+) -> ResearchStrategyConfig:
     return ResearchStrategyConfig(
         type=strategy.type,
         threshold=strategy.threshold,
@@ -124,7 +126,9 @@ def resolve_runtime_strategy(
     default_bundle_version: str | None,
 ) -> dict:
     if runtime_mode not in {RUNTIME_COMPATIBILITY_MODE, VNEXT_SPEC_MODE}:
-        raise UnsupportedConfigurationError(f"Unsupported runtime mode '{runtime_mode}'.")
+        raise UnsupportedConfigurationError(
+            f"Unsupported runtime mode '{runtime_mode}'."
+        )
 
     threshold = strategy.threshold
     top_n = strategy.top_n
@@ -177,8 +181,12 @@ def resolve_runtime_strategy(
         "default_bundle_version": default_bundle_version,
         "config_sources": {
             "strategy": {
-                "threshold": "request_override" if strategy.threshold is not None else "spec_default",
-                "top_n": "request_override" if strategy.top_n is not None else "spec_default",
+                "threshold": "request_override"
+                if strategy.threshold is not None
+                else "spec_default",
+                "top_n": "request_override"
+                if strategy.top_n is not None
+                else "spec_default",
             }
         },
         "fallback_audit": {

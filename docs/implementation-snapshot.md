@@ -3,41 +3,6 @@
 This document is descriptive only. It records the current implementation
 surface and must never be used as the source of truth for normative behavior.
 
-## Purpose
-
-- capture the current backend and request-surface snapshot
-- record descriptive implementation notes that do not belong in governance
-  documents
-- help reviewers distinguish implemented state from target-state rules
-
-## Owns
-
-- descriptive implementation snapshots
-- descriptive API and error-envelope examples
-- descriptive notes about the current repository surface
-
-## Does Not Own
-
-- research or execution policy
-- KPI formulas or gate truth conditions
-- delivery sequencing
-- open decision resolution
-
-## Consumes
-
-- repository implementation state
-- `README.md` for routing context
-
-## Produces
-
-- the descriptive surface used to compare implementation state with target-state
-  governance
-
-## Decision Rule
-
-Use this document only when the question is what the repository implements
-today. If it conflicts with governance documents, governance documents win.
-
 ## Current Repository Snapshot
 
 - Backend: FastAPI on Python 3.12+
@@ -45,63 +10,123 @@ today. If it conflicts with governance documents, governance documents win.
 - Database: PostgreSQL + TimescaleDB
 - Modeling: XGBoost and scikit-learn based research workflows
 - Data sources: TWSE plus yfinance bootstrap or backfill support
-- Backtesting: VectorBT with fees and slippage support
+- Research execution: VectorBT with fees and slippage support
 
-## Current Merge Rule in Implementation
+## Current Backend Structure
 
-Official exchange data overrides yfinance when both are available.
+- `backend/app.py`
+  - FastAPI app creation
+  - middleware registration
+  - exception-envelope wiring
+  - router include
+- `backend/api/`
+  - `system.py`
+  - `research_runs.py`
+  - `data_plane.py`
+- `backend/schemas/`
+  - `common.py`
+  - `runtime.py`
+  - `research_runs.py`
+  - `data_plane.py`
+- `backend/services/`
+  - research-run orchestration
+  - backtest-engine execution
+  - data-plane operations
+- `backend/repositories/`
+  - research-run persistence
+  - replay / recovery persistence
+  - lifecycle / important-event upsert and list
+- `backend/runtime/`
+  - request-id and run-id handling
+  - error-envelope helpers
+- `backend/domain/`
+  - version-pack payload assembly
 
-## Current Implemented Backend Surface
+## Current API Surface
 
-The implemented request surface includes:
+- `GET /api/v1/system/health`
+- `POST /api/v1/research/runs`
+- `GET /api/v1/research/runs/{run_id}`
+- `GET /api/v1/research/runs`
+- `POST /api/v1/data/ingestions`
+- `POST /api/v1/data/replays`
+- `GET /api/v1/data/replays`
+- `POST /api/v1/data/recovery-drills`
+- `GET /api/v1/data/recovery-drills`
+- `POST /api/v1/data/lifecycle-records`
+- `GET /api/v1/data/lifecycle-records`
+- `POST /api/v1/data/important-events`
+- `GET /api/v1/data/important-events`
 
-- markets: `TW`, `US`
-- `strategy.type`: `research_v1`
-- features: `ma`, `rsi`
-- `model.type`: `xgboost`
-- validation methods:
-  `holdout`, `walk_forward`, `rolling_window`, `expanding_window`
-- baselines:
-  `buy_and_hold`, `naive_momentum`, `ma_crossover`
-- endpoints:
-  - `GET /api/v1/health`
-  - `POST /api/v1/backtest`
+## Current Frontend Surface
 
-Example `/api/v1/backtest` request:
+- `Research Run Workspace`
+  - `ResearchRunForm`
+  - `ResearchRunInspector`
+  - metrics, validation, signals, and run-registry inspection
+- `Data Plane Workspace`
+  - `DataIngestionPanel`
+  - `ReplayPanel`
+  - `RecoveryDrillPanel`
+  - `LifecyclePanel`
+  - `ImportantEventPanel`
 
-```json
-{
-  "market": "TW",
-  "symbols": ["2330"],
-  "date_range": { "start": "2019-01-01", "end": "2024-01-01" },
-  "return_target": "open_to_open",
-  "horizon_days": 1,
-  "features": [
-    { "name": "ma", "window": 5, "source": "close", "shift": 1 },
-    { "name": "rsi", "window": 14, "source": "close", "shift": 1 }
-  ],
-  "model": {
-    "type": "xgboost",
-    "params": {}
-  },
-  "strategy": {
-    "type": "research_v1",
-    "threshold": 0.003,
-    "top_n": 5,
-    "allow_proactive_sells": true
-  },
-  "execution": {
-    "slippage": 0.001,
-    "fees": 0.002
-  },
-  "validation": {
-    "method": "walk_forward",
-    "splits": 3,
-    "test_size": 0.2
-  },
-  "baselines": ["buy_and_hold", "naive_momentum"]
-}
-```
+## Current Phase Coverage
+
+### P0
+
+Status: `implemented`
+
+- research-run requests persist successful, rejected, validation-failed, and failed attempts
+- research-run responses expose:
+  - runtime mode
+  - default bundle version
+  - effective strategy
+  - config sources
+  - fallback audit
+  - version pack fields
+- run-registry lookup exists through:
+  - `GET /api/v1/research/runs/{run_id}`
+  - `GET /api/v1/research/runs`
+- frontend includes a persisted research-run inspector
+
+### P1
+
+Status: `partial`
+
+- raw-ingest preservation exists through `raw_ingest_audit.payload_body`
+- normalized replay persistence exists through `/api/v1/data/replays`
+- recovery-drill persistence exists through `/api/v1/data/recovery-drills`
+- lifecycle-record upsert and listing exist through `/api/v1/data/lifecycle-records`
+- important-event upsert and listing exist through `/api/v1/data/important-events`
+- frontend includes a data-plane workspace for manual operations
+
+Still not complete for `P1`:
+
+- no scheduled recovery drills
+- no operational KPI collection for `P1-OPS`
+- no official automated lifecycle or important-event crawlers
+- trading-day delta remains a simplified calendar-day approximation
+
+## Version Pack Status
+
+Currently implemented fields:
+
+- `threshold_policy_version`
+- `price_basis_version`
+- `benchmark_comparability_gate`
+- `comparison_eligibility`
+
+Currently placeholder fields:
+
+- `investability_screening_active`
+- `capacity_screening_version`
+- `adv_basis_version`
+- `missing_feature_policy_version`
+- `execution_cost_model_version`
+- `split_policy_version`
+- `bootstrap_policy_version`
+- `ic_overlap_policy_version`
 
 ## Current Error Envelope
 
@@ -115,7 +140,8 @@ Example `/api/v1/backtest` request:
     }
   },
   "meta": {
-    "request_id": "req_abc123"
+    "request_id": "req_abc123",
+    "run_id": "run_abc123"
   }
 }
 ```

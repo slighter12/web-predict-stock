@@ -7,8 +7,12 @@ import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
-from .api_models import StrategyConfig
-from .strategy_service import ResearchStrategyConfig, get_strategy_runner, resolve_strategy_config
+from .schemas.research_runs import StrategyConfig
+from .strategy_service import (
+    ResearchStrategyConfig,
+    get_strategy_runner,
+    resolve_strategy_config,
+)
 
 Side = Literal["buy", "sell"]
 DEFAULT_MATCHING_MODEL = "ohlc_default"
@@ -132,7 +136,9 @@ def validate_execution_prices(
         violations = (execution_price < close_df) & buys
         count = int(violations.sum().sum())
         if count:
-            warnings.append(f"{count} US buy executions below close; matching model expects buy >= close.")
+            warnings.append(
+                f"{count} US buy executions below close; matching model expects buy >= close."
+            )
 
     return warnings
 
