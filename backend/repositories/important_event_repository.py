@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -9,13 +8,7 @@ from sqlalchemy import desc, select
 from ..database import ImportantEvent, SessionLocal
 from ..errors import DataAccessError
 from ..time_utils import utc_now
-from ._shared import (
-    MEMORY_IMPORTANT_EVENTS,
-    append_memory_record,
-    next_memory_id,
-    normalize_created_at,
-    trim_memory_records,
-)
+from ._shared import clone_payload, normalize_created_at
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +31,7 @@ def _important_event_row_to_dict(row: ImportantEvent) -> dict[str, Any]:
 
 
 def upsert_important_event_record(payload: dict[str, Any]) -> dict[str, Any]:
-    record = deepcopy(payload)
+    record = clone_payload(payload)
     record.setdefault("created_at", utc_now())
 
     try:
@@ -67,27 +60,15 @@ def upsert_important_event_record(payload: dict[str, Any]) -> dict[str, Any]:
             session.add(row)
             session.commit()
             session.refresh(row)
-            persisted = _important_event_row_to_dict(row)
-    except Exception:
+            return _important_event_row_to_dict(row)
+    except Exception as exc:
         logger.exception(
-            "Falling back to in-memory important-event persistence symbol=%s",
+            "Failed to persist important event symbol=%s market=%s event_type=%s",
             record["symbol"],
+            record["market"],
+            record["event_type"],
         )
-        for existing in MEMORY_IMPORTANT_EVENTS:
-            if (
-                existing["symbol"] == record["symbol"]
-                and existing["market"] == record["market"]
-                and existing["event_type"] == record["event_type"]
-                and existing["event_publication_ts"] == record["event_publication_ts"]
-            ):
-                existing.update(record)
-                trim_memory_records(MEMORY_IMPORTANT_EVENTS)
-                return deepcopy(existing)
-        record["id"] = next_memory_id("important_event")
-        append_memory_record(MEMORY_IMPORTANT_EVENTS, record)
-        persisted = deepcopy(record)
-
-    return persisted
+        raise DataAccessError("Failed to persist important event.") from exc
 
 
 def list_important_event_records(limit: int = 50) -> list[dict[str, Any]]:
@@ -106,10 +87,4 @@ def list_important_event_records(limit: int = 50) -> list[dict[str, Any]]:
             ]
     except Exception as exc:
         logger.exception("Failed to list important events from DB")
-        if MEMORY_IMPORTANT_EVENTS:
-            return deepcopy(
-                sorted(
-                    MEMORY_IMPORTANT_EVENTS, key=lambda item: item["id"], reverse=True
-                )[:limit]
-            )
         raise DataAccessError("Failed to list important events.") from exc

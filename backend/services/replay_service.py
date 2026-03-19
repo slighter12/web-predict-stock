@@ -45,11 +45,20 @@ def replay_raw_payload(
     except Exception as exc:
         replay_payload["abort_reason"] = str(exc)
         replay_payload["replay_completed_at"] = utc_now()
-        persisted = persist_replay_record(replay_payload)
+        replay_id = None
+        try:
+            persisted = persist_replay_record(replay_payload)
+        except DataAccessError:
+            logger.exception(
+                "Failed to persist replay failure raw_payload_id=%s",
+                raw_payload_id,
+            )
+        else:
+            replay_id = persisted["id"]
         logger.warning(
             "Replay failed raw_payload_id=%s replay_id=%s reason=%s",
             raw_payload_id,
-            persisted["id"],
+            replay_id,
             exc,
         )
         if isinstance(exc, ValueError):

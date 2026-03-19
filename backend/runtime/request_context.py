@@ -1,18 +1,10 @@
 from __future__ import annotations
 
-import json
-import logging
 from contextvars import ContextVar
-from typing import Any
 from uuid import uuid4
 
 from fastapi import Request
 
-from ..domain.research_run_payload import build_research_run_payload
-from ..errors import DataAccessError
-from ..repositories.research_run_repository import persist_research_run_record
-
-logger = logging.getLogger(__name__)
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
 
 
@@ -37,41 +29,13 @@ def ensure_request_run_id(request: Request) -> str:
     return run_id
 
 
-async def read_request_payload(request: Request) -> dict[str, Any] | None:
-    try:
-        body = await request.body()
-    except Exception:
-        return None
-    if not body:
-        return None
-    try:
-        parsed = json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError:
-        return {"raw_body": body.decode("utf-8", errors="replace")}
-    if isinstance(parsed, dict):
-        return parsed
-    return {"raw_payload": parsed}
-
-
-def persist_request_research_run(
-    request: Request, payload: dict[str, Any], *, raise_on_failure: bool
-) -> bool:
+def mark_request_research_run_persist_attempted(request: Request) -> None:
     request.state.research_run_persist_attempted = True
-    try:
-        persist_research_run_record(payload)
-        request.state.research_run_persisted = True
-        return True
-    except DataAccessError:
-        clear_request_run_id(request)
-        if raise_on_failure:
-            raise
-        logger.exception(
-            "Failed to persist research run request_id=%s run_id=%s",
-            get_request_id(request),
-            payload.get("run_id"),
-        )
-        return False
 
 
-def build_request_research_run_payload(**kwargs: Any) -> dict[str, Any]:
-    return build_research_run_payload(**kwargs)
+def mark_request_research_run_persisted(request: Request) -> None:
+    request.state.research_run_persisted = True
+
+
+def request_research_run_persist_attempted(request: Request) -> bool:
+    return getattr(request.state, "research_run_persist_attempted", False)

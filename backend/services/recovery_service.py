@@ -65,10 +65,19 @@ def create_recovery_drill(
     except Exception as exc:
         drill_payload["abort_reason"] = str(exc)
         drill_payload["drill_completed_at"] = utc_now()
-        persisted = persist_recovery_record(drill_payload)
+        drill_id = None
+        try:
+            persisted = persist_recovery_record(drill_payload)
+        except DataAccessError:
+            logger.exception(
+                "Failed to persist recovery failure raw_payload_id=%s",
+                raw_record.id,
+            )
+        else:
+            drill_id = persisted["id"]
         logger.warning(
             "Recovery drill failed drill_id=%s raw_payload_id=%s reason=%s",
-            persisted["id"],
+            drill_id,
             raw_record.id,
             exc,
         )
