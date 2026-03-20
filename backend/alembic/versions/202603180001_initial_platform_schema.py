@@ -119,11 +119,15 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("id"),
         )
-    _create_index_if_missing("ix_raw_ingest_audit_market", "raw_ingest_audit", ["market"])
+    _create_index_if_missing(
+        "ix_raw_ingest_audit_market", "raw_ingest_audit", ["market"]
+    )
     _create_index_if_missing(
         "ix_raw_ingest_audit_source_name", "raw_ingest_audit", ["source_name"]
     )
-    _create_index_if_missing("ix_raw_ingest_audit_symbol", "raw_ingest_audit", ["symbol"])
+    _create_index_if_missing(
+        "ix_raw_ingest_audit_symbol", "raw_ingest_audit", ["symbol"]
+    )
 
     if not _has_table("research_runs"):
         op.create_table(
@@ -158,8 +162,12 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("run_id"),
         )
-    _create_index_if_missing("ix_research_runs_created_at", "research_runs", ["created_at"])
-    _create_index_if_missing("ix_research_runs_request_id", "research_runs", ["request_id"])
+    _create_index_if_missing(
+        "ix_research_runs_created_at", "research_runs", ["created_at"]
+    )
+    _create_index_if_missing(
+        "ix_research_runs_request_id", "research_runs", ["request_id"]
+    )
     _create_index_if_missing(
         "ix_research_runs_runtime_mode", "research_runs", ["runtime_mode"]
     )
@@ -238,7 +246,9 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("id"),
         )
-    _create_index_if_missing("ix_recovery_drills_created_at", "recovery_drills", ["created_at"])
+    _create_index_if_missing(
+        "ix_recovery_drills_created_at", "recovery_drills", ["created_at"]
+    )
     _create_index_if_missing(
         "ix_recovery_drills_raw_payload_id", "recovery_drills", ["raw_payload_id"]
     )
@@ -310,7 +320,9 @@ def upgrade() -> None:
             sa.Column("market", sa.String(), nullable=False),
             sa.Column("event_type", sa.String(), nullable=False),
             sa.Column("effective_date", sa.Date(), nullable=True),
-            sa.Column("event_publication_ts", sa.DateTime(timezone=True), nullable=False),
+            sa.Column(
+                "event_publication_ts", sa.DateTime(timezone=True), nullable=False
+            ),
             sa.Column("timestamp_source_class", sa.String(), nullable=False),
             sa.Column("source_name", sa.String(), nullable=False),
             sa.Column("raw_payload_id", sa.Integer(), nullable=True),
@@ -345,11 +357,15 @@ def upgrade() -> None:
     _create_index_if_missing(
         "ix_important_events_event_type", "important_events", ["event_type"]
     )
-    _create_index_if_missing("ix_important_events_market", "important_events", ["market"])
+    _create_index_if_missing(
+        "ix_important_events_market", "important_events", ["market"]
+    )
     _create_index_if_missing(
         "ix_important_events_raw_payload_id", "important_events", ["raw_payload_id"]
     )
-    _create_index_if_missing("ix_important_events_symbol", "important_events", ["symbol"])
+    _create_index_if_missing(
+        "ix_important_events_symbol", "important_events", ["symbol"]
+    )
 
 
 def downgrade() -> None:
@@ -390,9 +406,7 @@ def downgrade() -> None:
     _drop_index_if_exists("ix_recovery_drills_created_at", "recovery_drills")
     _drop_table_if_exists("recovery_drills")
 
-    _drop_index_if_exists(
-        "ix_normalized_replay_runs_symbol", "normalized_replay_runs"
-    )
+    _drop_index_if_exists("ix_normalized_replay_runs_symbol", "normalized_replay_runs")
     _drop_index_if_exists(
         "ix_normalized_replay_runs_source_name", "normalized_replay_runs"
     )
@@ -402,9 +416,7 @@ def downgrade() -> None:
     _drop_index_if_exists(
         "ix_normalized_replay_runs_raw_payload_id", "normalized_replay_runs"
     )
-    _drop_index_if_exists(
-        "ix_normalized_replay_runs_market", "normalized_replay_runs"
-    )
+    _drop_index_if_exists("ix_normalized_replay_runs_market", "normalized_replay_runs")
     _drop_index_if_exists(
         "ix_normalized_replay_runs_created_at", "normalized_replay_runs"
     )

@@ -1,6 +1,8 @@
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 import backend.repositories.important_event_repository as important_event_repository
 import backend.repositories.lifecycle_repository as lifecycle_repository
@@ -93,3 +95,89 @@ def test_read_repositories_fail_fast(monkeypatch, module, func_name, args):
 
     with pytest.raises(DataAccessError):
         getattr(module, func_name)(*args)
+
+
+def test_persist_recovery_record_returns_existing_row_on_duplicate_schedule_slot(
+    monkeypatch,
+):
+    persisted_started_at = datetime.now(timezone.utc)
+    existing_row = SimpleNamespace(
+        id=88,
+        raw_payload_id=7,
+        replay_run_id=91,
+        benchmark_profile_id="monthly_recovery_v1",
+        notes="scheduled smoke",
+        status="succeeded",
+        trigger_mode="scheduled",
+        schedule_id=5,
+        scheduled_for_date=date(2026, 3, 19),
+        latest_replayable_day=date(2026, 3, 18),
+        completed_trading_day_delta=1,
+        abort_reason=None,
+        drill_started_at=persisted_started_at,
+        drill_completed_at=persisted_started_at,
+        created_at=persisted_started_at,
+    )
+
+    class _ScalarResult:
+        def scalar_one_or_none(self):
+            return existing_row
+
+    class _FakeSession:
+        def __init__(self):
+            self.rolled_back = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, model, record_id):
+            return None
+
+        def add(self, row):
+            self.row = row
+
+        def commit(self):
+            raise IntegrityError(
+                "INSERT INTO recovery_drills ...",
+                {},
+                Exception(
+                    "UNIQUE constraint failed: recovery_drills.schedule_id, recovery_drills.scheduled_for_date"
+                ),
+            )
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def execute(self, stmt):
+            return _ScalarResult()
+
+        def refresh(self, row):
+            raise AssertionError("refresh should not be called for duplicate rows")
+
+    fake_session = _FakeSession()
+    monkeypatch.setattr(recovery_repository, "SessionLocal", lambda: fake_session)
+
+    result = recovery_repository.persist_recovery_record(
+        {
+            "raw_payload_id": 7,
+            "replay_run_id": 91,
+            "benchmark_profile_id": "monthly_recovery_v1",
+            "notes": "scheduled smoke",
+            "status": "succeeded",
+            "trigger_mode": "scheduled",
+            "schedule_id": 5,
+            "scheduled_for_date": date(2026, 3, 19),
+            "latest_replayable_day": date(2026, 3, 18),
+            "completed_trading_day_delta": 1,
+            "abort_reason": None,
+            "drill_started_at": persisted_started_at,
+            "drill_completed_at": persisted_started_at,
+        }
+    )
+
+    assert fake_session.rolled_back is True
+    assert result["id"] == 88
+    assert result["schedule_id"] == 5

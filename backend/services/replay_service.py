@@ -8,6 +8,7 @@ from ..errors import DataAccessError, UnsupportedConfigurationError
 from ..repositories.raw_ingest_repository import get_raw_ingest_record
 from ..repositories.replay_repository import list_replay_records, persist_replay_record
 from ..time_utils import utc_now
+from .benchmark_profile_service import assert_benchmark_profile_exists
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ def replay_raw_payload(
     benchmark_profile_id: str | None = None,
     notes: str | None = None,
 ) -> dict:
+    assert_benchmark_profile_exists(benchmark_profile_id)
     raw_record = get_raw_ingest_record(raw_payload_id)
     started_at = utc_now()
     replay_payload = {

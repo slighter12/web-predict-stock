@@ -1,4 +1,8 @@
-import type { ImportantEventPayload, LifecycleRecordPayload } from "../types";
+import type {
+  ImportantEventPayload,
+  LifecycleRecordPayload,
+  RecoveryDrillScheduleRequest,
+} from "../types";
 
 const toLocalInputValue = (sliceLength: 10 | 16) =>
   new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
@@ -29,6 +33,17 @@ export const createDefaultImportantEventForm = (): ImportantEventPayload => ({
   archive_object_reference: "",
   notes: "",
 });
+
+export const createDefaultRecoveryDrillScheduleForm =
+  (): RecoveryDrillScheduleRequest => ({
+    market: "TW",
+    symbol: "2330",
+    cadence: "monthly",
+    day_of_month: 1,
+    timezone: "Asia/Taipei",
+    benchmark_profile_id: "monthly_recovery_v1",
+    notes: "",
+  });
 
 export const toOptionalNumber = (value: string) => {
   const trimmed = value.trim();

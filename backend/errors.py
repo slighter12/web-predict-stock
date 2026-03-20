@@ -14,5 +14,9 @@ class UnsupportedConfigurationError(BacktestError):
     status_code = 400
 
 
+class ExternalFetchError(BacktestError):
+    status_code = 502
+
+
 class DataAccessError(Exception):
     pass

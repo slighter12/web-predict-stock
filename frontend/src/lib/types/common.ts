@@ -23,6 +23,8 @@ export type RunStatus =
   | "rejected"
   | "validation_failed"
   | "failed";
+export type RecoveryDrillTriggerMode = "manual" | "scheduled";
+export type RecoveryDrillCadence = "monthly";
 export type LifecycleEventType =
   | "listing"
   | "delisting"

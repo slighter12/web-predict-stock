@@ -6,6 +6,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -126,18 +127,136 @@ class NormalizedReplayRun(Base):
 
 class RecoveryDrill(Base):
     __tablename__ = "recovery_drills"
+    # NOTE: Both schedule_id and scheduled_for_date are nullable.  In
+    # PostgreSQL (and SQLite) NULL values are not considered equal for
+    # unique-constraint purposes, so manual drills (NULL, NULL) can
+    # coexist without violating this constraint — this is intentional.
+    __table_args__ = (
+        UniqueConstraint(
+            "schedule_id",
+            "scheduled_for_date",
+            name="uq_recovery_drill_schedule_slot",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
-    raw_payload_id = Column(Integer, nullable=False, index=True)
+    raw_payload_id = Column(Integer, nullable=True, index=True)
     replay_run_id = Column(Integer, nullable=True, index=True)
     benchmark_profile_id = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     status = Column(String, nullable=False, index=True)
+    trigger_mode = Column(String, nullable=False, index=True, default="manual")
+    schedule_id = Column(
+        Integer,
+        ForeignKey("recovery_drill_schedules.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    scheduled_for_date = Column(Date, nullable=True, index=True)
     latest_replayable_day = Column(Date, nullable=True)
     completed_trading_day_delta = Column(Integer, nullable=True)
     abort_reason = Column(Text, nullable=True)
     drill_started_at = Column(DateTime(timezone=True), nullable=False)
     drill_completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class RecoveryDrillSchedule(Base):
+    __tablename__ = "recovery_drill_schedules"
+
+    id = Column(Integer, primary_key=True)
+    market = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=True, index=True)
+    cadence = Column(String, nullable=False)
+    day_of_month = Column(Integer, nullable=False)
+    timezone = Column(String, nullable=False, default="Asia/Taipei")
+    benchmark_profile_id = Column(String, nullable=False)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class BenchmarkProfile(Base):
+    __tablename__ = "benchmark_profiles"
+
+    id = Column(String, primary_key=True)
+    cpu_class = Column(String, nullable=False)
+    memory_size = Column(String, nullable=False)
+    storage_type = Column(String, nullable=False)
+    compression_settings = Column(String, nullable=False)
+    archive_layout_version = Column(String, nullable=False)
+    network_class = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class IngestionWatchlist(Base):
+    __tablename__ = "ingestion_watchlist"
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol", "market", name="uq_ingestion_watchlist_symbol_market"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    years = Column(Integer, nullable=False, default=5)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ScheduledIngestionRun(Base):
+    __tablename__ = "scheduled_ingestion_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "watchlist_id",
+            "scheduled_for_date",
+            name="uq_scheduled_ingestion_watchlist_slot",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    watchlist_id = Column(
+        Integer,
+        ForeignKey("ingestion_watchlist.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    scheduled_for_date = Column(Date, nullable=False, index=True)
+    status = Column(String, nullable=False, index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    last_error_message = Column(Text, nullable=True)
+    first_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    last_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ScheduledIngestionAttempt(Base):
+    __tablename__ = "scheduled_ingestion_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "attempt_number",
+            name="uq_scheduled_ingestion_attempt_run_number",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("scheduled_ingestion_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    attempt_number = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, index=True)
+    raw_payload_id = Column(Integer, nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
