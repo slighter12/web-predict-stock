@@ -133,6 +133,20 @@ def test_create_research_run_success(monkeypatch):
     assert response.json()["metrics"]["total_return"] == 0.12
 
 
+def test_create_backtest_returns_full_research_run_response(monkeypatch):
+    monkeypatch.setattr(
+        research_runs_api, "create_research_run", lambda **kwargs: make_response()
+    )
+
+    response = client.post("/api/v1/backtest", json=make_payload())
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "run_123"
+    assert response.json()["runtime_mode"] == "runtime_compatibility_mode"
+    assert response.json()["effective_strategy"]["threshold"] == 0.003
+    assert response.json()["threshold_policy_version"] == "static_absolute_gross_label_v1"
+
+
 def test_create_research_run_validation_failed(monkeypatch):
     captured: dict = {}
 

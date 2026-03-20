@@ -2,6 +2,8 @@ import type {
   ImportantEventType,
   LifecycleEventType,
   MarketCode,
+  RecoveryDrillCadence,
+  RecoveryDrillTriggerMode,
   TimestampSourceClass,
 } from "./common";
 
@@ -66,16 +68,42 @@ export interface RecoveryDrillRequest {
 
 export interface RecoveryDrillRecord {
   id: number;
-  raw_payload_id: number;
+  raw_payload_id: number | null;
   replay_run_id: number | null;
   benchmark_profile_id: string | null;
   notes: string | null;
   status: "succeeded" | "failed";
+  trigger_mode: RecoveryDrillTriggerMode;
+  schedule_id: number | null;
+  scheduled_for_date: string | null;
   latest_replayable_day: string | null;
   completed_trading_day_delta: number | null;
   abort_reason: string | null;
   drill_started_at: string;
   drill_completed_at: string | null;
+  created_at: string;
+}
+
+export interface RecoveryDrillScheduleRequest {
+  market: MarketCode;
+  symbol?: string;
+  cadence?: RecoveryDrillCadence;
+  day_of_month: number;
+  timezone?: string;
+  benchmark_profile_id: string;
+  notes?: string;
+}
+
+export interface RecoveryDrillScheduleRecord {
+  id: number;
+  market: MarketCode;
+  symbol: string | null;
+  cadence: RecoveryDrillCadence;
+  day_of_month: number;
+  timezone: string;
+  benchmark_profile_id: string;
+  notes: string | null;
+  is_active: boolean;
   created_at: string;
 }
 

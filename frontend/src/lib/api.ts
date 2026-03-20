@@ -10,9 +10,11 @@ export {
   createImportantEvent,
   createLifecycleRecord,
   createRecoveryDrill,
+  createRecoveryDrillSchedule,
   createReplay,
   fetchImportantEvents,
   fetchLifecycleRecords,
   fetchRecoveryDrills,
+  fetchRecoveryDrillSchedules,
   fetchReplays,
 } from "./api/dataPlane";

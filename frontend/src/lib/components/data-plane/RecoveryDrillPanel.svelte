@@ -4,39 +4,58 @@
     import {
         ApiError,
         createRecoveryDrill,
+        createRecoveryDrillSchedule,
         fetchRecoveryDrills,
+        fetchRecoveryDrillSchedules,
     } from "../../api";
-    import type { RecoveryDrillRecord } from "../../types";
+    import type {
+        RecoveryDrillRecord,
+        RecoveryDrillScheduleRecord,
+    } from "../../types";
+    import {
+        createDefaultRecoveryDrillScheduleForm,
+        toOptionalNumber,
+    } from "../../state/dataPlaneForms";
 
     let form = {
         rawPayloadId: "",
         benchmarkProfileId: "local_manual_v1",
         notes: "",
     };
+    let scheduleForm = createDefaultRecoveryDrillScheduleForm();
     let records: RecoveryDrillRecord[] = [];
+    let schedules: RecoveryDrillScheduleRecord[] = [];
     let latestRecord: RecoveryDrillRecord | null = null;
-    let errorMessage: string | null = null;
+    let latestSchedule: RecoveryDrillScheduleRecord | null = null;
+    let drillError: string | null = null;
+    let scheduleError: string | null = null;
 
     const refresh = async () => {
         try {
             records = await fetchRecoveryDrills();
+            schedules = await fetchRecoveryDrillSchedules();
+            drillError = null;
+            scheduleError = null;
         } catch (error) {
-            errorMessage =
+            const msg =
                 error instanceof ApiError
                     ? `${error.code}: ${error.message}`
-                    : "Unable to load recovery drills.";
+                    : "Unable to load recovery drill data.";
+            drillError = msg;
+            scheduleError = msg;
         }
     };
 
     const submit = async () => {
         const rawPayloadInput = form.rawPayloadId.trim();
-        const rawPayloadId = rawPayloadInput ? Number(rawPayloadInput) : undefined;
+        const rawPayloadId = toOptionalNumber(rawPayloadInput);
         if (
             rawPayloadInput &&
             (!Number.isInteger(rawPayloadId) || rawPayloadId < 1)
         ) {
             latestRecord = null;
-            errorMessage = "Raw Payload ID must be a positive integer when provided.";
+            drillError =
+                "Raw Payload ID must be a positive integer when provided.";
             return;
         }
 
@@ -47,13 +66,45 @@
                     form.benchmarkProfileId.trim() || undefined,
                 notes: form.notes.trim() || undefined,
             });
-            errorMessage = null;
+            drillError = null;
             await refresh();
         } catch (error) {
-            errorMessage =
+            drillError =
                 error instanceof ApiError
                     ? `${error.code}: ${error.message}`
                     : "Unable to create recovery drill.";
+        }
+    };
+
+    const submitSchedule = async () => {
+        if (
+            !Number.isInteger(scheduleForm.day_of_month) ||
+            scheduleForm.day_of_month < 1 ||
+            scheduleForm.day_of_month > 31
+        ) {
+            latestSchedule = null;
+            scheduleError = "Schedule day must be an integer between 1 and 31.";
+            return;
+        }
+
+        try {
+            latestSchedule = await createRecoveryDrillSchedule({
+                market: scheduleForm.market,
+                symbol: scheduleForm.symbol?.trim() || undefined,
+                cadence: "monthly",
+                day_of_month: scheduleForm.day_of_month,
+                timezone: scheduleForm.timezone?.trim() || "Asia/Taipei",
+                benchmark_profile_id: scheduleForm.benchmark_profile_id.trim(),
+                notes: scheduleForm.notes?.trim() || undefined,
+            });
+            scheduleError = null;
+            await refresh();
+        } catch (error) {
+            latestSchedule = null;
+            scheduleError =
+                error instanceof ApiError
+                    ? `${error.code}: ${error.message}`
+                    : "Unable to create recovery drill schedule.";
         }
     };
 
@@ -89,7 +140,7 @@
     </div>
 
     <button type="button" onclick={submit}>Create Recovery Drill</button>
-    {#if errorMessage}<p class="muted">{errorMessage}</p>{/if}
+    {#if drillError}<p class="muted">{drillError}</p>{/if}
     {#if latestRecord}<pre>{JSON.stringify(latestRecord, null, 2)}</pre>{/if}
 
     {#if records.length}
@@ -97,19 +148,94 @@
             {#each records as record}
                 <div class="row">
                     <strong>#{record.id}</strong>
-                    <span
-                        >{record.status} / raw_payload_id={record.raw_payload_id}</span
-                    >
+                    <span>
+                        {record.trigger_mode} / {record.status} / raw_payload_id={record.raw_payload_id ??
+                            "none"} / slot={record.scheduled_for_date ??
+                            "manual"} / delta={record.completed_trading_day_delta ??
+                            "n/a"}
+                    </span>
                 </div>
             {/each}
         </div>
     {/if}
+
+    <div class="schedule-block">
+        <div class="surface-header">
+            <div>
+                <p class="eyebrow">Scheduled Recovery</p>
+                <h4>Monthly Schedules</h4>
+            </div>
+        </div>
+
+        <div class="form-grid">
+            <label
+                ><span>Market</span><select bind:value={scheduleForm.market}>
+                    <option value="TW">TW</option>
+                    <option value="US">US</option>
+                </select></label
+            >
+            <label
+                ><span>Symbol</span><input
+                    bind:value={scheduleForm.symbol}
+                    placeholder="blank = market latest"
+                /></label
+            >
+            <label
+                ><span>Day of Month</span><input
+                    type="number"
+                    bind:value={scheduleForm.day_of_month}
+                    min="1"
+                    max="31"
+                /></label
+            >
+            <label
+                ><span>Timezone</span><input
+                    bind:value={scheduleForm.timezone}
+                /></label
+            >
+            <label
+                ><span>Benchmark Profile</span><input
+                    bind:value={scheduleForm.benchmark_profile_id}
+                /></label
+            >
+            <label class="wide"
+                ><span>Notes</span><input
+                    bind:value={scheduleForm.notes}
+                /></label
+            >
+        </div>
+
+        <button type="button" onclick={submitSchedule}
+            >Create Monthly Schedule</button
+        >
+        {#if scheduleError}<p class="muted">{scheduleError}</p>{/if}
+        {#if latestSchedule}<pre>{JSON.stringify(
+                    latestSchedule,
+                    null,
+                    2,
+                )}</pre>{/if}
+
+        {#if schedules.length}
+            <div class="list">
+                {#each schedules.filter((schedule) => schedule.is_active) as schedule}
+                    <div class="row">
+                        <strong>#{schedule.id}</strong>
+                        <span>
+                            {schedule.market}:{schedule.symbol ?? "*"} / day {schedule.day_of_month}
+                            / {schedule.timezone} / {schedule.benchmark_profile_id}
+                        </span>
+                    </div>
+                {/each}
+            </div>
+        {/if}
+    </div>
 </div>
 
 <style>
     .surface,
     .form-grid,
-    .list {
+    .list,
+    .schedule-block {
         display: grid;
         gap: 0.9rem;
     }
@@ -136,6 +262,9 @@
     h3 {
         margin: 0;
     }
+    h4 {
+        margin: 0;
+    }
     .form-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -151,6 +280,7 @@
         color: var(--muted);
     }
     input,
+    select,
     button {
         border: 1px solid rgba(148, 163, 184, 0.18);
         border-radius: 14px;

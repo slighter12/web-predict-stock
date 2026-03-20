@@ -490,7 +490,8 @@ Accepted comparable runs must publish the following comparison statistics:
   `GATE-P1-001`
 - pass condition:
   `KPI-DATA-001`, `KPI-DATA-002`, the aggregated `KPI-DATA-003` rule defined in
-  the data completeness aggregation rules, `KPI-DATA-007`, and either:
+  the data completeness aggregation rules, `KPI-DATA-004`, `KPI-DATA-005`,
+  `KPI-DATA-007`, and either:
   - `KPI-DATA-006` passes with `KPI-DATA-008 >= 5`
   - `KPI-DATA-008 < 5` and `KPI-DATA-006` is recorded as `insufficient_sample`
 

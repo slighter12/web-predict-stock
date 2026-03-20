@@ -119,6 +119,30 @@ Default ingestion environment values:
 - `INGEST_MARKET=TW`
 - `INGEST_YEARS=5`
 
+Run due scheduled recovery drills manually:
+
+```bash
+.venv/bin/python scripts/run_scheduled_recovery_drills.py
+```
+
+Run due scheduled ingestions manually:
+
+```bash
+.venv/bin/python scripts/run_scheduled_ingestion.py
+```
+
+Run lifecycle record crawler:
+
+```bash
+.venv/bin/python scripts/run_lifecycle_crawler.py
+```
+
+Run important event crawler:
+
+```bash
+.venv/bin/python scripts/run_important_event_crawler.py
+```
+
 ## Frontend
 
 The frontend lives in `frontend/` and uses `bun`.

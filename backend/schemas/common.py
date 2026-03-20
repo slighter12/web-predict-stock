@@ -28,6 +28,10 @@ ComparisonEligibility = Literal[
 RunStatus = Literal["succeeded", "rejected", "validation_failed", "failed"]
 ReplayStatus = Literal["succeeded", "failed"]
 RecoveryDrillStatus = Literal["succeeded", "failed"]
+RecoveryDrillTriggerMode = Literal["manual", "scheduled"]
+RecoveryDrillCadence = Literal["monthly"]
+ScheduledIngestionStatus = Literal["succeeded", "failed"]
+KpiStatus = Literal["pass", "fail", "insufficient_sample"]
 LifecycleEventType = Literal["listing", "delisting", "ticker_change", "re_listing"]
 ImportantEventType = Literal[
     "listing_status_change",

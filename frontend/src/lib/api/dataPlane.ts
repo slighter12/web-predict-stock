@@ -7,6 +7,8 @@ import type {
   LifecycleRecordPayload,
   RecoveryDrillRecord,
   RecoveryDrillRequest,
+  RecoveryDrillScheduleRecord,
+  RecoveryDrillScheduleRequest,
   ReplayRecord,
   ReplayRequest,
 } from "../types";
@@ -25,7 +27,8 @@ export const createReplay = (payload: ReplayRequest) =>
     body: JSON.stringify(payload),
   });
 
-export const fetchReplays = () => requestJson<ReplayRecord[]>("/api/v1/data/replays");
+export const fetchReplays = () =>
+  requestJson<ReplayRecord[]>("/api/v1/data/replays");
 
 export const createRecoveryDrill = (payload: RecoveryDrillRequest) =>
   requestJson<RecoveryDrillRecord>("/api/v1/data/recovery-drills", {
@@ -35,6 +38,22 @@ export const createRecoveryDrill = (payload: RecoveryDrillRequest) =>
 
 export const fetchRecoveryDrills = () =>
   requestJson<RecoveryDrillRecord[]>("/api/v1/data/recovery-drills");
+
+export const createRecoveryDrillSchedule = (
+  payload: RecoveryDrillScheduleRequest,
+) =>
+  requestJson<RecoveryDrillScheduleRecord>(
+    "/api/v1/data/recovery-drill-schedules",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+
+export const fetchRecoveryDrillSchedules = () =>
+  requestJson<RecoveryDrillScheduleRecord[]>(
+    "/api/v1/data/recovery-drill-schedules",
+  );
 
 export const createLifecycleRecord = (payload: LifecycleRecordPayload) =>
   requestJson<LifecycleRecord>("/api/v1/data/lifecycle-records", {

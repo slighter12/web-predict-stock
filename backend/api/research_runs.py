@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Request
 
-from ..api_models import BacktestRequest, BacktestResponse
+from ..api_models import BacktestRequest
 from ..runtime.request_context import get_request_id
 from ..schemas.research_runs import (
     ResearchRunCreateRequest,
@@ -41,7 +41,9 @@ def create_research_run_endpoint(
     return _create_research_run_response(http_request, request)
 
 
-@router.post("/api/v1/backtest", tags=["Research Runs"], response_model=BacktestResponse)
+@router.post(
+    "/api/v1/backtest", tags=["Research Runs"], response_model=ResearchRunResponse
+)
 def create_backtest_endpoint(
     http_request: Request, request: BacktestRequest
 ) -> ResearchRunResponse:
