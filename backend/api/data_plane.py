@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 
 from ..schemas.data_plane import (
     BenchmarkProfileRequest,
@@ -33,6 +33,9 @@ from ..schemas.data_plane import (
     TickPhaseGateResponse,
     TickReplayRequest,
     TickReplayResponse,
+    TwCompanyCrawlRequest,
+    TwCompanyCrawlerRunResponse,
+    TwCompanyProfileResponse,
 )
 from ..services.benchmark_profile_service import (
     create_benchmark_profile,
@@ -70,6 +73,11 @@ from ..services.tick_archive_service import (
 from ..services.tick_gate_service import get_tick_phase_gate_summary
 from ..services.tick_ops_kpi_service import get_tick_ops_kpi_summary
 from ..services.tick_replay_service import create_tick_replay, list_tick_replays
+from ..services.tw_company_crawler_service import crawl_tw_company_profiles
+from ..services.tw_company_profile_service import (
+    count_active_tw_company_profiles,
+    list_active_tw_company_profiles,
+)
 
 router = APIRouter()
 
@@ -148,6 +156,37 @@ async def create_tick_archive_import_endpoint(
 )
 def read_tick_archives() -> list[TickArchiveObjectResponse]:
     return [TickArchiveObjectResponse(**item) for item in list_tick_archives()]
+
+
+@router.post(
+    "/api/v1/data/tw-company-crawls",
+    tags=["Data Plane"],
+    response_model=TwCompanyCrawlerRunResponse,
+)
+def create_tw_company_crawl(
+    request: TwCompanyCrawlRequest | None = None,
+) -> TwCompanyCrawlerRunResponse:
+    request = request or TwCompanyCrawlRequest()
+    return TwCompanyCrawlerRunResponse(
+        **crawl_tw_company_profiles(include_tpex=request.include_tpex)
+    )
+
+
+@router.get(
+    "/api/v1/data/tw-company-profiles",
+    tags=["Data Plane"],
+    response_model=list[TwCompanyProfileResponse],
+)
+def read_tw_company_profiles(
+    response: Response,
+    limit: int = Query(default=500, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+) -> list[TwCompanyProfileResponse]:
+    response.headers["X-Total-Count"] = str(count_active_tw_company_profiles())
+    return [
+        TwCompanyProfileResponse(**item)
+        for item in list_active_tw_company_profiles(limit=limit, offset=offset)
+    ]
 
 
 @router.post(

@@ -1,4 +1,6 @@
 import type {
+  ArchiveBackupBackend,
+  ArchiveBackupStatus,
   ImportantEventType,
   KpiStatus,
   LifecycleEventType,
@@ -203,6 +205,11 @@ export interface TickArchiveObjectRecord {
   last_observation_ts: string | null;
   checksum: string;
   retention_class: string;
+  backup_backend: ArchiveBackupBackend | null;
+  backup_object_key: string | null;
+  backup_status: ArchiveBackupStatus | null;
+  backup_completed_at: string | null;
+  backup_error: string | null;
   created_at: string;
 }
 

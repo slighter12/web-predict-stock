@@ -8,7 +8,7 @@ MarketCode = Literal["TW", "US"]
 PriceSource = Literal["open", "high", "low", "close", "volume"]
 FeatureName = Literal["ma", "rsi"]
 ReturnTarget = Literal["open_to_open", "close_to_close", "open_to_close"]
-ModelType = Literal["xgboost"]
+ModelType = Literal["xgboost", "random_forest", "extra_trees"]
 StrategyType = Literal["research_v1"]
 ValidationMethod = Literal[
     "holdout", "walk_forward", "rolling_window", "expanding_window"
@@ -50,6 +50,8 @@ TickArchiveStatus = Literal["succeeded", "failed"]
 TickArchiveTriggerMode = Literal["post_close_crawl", "manual_import"]
 TickStorageBackend = Literal["local_filesystem"]
 TickCompressionCodec = Literal["gzip"]
+ArchiveBackupBackend = Literal["google_drive_mirror"]
+ArchiveBackupStatus = Literal["not_configured", "succeeded", "failed"]
 KpiStatus = Literal["pass", "fail", "insufficient_sample"]
 LifecycleEventType = Literal["listing", "delisting", "ticker_change", "re_listing"]
 ImportantEventType = Literal[

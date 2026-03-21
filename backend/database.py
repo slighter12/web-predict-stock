@@ -108,6 +108,14 @@ class ResearchRun(Base):
     adv_basis_version = Column(String, nullable=True)
     missing_feature_policy_version = Column(String, nullable=True)
     execution_cost_model_version = Column(String, nullable=True)
+    split_policy_version = Column(String, nullable=True)
+    bootstrap_policy_version = Column(String, nullable=True)
+    ic_overlap_policy_version = Column(String, nullable=True)
+    comparison_review_matrix_version = Column(String, nullable=True)
+    scheduled_review_cadence = Column(String, nullable=True)
+    model_family = Column(String, nullable=True, index=True)
+    training_output_contract_version = Column(String, nullable=True)
+    adoption_comparison_policy_version = Column(String, nullable=True)
     tradability_state = Column(String, nullable=True)
     tradability_contract_version = Column(String, nullable=True)
     missing_feature_policy_state = Column(String, nullable=True)
@@ -385,6 +393,39 @@ class ImportantEvent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class TwCompanyProfile(Base):
+    __tablename__ = "tw_company_profiles"
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol",
+            "exchange",
+            name="uq_tw_company_profiles_symbol_exchange",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    exchange = Column(String, nullable=False, index=True)
+    board = Column(String, nullable=False, index=True)
+    company_name = Column(String, nullable=False)
+    isin_code = Column(String, nullable=True)
+    industry_category = Column(String, nullable=True, index=True)
+    listing_date = Column(Date, nullable=True, index=True)
+    trading_status = Column(String, nullable=False, index=True, default="active")
+    source_name = Column(String, nullable=False)
+    raw_payload_id = Column(Integer, nullable=True, index=True)
+    archive_object_reference = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        index=True,
+    )
+
+
 class TickArchiveRun(Base):
     __tablename__ = "tick_archive_runs"
 
@@ -427,6 +468,11 @@ class TickArchiveObject(Base):
     last_observation_ts = Column(DateTime(timezone=True), nullable=True)
     checksum = Column(String, nullable=False)
     retention_class = Column(String, nullable=False)
+    backup_backend = Column(String, nullable=True)
+    backup_object_key = Column(String, nullable=True)
+    backup_status = Column(String, nullable=True, index=True)
+    backup_completed_at = Column(DateTime(timezone=True), nullable=True)
+    backup_error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

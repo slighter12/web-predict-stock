@@ -2,6 +2,7 @@ export type MarketCode = "TW" | "US";
 export type PriceSource = "open" | "high" | "low" | "close" | "volume";
 export type FeatureName = "ma" | "rsi";
 export type ReturnTarget = "open_to_open" | "close_to_close" | "open_to_close";
+export type ModelType = "xgboost" | "random_forest" | "extra_trees";
 export type ValidationMethod =
   | "holdout"
   | "walk_forward"
@@ -44,6 +45,8 @@ export type TickArchiveStatus = "succeeded" | "failed";
 export type TickArchiveTriggerMode = "post_close_crawl" | "manual_import";
 export type TickStorageBackend = "local_filesystem";
 export type TickCompressionCodec = "gzip";
+export type ArchiveBackupBackend = "google_drive_mirror";
+export type ArchiveBackupStatus = "not_configured" | "succeeded" | "failed";
 export type KpiStatus = "pass" | "fail" | "insufficient_sample";
 export type LifecycleEventType =
   | "listing"

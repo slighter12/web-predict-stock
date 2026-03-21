@@ -36,6 +36,7 @@ surface and must never be used as the source of truth for normative behavior.
   - scheduled ingestion dispatch
   - operational KPI calculation
   - official lifecycle and important-event crawling
+  - TW company universe crawling
 - `backend/repositories/`
   - research-run persistence
   - replay / recovery persistence
@@ -63,6 +64,8 @@ surface and must never be used as the source of truth for normative behavior.
 - `GET /api/v1/data/tick-archive-dispatches`
 - `POST /api/v1/data/tick-archive-imports`
 - `GET /api/v1/data/tick-archives`
+- `POST /api/v1/data/tw-company-crawls`
+- `GET /api/v1/data/tw-company-profiles`
 - `POST /api/v1/data/tick-replays`
 - `GET /api/v1/data/tick-replays`
 - `GET /api/v1/data/tick-ops/kpis`
@@ -110,6 +113,8 @@ surface and must never be used as the source of truth for normative behavior.
   - `/api/v1/data/ingestion-dispatches`
   - `/api/v1/data/ops/kpis`
   - `/api/v1/data/tick-gates/p2`
+  - `/api/v1/data/tw-company-crawls`
+  - `/api/v1/data/tw-company-profiles`
   - `/api/v1/data/lifecycle-crawls`
   - `/api/v1/data/important-event-crawls`
 
@@ -181,6 +186,14 @@ Status: `exit-gate implemented; ops telemetry implemented`
   - `/api/v1/data/tick-replays`
 - tick archive storage currently uses local filesystem `jsonl.gz` objects under
   `var/tick_archives/`
+- tick archive objects now persist optional Google Drive mirror metadata when
+  `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured
+- active TW company universe snapshots exist through:
+  - `/api/v1/data/tw-company-crawls`
+  - `/api/v1/data/tw-company-profiles`
+  - `scripts/run_tw_company_crawler.py`
+- tick symbol resolution now prefers persisted `tw_company_profiles` before
+  lifecycle or `daily_ohlcv` fallbacks
 - `GET /api/v1/data/tick-gates/p2` exposes the phase-scoped `GATE-P2-001`
   artifact report
 - `GET /api/v1/data/tick-ops/kpis` exposes `KPI-TICK-001` to `KPI-TICK-003`
@@ -240,6 +253,24 @@ Current accepted `P2` constraints and follow-ups:
   payload; current protection relies on replay replacement semantics and the
   normalized storage path rather than parser-side duplicate rejection
 
+### P4-P6 Foundations
+
+Status: `partial foundation implemented`
+
+- research runs now persist:
+  - `comparison_review_matrix_version`
+  - `scheduled_review_cadence`
+  - `model_family`
+  - `training_output_contract_version`
+  - `adoption_comparison_policy_version`
+- `split_policy_version`, `bootstrap_policy_version`, and
+  `ic_overlap_policy_version` are now populated instead of remaining placeholders
+- `comparison_eligibility` can now promote to `sample_window_pending` when the
+  run has the final metadata contract but the required sample windows are not
+  yet satisfied
+- research execution now supports the shared tabular training-output contract
+  across `xgboost`, `random_forest`, and `extra_trees`
+
 Still not complete for `P1-OPS`:
 
 - live observation-window qualification is still required before claiming gate pass
@@ -266,9 +297,6 @@ Currently implemented fields:
 - `price_basis_version`
 - `benchmark_comparability_gate`
 - `comparison_eligibility`
-
-Currently placeholder fields:
-
 - `investability_screening_active`
 - `capacity_screening_version`
 - `adv_basis_version`
@@ -277,6 +305,10 @@ Currently placeholder fields:
 - `split_policy_version`
 - `bootstrap_policy_version`
 - `ic_overlap_policy_version`
+
+Currently placeholder fields:
+
+- none within the normative version-pack subset defined in `SPEC-RUNTIME-005`
 
 ## Current Error Envelope
 

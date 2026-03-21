@@ -17,6 +17,14 @@ VERSION_PACK_FIELDS = [
     "ic_overlap_policy_version",
 ]
 
+GOVERNANCE_FIELDS = [
+    "comparison_review_matrix_version",
+    "scheduled_review_cadence",
+    "model_family",
+    "training_output_contract_version",
+    "adoption_comparison_policy_version",
+]
+
 IMPLEMENTED_VERSION_FIELDS = {
     "threshold_policy_version",
     "price_basis_version",
@@ -27,6 +35,9 @@ IMPLEMENTED_VERSION_FIELDS = {
     "adv_basis_version",
     "missing_feature_policy_version",
     "execution_cost_model_version",
+    "split_policy_version",
+    "bootstrap_policy_version",
+    "ic_overlap_policy_version",
 }
 
 
@@ -39,4 +50,6 @@ def build_version_pack_payload(values: dict[str, Any] | None = None) -> dict[str
         field: "implemented" if field in IMPLEMENTED_VERSION_FIELDS else "placeholder"
         for field in VERSION_PACK_FIELDS
     }
+    for field in GOVERNANCE_FIELDS:
+        payload[field] = values.get(field)
     return payload

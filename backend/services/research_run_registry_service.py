@@ -12,11 +12,20 @@ from ..schemas.research_runs import (
     ResearchRunResponse,
     ValidationSummary,
 )
-from ..strategy_service import build_price_basis_version, build_threshold_policy_version
+from ..strategy_service import (
+    ADOPTION_COMPARISON_POLICY_VERSION,
+    BOOTSTRAP_POLICY_VERSION,
+    COMPARISON_ELIGIBILITY,
+    COMPARISON_REVIEW_MATRIX_VERSION,
+    IC_OVERLAP_POLICY_VERSION,
+    SCHEDULED_REVIEW_CADENCE,
+    build_price_basis_version,
+    build_split_policy_version,
+    build_threshold_policy_version,
+)
+from .. import model_service
 
 logger = logging.getLogger(__name__)
-
-COMPARISON_METADATA_ONLY = "comparison_metadata_only"
 
 
 def _request_payload_from_model(request: ResearchRunCreateRequest) -> dict[str, Any]:
@@ -48,12 +57,53 @@ def _strategy_payload(
     return None
 
 
+def _model_payload(
+    request: ResearchRunCreateRequest | None, request_payload: dict[str, Any] | None
+) -> Any:
+    if request is not None:
+        return request.model
+    if request_payload is None:
+        return None
+    model = request_payload.get("model")
+    if isinstance(model, dict):
+        return model
+    return None
+
+
 def _strategy_value(strategy: Any, field: str) -> Any:
     if strategy is None:
         return None
     if isinstance(strategy, dict):
         return strategy.get(field)
     return getattr(strategy, field, None)
+
+
+def _model_value(model: Any, field: str) -> Any:
+    if model is None:
+        return None
+    if isinstance(model, dict):
+        return model.get(field)
+    return getattr(model, field, None)
+
+
+def _validation_payload(
+    request: ResearchRunCreateRequest | None, request_payload: dict[str, Any] | None
+) -> Any:
+    if request is not None:
+        return request.validation
+    if request_payload is None:
+        return None
+    validation = request_payload.get("validation")
+    if isinstance(validation, dict):
+        return validation
+    return None
+
+
+def _safe_model_family(model_type: str) -> str | None:
+    try:
+        return model_service.build_model_family(model_type)
+    except ValueError:
+        return None
 
 
 def _symbols_value(
@@ -101,13 +151,29 @@ def _build_registry_payload(
     monitor_profile_id: str | None = None,
     monitor_observation_status: str | None = None,
     microstructure_observations: list[dict[str, Any]] | None = None,
+    comparison_review_matrix_version: str | None = None,
+    scheduled_review_cadence: str | None = None,
+    model_family: str | None = None,
+    training_output_contract_version: str | None = None,
+    adoption_comparison_policy_version: str | None = None,
+    split_policy_version: str | None = None,
+    bootstrap_policy_version: str | None = None,
+    ic_overlap_policy_version: str | None = None,
 ) -> dict[str, Any]:
     serialized_request = (
         _request_payload_from_model(request) if request is not None else request_payload
     )
     strategy = _strategy_payload(request, serialized_request)
+    model = _model_payload(request, serialized_request)
+    validation = _validation_payload(request, serialized_request)
     request_return_target = _request_payload_value(
         request, serialized_request, "return_target"
+    )
+    model_type = str(_model_value(model, "type") or "xgboost")
+    validation_method = (
+        validation.get("method")
+        if isinstance(validation, dict)
+        else getattr(validation, "method", None)
     )
 
     return build_research_run_payload(
@@ -152,6 +218,26 @@ def _build_registry_payload(
         monitor_profile_id=monitor_profile_id,
         monitor_observation_status=monitor_observation_status,
         microstructure_observations=microstructure_observations,
+        comparison_review_matrix_version=(
+            comparison_review_matrix_version or COMPARISON_REVIEW_MATRIX_VERSION
+        ),
+        scheduled_review_cadence=scheduled_review_cadence
+        or SCHEDULED_REVIEW_CADENCE,
+        model_family=model_family or _safe_model_family(model_type),
+        training_output_contract_version=(
+            training_output_contract_version
+            or model_service.TRAINING_OUTPUT_CONTRACT_VERSION
+        ),
+        adoption_comparison_policy_version=(
+            adoption_comparison_policy_version
+            or ADOPTION_COMPARISON_POLICY_VERSION
+        ),
+        split_policy_version=split_policy_version
+        or build_split_policy_version(validation_method),
+        bootstrap_policy_version=bootstrap_policy_version
+        or BOOTSTRAP_POLICY_VERSION,
+        ic_overlap_policy_version=ic_overlap_policy_version
+        or IC_OVERLAP_POLICY_VERSION,
     )
 
 
@@ -210,6 +296,16 @@ def record_success(
                 "microstructure_observations",
                 [],
             ),
+            comparison_review_matrix_version=response.comparison_review_matrix_version,
+            scheduled_review_cadence=response.scheduled_review_cadence,
+            model_family=response.model_family,
+            training_output_contract_version=response.training_output_contract_version,
+            adoption_comparison_policy_version=(
+                response.adoption_comparison_policy_version
+            ),
+            split_policy_version=response.split_policy_version,
+            bootstrap_policy_version=response.bootstrap_policy_version,
+            ic_overlap_policy_version=response.ic_overlap_policy_version,
         )
     )
 
@@ -233,7 +329,7 @@ def record_rejection(
             validation_outcome={"error_code": research_run_error_code(exc)},
             rejection_reason=str(exc),
             benchmark_comparability_gate=False,
-            comparison_eligibility=COMPARISON_METADATA_ONLY,
+            comparison_eligibility=COMPARISON_ELIGIBILITY,
         )
     )
 
@@ -257,7 +353,7 @@ def record_failure(
             validation_outcome={"error_code": "DATA_ACCESS_FAILED"},
             rejection_reason=str(exc),
             benchmark_comparability_gate=False,
-            comparison_eligibility=COMPARISON_METADATA_ONLY,
+            comparison_eligibility=COMPARISON_ELIGIBILITY,
         )
     )
 

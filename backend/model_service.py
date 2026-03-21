@@ -13,6 +13,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+MODEL_FAMILY_BY_TYPE = {
+    "xgboost": "gradient_boosted_trees",
+    "random_forest": "bagging_trees",
+    "extra_trees": "bagging_trees",
+}
+TRAINING_OUTPUT_CONTRACT_VERSION = "tabular_regression_scores_v1"
+
 
 def _load_xgboost_regressor():
     try:
@@ -22,6 +29,22 @@ def _load_xgboost_regressor():
             "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
         ) from exc
     return XGBRegressor
+
+
+def _load_sklearn_regressor(model_type: str):
+    try:
+        from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
+    except Exception as exc:
+        raise RuntimeError(
+            "scikit-learn failed to import. Install project dependencies before using sklearn model families."
+        ) from exc
+    regressor_cls = {
+        "random_forest": RandomForestRegressor,
+        "extra_trees": ExtraTreesRegressor,
+    }.get(model_type)
+    if regressor_cls is None:
+        raise ValueError(f"Unsupported sklearn model type: {model_type}")
+    return regressor_cls
 
 
 def compute_return_target(
@@ -119,6 +142,53 @@ def fit_xgboost_regressor(
     model.fit(X_train, y_train)
     logger.info("Trained xgboost regressor rows=%s params=%s", len(X_train), params)
     return model
+
+
+def fit_sklearn_regressor(
+    *,
+    model_type: str,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    model_params: Dict[str, object] | None = None,
+):
+    params = {
+        "n_estimators": 200,
+        "random_state": 42,
+        "n_jobs": -1,
+    }
+    if model_params:
+        params.update(model_params)
+    regressor_cls = _load_sklearn_regressor(model_type)
+    model = regressor_cls(**params)
+    model.fit(X_train, y_train)
+    logger.info("Trained %s regressor rows=%s params=%s", model_type, len(X_train), params)
+    return model
+
+
+def fit_regressor(
+    *,
+    model_type: str,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    model_params: Dict[str, object] | None = None,
+):
+    if model_type == "xgboost":
+        return fit_xgboost_regressor(X_train, y_train, model_params)
+    if model_type in {"random_forest", "extra_trees"}:
+        return fit_sklearn_regressor(
+            model_type=model_type,
+            X_train=X_train,
+            y_train=y_train,
+            model_params=model_params,
+        )
+    raise ValueError(f"Unsupported model type: {model_type}")
+
+
+def build_model_family(model_type: str) -> str:
+    family = MODEL_FAMILY_BY_TYPE.get(model_type)
+    if family is None:
+        raise ValueError(f"Unsupported model type: {model_type}")
+    return family
 
 
 if __name__ == "__main__":

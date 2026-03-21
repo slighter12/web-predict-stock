@@ -232,6 +232,25 @@
                         )}</pre>
                 </div>
                 <div>
+                    <p class="eyebrow">Governance</p>
+                    <pre>{serialize({
+                            comparison_review_matrix_version:
+                                registryState.researchRunRecord
+                                    .comparison_review_matrix_version,
+                            scheduled_review_cadence:
+                                registryState.researchRunRecord
+                                    .scheduled_review_cadence,
+                            model_family:
+                                registryState.researchRunRecord.model_family,
+                            training_output_contract_version:
+                                registryState.researchRunRecord
+                                    .training_output_contract_version,
+                            adoption_comparison_policy_version:
+                                registryState.researchRunRecord
+                                    .adoption_comparison_policy_version,
+                        })}</pre>
+                </div>
+                <div>
                     <p class="eyebrow">Version Pack</p>
                     <pre>{serialize({
                             threshold_policy_version:
@@ -261,6 +280,15 @@
                             execution_cost_model_version:
                                 registryState.researchRunRecord
                                     .execution_cost_model_version,
+                            split_policy_version:
+                                registryState.researchRunRecord
+                                    .split_policy_version,
+                            bootstrap_policy_version:
+                                registryState.researchRunRecord
+                                    .bootstrap_policy_version,
+                            ic_overlap_policy_version:
+                                registryState.researchRunRecord
+                                    .ic_overlap_policy_version,
                             version_pack_status:
                                 registryState.researchRunRecord
                                     .version_pack_status,

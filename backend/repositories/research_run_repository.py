@@ -90,6 +90,20 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
                 "adv_basis_version": row.adv_basis_version,
                 "missing_feature_policy_version": row.missing_feature_policy_version,
                 "execution_cost_model_version": row.execution_cost_model_version,
+                "split_policy_version": row.split_policy_version,
+                "bootstrap_policy_version": row.bootstrap_policy_version,
+                "ic_overlap_policy_version": row.ic_overlap_policy_version,
+                "comparison_review_matrix_version": (
+                    row.comparison_review_matrix_version
+                ),
+                "scheduled_review_cadence": row.scheduled_review_cadence,
+                "model_family": row.model_family,
+                "training_output_contract_version": (
+                    row.training_output_contract_version
+                ),
+                "adoption_comparison_policy_version": (
+                    row.adoption_comparison_policy_version
+                ),
             }
         )
     )
@@ -165,6 +179,22 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             )
             row.execution_cost_model_version = record.get(
                 "execution_cost_model_version"
+            )
+            row.split_policy_version = record.get("split_policy_version")
+            row.bootstrap_policy_version = record.get("bootstrap_policy_version")
+            row.ic_overlap_policy_version = record.get(
+                "ic_overlap_policy_version"
+            )
+            row.comparison_review_matrix_version = record.get(
+                "comparison_review_matrix_version"
+            )
+            row.scheduled_review_cadence = record.get("scheduled_review_cadence")
+            row.model_family = record.get("model_family")
+            row.training_output_contract_version = record.get(
+                "training_output_contract_version"
+            )
+            row.adoption_comparison_policy_version = record.get(
+                "adoption_comparison_policy_version"
             )
             row.tradability_state = record.get("tradability_state")
             row.tradability_contract_version = record.get(

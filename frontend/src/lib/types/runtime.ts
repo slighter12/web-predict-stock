@@ -50,6 +50,14 @@ export interface VersionPack {
   version_pack_status: Record<string, VersionFieldStatus>;
 }
 
+export interface GovernanceMetadata {
+  comparison_review_matrix_version: string | null;
+  scheduled_review_cadence: string | null;
+  model_family: string | null;
+  training_output_contract_version: string | null;
+  adoption_comparison_policy_version: string | null;
+}
+
 export interface LiquidityBucketCoverage {
   bucket_key: string;
   bucket_label: string;

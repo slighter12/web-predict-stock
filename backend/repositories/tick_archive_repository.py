@@ -6,6 +6,7 @@ from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import delete, desc, distinct, select
+from sqlalchemy import or_
 
 from ..database import (
     DailyOHLCV,
@@ -15,6 +16,7 @@ from ..database import (
     TickArchiveRun,
     TickObservation,
     TickRestoreRun,
+    TwCompanyProfile,
 )
 from ..errors import DataAccessError, DataNotFoundError
 from ._shared import clone_payload, json_dumps, json_loads, normalize_created_at
@@ -60,6 +62,11 @@ def _tick_archive_object_row_to_dict(row: TickArchiveObject) -> dict[str, Any]:
         "last_observation_ts": row.last_observation_ts,
         "checksum": row.checksum,
         "retention_class": row.retention_class,
+        "backup_backend": row.backup_backend,
+        "backup_object_key": row.backup_object_key,
+        "backup_status": row.backup_status,
+        "backup_completed_at": row.backup_completed_at,
+        "backup_error": row.backup_error,
         "created_at": normalize_created_at(row.created_at),
     }
 
@@ -151,6 +158,11 @@ def persist_tick_archive_object(payload: dict[str, Any]) -> dict[str, Any]:
                 last_observation_ts=record.get("last_observation_ts"),
                 checksum=record["checksum"],
                 retention_class=record["retention_class"],
+                backup_backend=record.get("backup_backend"),
+                backup_object_key=record.get("backup_object_key"),
+                backup_status=record.get("backup_status"),
+                backup_completed_at=record.get("backup_completed_at"),
+                backup_error=record.get("backup_error"),
             )
             session.add(row)
             session.commit()
@@ -455,6 +467,23 @@ def list_tick_restore_runs_for_dates(
 def resolve_tw_tick_archive_symbols(*, trading_date: date) -> list[str]:
     try:
         with SessionLocal() as session:
+            company_stmt = (
+                select(TwCompanyProfile.symbol)
+                .where(TwCompanyProfile.market == "TW")
+                .where(TwCompanyProfile.trading_status == "active")
+                .where(TwCompanyProfile.exchange.in_(("TWSE", "TPEX")))
+                .where(
+                    or_(
+                        TwCompanyProfile.listing_date.is_(None),
+                        TwCompanyProfile.listing_date <= trading_date,
+                    )
+                )
+                .order_by(TwCompanyProfile.exchange.asc(), TwCompanyProfile.symbol.asc())
+            )
+            company_symbols = [
+                item for item in session.execute(company_stmt).scalars().all() if item
+            ]
+
             lifecycle_rows = (
                 session.execute(
                     select(SymbolLifecycleRecord).where(
@@ -478,8 +507,6 @@ def resolve_tw_tick_archive_symbols(*, trading_date: date) -> list[str]:
                 for symbol, row in latest_events.items()
                 if row.event_type in _ACTIVE_LIFECYCLE_EVENTS
             )
-            if active_symbols:
-                return active_symbols
 
             stmt = (
                 select(distinct(DailyOHLCV.symbol))
@@ -487,7 +514,17 @@ def resolve_tw_tick_archive_symbols(*, trading_date: date) -> list[str]:
                 .where(DailyOHLCV.date <= trading_date)
                 .order_by(DailyOHLCV.symbol)
             )
-            return [item for item in session.execute(stmt).scalars().all() if item]
+            daily_symbols = [
+                item for item in session.execute(stmt).scalars().all() if item
+            ]
+
+            combined_symbols = sorted(set(company_symbols) | set(active_symbols))
+            if combined_symbols:
+                # Keep the company snapshot + lifecycle-derived active set
+                # authoritative for current coverage. Only fall back to the
+                # broader daily universe when curated sources are unavailable.
+                return combined_symbols
+            return daily_symbols
     except Exception as exc:
         logger.exception("Failed to resolve TW tick archive symbols")
         raise DataAccessError("Failed to resolve TW tick archive symbols.") from exc

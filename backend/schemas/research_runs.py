@@ -32,6 +32,7 @@ from .runtime import (
     ConfigSources,
     EffectiveStrategyConfig,
     FallbackAudit,
+    GovernanceMetadataMixin,
     P3SummaryMixin,
     VersionPackMixin,
 )
@@ -152,7 +153,7 @@ class ValidationSummary(BaseModel):
     metrics: Dict[str, float]
 
 
-class ResearchRunResponse(VersionPackMixin, P3SummaryMixin):
+class ResearchRunResponse(VersionPackMixin, P3SummaryMixin, GovernanceMetadataMixin):
     run_id: str
     metrics: Metrics
     equity_curve: List[EquityPoint] = Field(default_factory=list)
@@ -167,7 +168,9 @@ class ResearchRunResponse(VersionPackMixin, P3SummaryMixin):
     fallback_audit: FallbackAudit
 
 
-class ResearchRunRecordResponse(VersionPackMixin, P3SummaryMixin):
+class ResearchRunRecordResponse(
+    VersionPackMixin, P3SummaryMixin, GovernanceMetadataMixin
+):
     run_id: str
     request_id: Optional[str] = None
     status: RunStatus

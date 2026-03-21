@@ -28,9 +28,15 @@ from ..schemas.research_runs import (
 from ..schemas.runtime import ConfigSources, EffectiveStrategyConfig, FallbackAudit
 from ..services.p3_screening_service import build_p3_summary
 from ..strategy_service import (
-    COMPARISON_ELIGIBILITY,
+    ADOPTION_COMPARISON_POLICY_VERSION,
+    BOOTSTRAP_POLICY_VERSION,
+    COMPARISON_REVIEW_MATRIX_VERSION,
+    IC_OVERLAP_POLICY_VERSION,
     ResearchStrategyConfig,
+    SCHEDULED_REVIEW_CADENCE,
+    build_comparison_eligibility,
     build_price_basis_version,
+    build_split_policy_version,
     build_threshold_policy_version,
     resolve_runtime_strategy,
 )
@@ -119,7 +125,12 @@ def load_symbol_data(
     except ValueError as exc:
         raise InsufficientDataError(f"[{symbol}] {exc}") from exc
 
-    model = model_service.fit_xgboost_regressor(X_train, y_train, request.model.params)
+    model = model_service.fit_regressor(
+        model_type=request.model.type,
+        X_train=X_train,
+        y_train=y_train,
+        model_params=request.model.params,
+    )
     preds = model.predict(X_test)
 
     return {
@@ -173,8 +184,11 @@ def compute_validation_summary(
                     f"[{symbol}] Validation split has insufficient data."
                 )
 
-            model = model_service.fit_xgboost_regressor(
-                X_train, y_train, request.model.params
+            model = model_service.fit_regressor(
+                model_type=request.model.type,
+                X_train=X_train,
+                y_train=y_train,
+                model_params=request.model.params,
             )
             preds = model.predict(X_test)
             scores = pd.DataFrame({symbol: preds}, index=X_test.index)
@@ -289,15 +303,26 @@ def execute_research_run(
     )
     version_pack = build_version_pack_payload(
         {
+            "comparison_review_matrix_version": COMPARISON_REVIEW_MATRIX_VERSION,
+            "scheduled_review_cadence": SCHEDULED_REVIEW_CADENCE,
+            "model_family": model_service.build_model_family(request.model.type),
+            "training_output_contract_version": (
+                model_service.TRAINING_OUTPUT_CONTRACT_VERSION
+            ),
+            "adoption_comparison_policy_version": ADOPTION_COMPARISON_POLICY_VERSION,
             "threshold_policy_version": build_threshold_policy_version(
                 request.return_target
             ),
             "price_basis_version": build_price_basis_version(request.return_target),
             "benchmark_comparability_gate": False,
-            "comparison_eligibility": (
-                "unresolved_event_quarantine"
-                if p3_summary["corporate_event_state"] == "unresolved_corporate_event"
-                else COMPARISON_ELIGIBILITY
+            "comparison_eligibility": build_comparison_eligibility(
+                corporate_event_state=p3_summary["corporate_event_state"],
+                price_basis_version=build_price_basis_version(request.return_target),
+                threshold_policy_version=build_threshold_policy_version(
+                    request.return_target
+                ),
+                execution_cost_model_version=p3_summary["execution_cost_model_version"],
+                sample_window_pending=False,
             ),
             "investability_screening_active": p3_summary[
                 "investability_screening_active"
@@ -308,6 +333,11 @@ def execute_research_run(
                 "missing_feature_policy_version"
             ],
             "execution_cost_model_version": p3_summary["execution_cost_model_version"],
+            "split_policy_version": build_split_policy_version(
+                request.validation.method if request.validation else None
+            ),
+            "bootstrap_policy_version": BOOTSTRAP_POLICY_VERSION,
+            "ic_overlap_policy_version": IC_OVERLAP_POLICY_VERSION,
         }
     )
 
