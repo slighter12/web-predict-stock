@@ -81,11 +81,29 @@ def _build_registry_payload(
     price_basis_version: str | None = None,
     benchmark_comparability_gate: bool | None = None,
     comparison_eligibility: str | None = None,
+    investability_screening_active: bool | None = None,
+    capacity_screening_active: bool | None = None,
+    capacity_screening_version: str | None = None,
+    adv_basis_version: str | None = None,
+    missing_feature_policy_version: str | None = None,
+    execution_cost_model_version: str | None = None,
+    tradability_state: str | None = None,
+    tradability_contract_version: str | None = None,
+    missing_feature_policy_state: str | None = None,
+    corporate_event_state: str | None = None,
+    full_universe_count: int | None = None,
+    execution_universe_count: int | None = None,
+    execution_universe_ratio: float | None = None,
+    liquidity_bucket_schema_version: str | None = None,
+    liquidity_bucket_coverages: list[dict[str, Any]] | None = None,
+    stale_mark_days_with_open_positions: int | None = None,
+    stale_risk_share: float | None = None,
+    monitor_profile_id: str | None = None,
+    monitor_observation_status: str | None = None,
+    microstructure_observations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     serialized_request = (
-        _request_payload_from_model(request)
-        if request is not None
-        else request_payload
+        _request_payload_from_model(request) if request is not None else request_payload
     )
     strategy = _strategy_payload(request, serialized_request)
     request_return_target = _request_payload_value(
@@ -114,6 +132,26 @@ def _build_registry_payload(
         else build_price_basis_version(request_return_target),
         benchmark_comparability_gate=benchmark_comparability_gate,
         comparison_eligibility=comparison_eligibility,
+        investability_screening_active=investability_screening_active,
+        capacity_screening_active=capacity_screening_active,
+        capacity_screening_version=capacity_screening_version,
+        adv_basis_version=adv_basis_version,
+        missing_feature_policy_version=missing_feature_policy_version,
+        execution_cost_model_version=execution_cost_model_version,
+        tradability_state=tradability_state,
+        tradability_contract_version=tradability_contract_version,
+        missing_feature_policy_state=missing_feature_policy_state,
+        corporate_event_state=corporate_event_state,
+        full_universe_count=full_universe_count,
+        execution_universe_count=execution_universe_count,
+        execution_universe_ratio=execution_universe_ratio,
+        liquidity_bucket_schema_version=liquidity_bucket_schema_version,
+        liquidity_bucket_coverages=liquidity_bucket_coverages,
+        stale_mark_days_with_open_positions=stale_mark_days_with_open_positions,
+        stale_risk_share=stale_risk_share,
+        monitor_profile_id=monitor_profile_id,
+        monitor_observation_status=monitor_observation_status,
+        microstructure_observations=microstructure_observations,
     )
 
 
@@ -144,6 +182,34 @@ def record_success(
             price_basis_version=response.price_basis_version,
             benchmark_comparability_gate=response.benchmark_comparability_gate,
             comparison_eligibility=response.comparison_eligibility,
+            investability_screening_active=response.investability_screening_active,
+            capacity_screening_active=response.capacity_screening_active,
+            capacity_screening_version=response.capacity_screening_version,
+            adv_basis_version=response.adv_basis_version,
+            missing_feature_policy_version=response.missing_feature_policy_version,
+            execution_cost_model_version=response.execution_cost_model_version,
+            tradability_state=response.tradability_state,
+            tradability_contract_version=response.tradability_contract_version,
+            missing_feature_policy_state=response.missing_feature_policy_state,
+            corporate_event_state=response.corporate_event_state,
+            full_universe_count=response.full_universe_count,
+            execution_universe_count=response.execution_universe_count,
+            execution_universe_ratio=response.execution_universe_ratio,
+            liquidity_bucket_schema_version=response.liquidity_bucket_schema_version,
+            liquidity_bucket_coverages=[
+                item.model_dump(mode="json")
+                for item in response.liquidity_bucket_coverages
+            ],
+            stale_mark_days_with_open_positions=response.stale_mark_days_with_open_positions,
+            stale_risk_share=response.stale_risk_share,
+            monitor_profile_id=runtime_context.get("p3_summary", {}).get(
+                "monitor_profile_id"
+            ),
+            monitor_observation_status=response.monitor_observation_status,
+            microstructure_observations=runtime_context.get("p3_summary", {}).get(
+                "microstructure_observations",
+                [],
+            ),
         )
     )
 

@@ -69,7 +69,9 @@ def upgrade() -> None:
             sa.Column("status", sa.String(), nullable=False),
             sa.Column("notes", sa.Text(), nullable=True),
             sa.Column("symbol_count", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("request_count", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column(
+                "request_count", sa.Integer(), nullable=False, server_default="0"
+            ),
             sa.Column(
                 "observation_count", sa.Integer(), nullable=False, server_default="0"
             ),
@@ -122,7 +124,9 @@ def upgrade() -> None:
                 "compression_ratio", sa.Float(), nullable=False, server_default="0"
             ),
             sa.Column("record_count", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("first_observation_ts", sa.DateTime(timezone=True), nullable=True),
+            sa.Column(
+                "first_observation_ts", sa.DateTime(timezone=True), nullable=True
+            ),
             sa.Column("last_observation_ts", sa.DateTime(timezone=True), nullable=True),
             sa.Column("checksum", sa.String(), nullable=False),
             sa.Column("retention_class", sa.String(), nullable=False),
@@ -139,12 +143,14 @@ def upgrade() -> None:
                 ondelete="CASCADE",
             ),
             sa.PrimaryKeyConstraint("id"),
-            sa.UniqueConstraint("object_key", name="uq_tick_archive_objects_object_key"),
+            sa.UniqueConstraint(
+                "object_key", name="uq_tick_archive_objects_object_key"
+            ),
         )
-    if _has_table("tick_archive_objects") and _has_column(
-        "tick_archive_objects", "run_id"
-    ) and not _has_foreign_key(
-        "tick_archive_objects", "fk_tick_archive_objects_run"
+    if (
+        _has_table("tick_archive_objects")
+        and _has_column("tick_archive_objects", "run_id")
+        and not _has_foreign_key("tick_archive_objects", "fk_tick_archive_objects_run")
     ):
         op.create_foreign_key(
             "fk_tick_archive_objects_run",
@@ -193,10 +199,10 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("id"),
         )
-    if _has_table("tick_restore_runs") and _has_column(
-        "tick_restore_runs", "archive_object_id"
-    ) and not _has_foreign_key(
-        "tick_restore_runs", "fk_tick_restore_runs_object"
+    if (
+        _has_table("tick_restore_runs")
+        and _has_column("tick_restore_runs", "archive_object_id")
+        and not _has_foreign_key("tick_restore_runs", "fk_tick_restore_runs_object")
     ):
         op.create_foreign_key(
             "fk_tick_restore_runs_object",
@@ -273,7 +279,9 @@ def upgrade() -> None:
     _create_index_if_missing(
         "ix_tick_observations_created_at", "tick_observations", ["created_at"]
     )
-    _create_index_if_missing("ix_tick_observations_market", "tick_observations", ["market"])
+    _create_index_if_missing(
+        "ix_tick_observations_market", "tick_observations", ["market"]
+    )
     _create_index_if_missing(
         "ix_tick_observations_observation_ts",
         "tick_observations",
@@ -302,9 +310,7 @@ def downgrade() -> None:
 
     _drop_index_if_exists("ix_tick_restore_runs_restore_status", "tick_restore_runs")
     _drop_index_if_exists("ix_tick_restore_runs_created_at", "tick_restore_runs")
-    _drop_index_if_exists(
-        "ix_tick_restore_runs_archive_object_id", "tick_restore_runs"
-    )
+    _drop_index_if_exists("ix_tick_restore_runs_archive_object_id", "tick_restore_runs")
     if _has_table("tick_restore_runs"):
         op.drop_table("tick_restore_runs")
 

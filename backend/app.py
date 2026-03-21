@@ -132,8 +132,9 @@ async def handle_request_validation_error(
 ):
     current_request_id = get_request_id(request)
     run_id = ensure_request_run_id(request)
-    if request.url.path == "/api/v1/research/runs" and not request_research_run_persist_attempted(
-        request
+    if (
+        request.url.path == "/api/v1/research/runs"
+        and not request_research_run_persist_attempted(request)
     ):
         payload = await read_request_payload(request)
         mark_request_research_run_persist_attempted(request)
@@ -205,8 +206,9 @@ async def handle_http_exception(request: Request, exc: StarletteHTTPException):
 async def handle_unexpected_error(request: Request, exc: Exception):
     current_request_id = get_request_id(request)
     run_id = get_request_run_id(request)
-    if request.url.path == "/api/v1/research/runs" and not request_research_run_persist_attempted(
-        request
+    if (
+        request.url.path == "/api/v1/research/runs"
+        and not request_research_run_persist_attempted(request)
     ):
         payload = await read_request_payload(request)
         if run_id is None:

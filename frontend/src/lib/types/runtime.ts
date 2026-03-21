@@ -1,7 +1,11 @@
 import type {
   ComparisonEligibility,
   ConfigValueSource,
+  CorporateEventState,
   FallbackOutcome,
+  MissingFeaturePolicyState,
+  MonitorObservationStatus,
+  TradabilityState,
   VersionFieldStatus,
 } from "./common";
 
@@ -44,4 +48,28 @@ export interface VersionPack {
   bootstrap_policy_version: string | null;
   ic_overlap_policy_version: string | null;
   version_pack_status: Record<string, VersionFieldStatus>;
+}
+
+export interface LiquidityBucketCoverage {
+  bucket_key: string;
+  bucket_label: string;
+  full_universe_count: number;
+  execution_universe_count: number;
+  full_universe_ratio: number;
+  execution_coverage_ratio: number;
+}
+
+export interface P3Summary {
+  tradability_state: TradabilityState | null;
+  capacity_screening_active: boolean | null;
+  missing_feature_policy_state: MissingFeaturePolicyState | null;
+  corporate_event_state: CorporateEventState | null;
+  full_universe_count: number | null;
+  execution_universe_count: number | null;
+  execution_universe_ratio: number | null;
+  liquidity_bucket_schema_version: string | null;
+  liquidity_bucket_coverages: LiquidityBucketCoverage[];
+  stale_mark_days_with_open_positions: number | null;
+  stale_risk_share: number | null;
+  monitor_observation_status: MonitorObservationStatus | null;
 }

@@ -102,6 +102,80 @@ class ResearchRun(Base):
     price_basis_version = Column(String, nullable=True)
     benchmark_comparability_gate = Column(Boolean, nullable=True)
     comparison_eligibility = Column(String, nullable=True)
+    investability_screening_active = Column(Boolean, nullable=True)
+    capacity_screening_active = Column(Boolean, nullable=True)
+    capacity_screening_version = Column(String, nullable=True)
+    adv_basis_version = Column(String, nullable=True)
+    missing_feature_policy_version = Column(String, nullable=True)
+    execution_cost_model_version = Column(String, nullable=True)
+    tradability_state = Column(String, nullable=True)
+    tradability_contract_version = Column(String, nullable=True)
+    missing_feature_policy_state = Column(String, nullable=True)
+    corporate_event_state = Column(String, nullable=True)
+    full_universe_count = Column(Integer, nullable=True)
+    execution_universe_count = Column(Integer, nullable=True)
+    execution_universe_ratio = Column(Float, nullable=True)
+    liquidity_bucket_schema_version = Column(String, nullable=True)
+    stale_mark_days_with_open_positions = Column(Integer, nullable=True)
+    stale_risk_share = Column(Float, nullable=True)
+    monitor_profile_id = Column(String, nullable=True, index=True)
+    monitor_observation_status = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ResearchRunLiquidityCoverage(Base):
+    __tablename__ = "research_run_liquidity_coverages"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "bucket_key",
+            name="uq_research_run_liquidity_coverages_run_bucket",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bucket_key = Column(String, nullable=False)
+    bucket_label = Column(String, nullable=False)
+    full_universe_count = Column(Integer, nullable=False, default=0)
+    execution_universe_count = Column(Integer, nullable=False, default=0)
+    full_universe_ratio = Column(Float, nullable=False, default=0.0)
+    execution_coverage_ratio = Column(Float, nullable=False, default=0.0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class MicrostructureObservation(Base):
+    __tablename__ = "microstructure_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "monitor_profile_id",
+            "market",
+            "trading_date",
+            name="uq_microstructure_observations_profile_market_date",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    monitor_profile_id = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    trading_date = Column(Date, nullable=False, index=True)
+    full_universe_count = Column(Integer, nullable=False, default=0)
+    execution_universe_count = Column(Integer, nullable=False, default=0)
+    execution_universe_ratio = Column(Float, nullable=False, default=0.0)
+    stale_mark_with_open_positions = Column(Boolean, nullable=False, default=False)
+    liquidity_bucket_schema_version = Column(String, nullable=False)
+    bucket_coverages_json = Column(Text, nullable=False, default="[]")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

@@ -18,6 +18,21 @@ export type ComparisonEligibility =
   | "strategy_pair_comparable"
   | "research_only_comparable"
   | "unresolved_event_quarantine";
+export type TradabilityState =
+  | "execution_ready"
+  | "research_only"
+  | "unresolved_corporate_event"
+  | "stale_risk";
+export type MissingFeaturePolicyState =
+  | "feature_complete"
+  | "core_data_gaps_filtered"
+  | "native_missing_supported";
+export type CorporateEventState = "clear" | "unresolved_corporate_event";
+export type MonitorObservationStatus =
+  | "not_requested"
+  | "persisted"
+  | "skipped";
+export type ResearchMonitorProfileId = "p3_monitor_default_v1";
 export type RunStatus =
   | "succeeded"
   | "rejected"

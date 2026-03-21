@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from ..repositories.important_event_repository import list_important_event_records, upsert_important_event_record
+from ..repositories.important_event_repository import (
+    list_important_event_records,
+    upsert_important_event_record,
+)
 from ..schemas.data_plane import ImportantEventUpsert
 from ._normalization import clean_optional_text, clean_required_text
 

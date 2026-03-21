@@ -21,6 +21,7 @@ from .common import (
     ModelType,
     PriceSource,
     RequestModel,
+    ResearchMonitorProfileId,
     ReturnTarget,
     RunStatus,
     RuntimeMode,
@@ -31,6 +32,7 @@ from .runtime import (
     ConfigSources,
     EffectiveStrategyConfig,
     FallbackAudit,
+    P3SummaryMixin,
     VersionPackMixin,
 )
 
@@ -94,6 +96,8 @@ class ResearchRunCreateRequest(RequestModel):
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     validation: Optional[ValidationConfig] = None
     baselines: List[BaselineName] = Field(default_factory=list)
+    portfolio_aum: Optional[confloat(gt=0)] = None  # type: ignore[valid-type]
+    monitor_profile_id: Optional[ResearchMonitorProfileId] = None
 
     @field_validator("symbols")
     @classmethod
@@ -148,7 +152,7 @@ class ValidationSummary(BaseModel):
     metrics: Dict[str, float]
 
 
-class ResearchRunResponse(VersionPackMixin):
+class ResearchRunResponse(VersionPackMixin, P3SummaryMixin):
     run_id: str
     metrics: Metrics
     equity_curve: List[EquityPoint] = Field(default_factory=list)
@@ -163,7 +167,7 @@ class ResearchRunResponse(VersionPackMixin):
     fallback_audit: FallbackAudit
 
 
-class ResearchRunRecordResponse(VersionPackMixin):
+class ResearchRunRecordResponse(VersionPackMixin, P3SummaryMixin):
     run_id: str
     request_id: Optional[str] = None
     status: RunStatus

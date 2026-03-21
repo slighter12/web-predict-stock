@@ -31,7 +31,9 @@ def write_archive_part(
     directory.mkdir(parents=True, exist_ok=True)
     file_name = f"part-{part_number:05d}.jsonl.gz"
     path = directory / file_name
-    lines = [json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n" for entry in entries]
+    lines = [
+        json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n" for entry in entries
+    ]
     compressed_bytes, uncompressed_bytes = _gzip_bytes(lines)
     path.write_bytes(compressed_bytes)
     return _build_file_metadata(path, compressed_bytes, uncompressed_bytes)

@@ -56,8 +56,7 @@ def create_tick_replay(
             (completed_at - started_at).total_seconds(),
         )
         throughput = (
-            (archive_object["compressed_bytes"] / (1024**3))
-            / (elapsed_seconds / 60)
+            (archive_object["compressed_bytes"] / (1024**3)) / (elapsed_seconds / 60)
             if archive_object["compressed_bytes"] > 0
             and elapsed_seconds > _MIN_THROUGHPUT_ELAPSED_SECONDS
             else None

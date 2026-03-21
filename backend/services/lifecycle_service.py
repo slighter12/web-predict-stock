@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from ..repositories.lifecycle_repository import list_lifecycle_records, upsert_lifecycle_record
+from ..repositories.lifecycle_repository import (
+    list_lifecycle_records,
+    upsert_lifecycle_record,
+)
 from ..schemas.data_plane import LifecycleRecordUpsert
 from ._normalization import clean_optional_text, clean_required_text
 

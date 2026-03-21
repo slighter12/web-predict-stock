@@ -22,6 +22,11 @@ IMPLEMENTED_VERSION_FIELDS = {
     "price_basis_version",
     "benchmark_comparability_gate",
     "comparison_eligibility",
+    "investability_screening_active",
+    "capacity_screening_version",
+    "adv_basis_version",
+    "missing_feature_policy_version",
+    "execution_cost_model_version",
 }
 
 

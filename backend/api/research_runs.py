@@ -6,11 +6,17 @@ from fastapi import APIRouter, Request
 
 from ..api_models import BacktestRequest
 from ..runtime.request_context import get_request_id
+from ..schemas.research_governance import (
+    ResearchMicroKpiResponse,
+    ResearchPhaseGateResponse,
+)
 from ..schemas.research_runs import (
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
 )
+from ..services.micro_kpi_service import get_micro_kpi_summary
+from ..services.research_gate_service import get_p3_phase_gate_summary
 from ..services.research_run_service import (
     create_research_run,
     get_research_run,
@@ -66,3 +72,21 @@ def read_research_run(run_id: str) -> ResearchRunRecordResponse:
 )
 def read_research_runs() -> list[ResearchRunRecordResponse]:
     return list_research_runs()
+
+
+@router.get(
+    "/api/v1/research/gates/p3",
+    tags=["Research Runs"],
+    response_model=ResearchPhaseGateResponse,
+)
+def read_p3_gate() -> ResearchPhaseGateResponse:
+    return ResearchPhaseGateResponse(**get_p3_phase_gate_summary())
+
+
+@router.get(
+    "/api/v1/research/micro-kpis",
+    tags=["Research Runs"],
+    response_model=ResearchMicroKpiResponse,
+)
+def read_micro_kpis(market: str = "TW") -> ResearchMicroKpiResponse:
+    return ResearchMicroKpiResponse(**get_micro_kpi_summary(market=market))

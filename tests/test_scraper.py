@@ -8,10 +8,42 @@ from scripts import scraper
 def test_validate_ohlcv_with_report_tracks_removed_rows():
     df = pd.DataFrame(
         [
-            {"date": "2024-01-02", "symbol": "2330", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100},
-            {"date": "2024-01-02", "symbol": "2330", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100},
-            {"date": "2024-01-03", "symbol": "2330", "open": None, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100},
-            {"date": "2024-01-04", "symbol": "2330", "open": -1.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100},
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            },
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            },
+            {
+                "date": "2024-01-03",
+                "symbol": "2330",
+                "open": None,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            },
+            {
+                "date": "2024-01-04",
+                "symbol": "2330",
+                "open": -1.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            },
         ]
     )
 
@@ -34,21 +66,62 @@ def test_load_to_db_empty_summary():
 
 def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
     backfill_df = pd.DataFrame(
-        [{"date": "2024-01-02", "symbol": "2330", "market": "TW", "source": "yfinance", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100}]
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "market": "TW",
+                "source": "yfinance",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
     )
-    backfill_meta = scraper.RawTraceMetadata(raw_payload_id=1, archive_object_reference="raw_ingest_audit:1", parser_version=scraper.YFINANCE_PARSER_VERSION)
+    backfill_meta = scraper.RawTraceMetadata(
+        raw_payload_id=1,
+        archive_object_reference="raw_ingest_audit:1",
+        parser_version=scraper.YFINANCE_PARSER_VERSION,
+    )
     daily_df = pd.DataFrame(
-        [{"date": "2024-01-03", "symbol": "2330", "market": "TW", "source": "twse", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100}]
+        [
+            {
+                "date": "2024-01-03",
+                "symbol": "2330",
+                "market": "TW",
+                "source": "twse",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
     )
-    daily_meta = scraper.RawTraceMetadata(raw_payload_id=2, archive_object_reference="raw_ingest_audit:2", parser_version=scraper.TWSE_PARSER_VERSION)
+    daily_meta = scraper.RawTraceMetadata(
+        raw_payload_id=2,
+        archive_object_reference="raw_ingest_audit:2",
+        parser_version=scraper.TWSE_PARSER_VERSION,
+    )
     calls = []
 
-    monkeypatch.setattr(scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta))
-    monkeypatch.setattr(scraper, "scrape_daily_twse", lambda **kwargs: (daily_df, daily_meta))
+    monkeypatch.setattr(
+        scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta)
+    )
+    monkeypatch.setattr(
+        scraper, "scrape_daily_twse", lambda **kwargs: (daily_df, daily_meta)
+    )
 
     def fake_load(df, metadata=None):
         calls.append(df.iloc[0]["source"] if not df.empty else "empty")
-        return {"validated_rows": len(df), "official_overrides": 1 if not df.empty and df.iloc[0]["source"] == "twse" else 0}
+        return {
+            "validated_rows": len(df),
+            "official_overrides": 1
+            if not df.empty and df.iloc[0]["source"] == "twse"
+            else 0,
+        }
 
     monkeypatch.setattr(scraper, "load_to_db", fake_load)
 
@@ -60,12 +133,34 @@ def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
 
 def test_ingest_symbol_us_skips_daily_update(monkeypatch):
     backfill_df = pd.DataFrame(
-        [{"date": "2024-01-02", "symbol": "AAPL", "market": "US", "source": "yfinance", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100}]
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "AAPL",
+                "market": "US",
+                "source": "yfinance",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
     )
-    backfill_meta = scraper.RawTraceMetadata(raw_payload_id=1, archive_object_reference="raw_ingest_audit:1", parser_version=scraper.YFINANCE_PARSER_VERSION)
+    backfill_meta = scraper.RawTraceMetadata(
+        raw_payload_id=1,
+        archive_object_reference="raw_ingest_audit:1",
+        parser_version=scraper.YFINANCE_PARSER_VERSION,
+    )
 
-    monkeypatch.setattr(scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta))
-    monkeypatch.setattr(scraper, "load_to_db", lambda df, metadata=None: {"validated_rows": len(df), "official_overrides": 0})
+    monkeypatch.setattr(
+        scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta)
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {"validated_rows": len(df), "official_overrides": 0},
+    )
 
     summary = scraper.ingest_symbol(symbol="AAPL", market="US", years=5)
 
@@ -150,7 +245,9 @@ def test_scrape_twse_data_records_failure(monkeypatch):
 
     records = []
     monkeypatch.setattr(scraper.requests, "get", raise_exc)
-    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: records.append(kwargs))
+    monkeypatch.setattr(
+        scraper, "persist_raw_ingest_record", lambda **kwargs: records.append(kwargs)
+    )
 
     result, metadata = scraper.scrape_twse_data(symbol="2330", date_str="20240101")
     assert result.empty
@@ -203,7 +300,9 @@ def test_backfill_history_records_failure(monkeypatch):
 
     records = []
     monkeypatch.setattr(scraper.yf, "Ticker", bad_ticker)
-    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: records.append(kwargs))
+    monkeypatch.setattr(
+        scraper, "persist_raw_ingest_record", lambda **kwargs: records.append(kwargs)
+    )
 
     result, metadata = scraper.backfill_history(symbol="2330", years=1, market="TW")
     assert result.empty
@@ -290,7 +389,9 @@ def test_parse_twse_payload_body_replays_successfully():
     }
     """
 
-    cleaned, metadata = scraper.parse_twse_payload_body(payload_body=payload, symbol="2330", raw_payload_id=99)
+    cleaned, metadata = scraper.parse_twse_payload_body(
+        payload_body=payload, symbol="2330", raw_payload_id=99
+    )
 
     assert len(cleaned) == 1
     assert cleaned.iloc[0]["source"] == scraper.SOURCE_TWSE
@@ -342,7 +443,19 @@ def test_replay_raw_ingest_record_rejects_unknown_source():
 
 def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
     backfill_df = pd.DataFrame(
-        [{"date": "2024-01-02", "symbol": "2330", "market": "TW", "source": "yfinance", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100}]
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "market": "TW",
+                "source": "yfinance",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
     )
     backfill_meta = scraper.RawTraceMetadata(
         raw_payload_id=10,
@@ -350,7 +463,19 @@ def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
         parser_version=scraper.YFINANCE_PARSER_VERSION,
     )
     daily_df = pd.DataFrame(
-        [{"date": "2024-01-03", "symbol": "2330", "market": "TW", "source": "twse", "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5, "volume": 100}]
+        [
+            {
+                "date": "2024-01-03",
+                "symbol": "2330",
+                "market": "TW",
+                "source": "twse",
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
     )
     daily_meta = scraper.RawTraceMetadata(
         raw_payload_id=11,
@@ -358,8 +483,12 @@ def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
         parser_version=scraper.TWSE_PARSER_VERSION,
     )
 
-    monkeypatch.setattr(scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta))
-    monkeypatch.setattr(scraper, "scrape_daily_twse", lambda **kwargs: (daily_df, daily_meta))
+    monkeypatch.setattr(
+        scraper, "backfill_history", lambda **kwargs: (backfill_df, backfill_meta)
+    )
+    monkeypatch.setattr(
+        scraper, "scrape_daily_twse", lambda **kwargs: (daily_df, daily_meta)
+    )
     monkeypatch.setattr(
         scraper,
         "load_to_db",
@@ -372,7 +501,9 @@ def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
             "invalid_rows_removed": 0,
             "gap_warnings": 0,
             "upserted_rows": len(df),
-            "official_overrides": 1 if metadata and metadata.parser_version == scraper.TWSE_PARSER_VERSION else 0,
+            "official_overrides": 1
+            if metadata and metadata.parser_version == scraper.TWSE_PARSER_VERSION
+            else 0,
         },
     )
 

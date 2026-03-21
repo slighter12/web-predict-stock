@@ -29,8 +29,8 @@ from ..schemas.data_plane import (
     TickArchiveImportResponse,
     TickArchiveObjectResponse,
     TickArchiveRunResponse,
-    TickPhaseGateResponse,
     TickOpsKpiResponse,
+    TickPhaseGateResponse,
     TickReplayRequest,
     TickReplayResponse,
 )
@@ -117,9 +117,7 @@ def create_tick_archive_dispatch_endpoint(
     response_model=list[TickArchiveRunResponse],
 )
 def read_tick_archive_dispatches() -> list[TickArchiveRunResponse]:
-    return [
-        TickArchiveRunResponse(**item) for item in list_tick_archive_dispatches()
-    ]
+    return [TickArchiveRunResponse(**item) for item in list_tick_archive_dispatches()]
 
 
 @router.post(

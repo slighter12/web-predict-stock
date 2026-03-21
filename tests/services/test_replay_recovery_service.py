@@ -7,9 +7,9 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from backend.database import RecoveryDrill
 import backend.services.recovery_service as recovery_service
 import backend.services.replay_service as replay_service
+from backend.database import RecoveryDrill
 from backend.errors import (
     DataAccessError,
     DataNotFoundError,
@@ -93,7 +93,9 @@ def test_create_recovery_drill_validates_benchmark_profile(monkeypatch):
         )
 
 
-def test_execute_recovery_drill_returns_in_memory_payload_when_persist_fails(monkeypatch):
+def test_execute_recovery_drill_returns_in_memory_payload_when_persist_fails(
+    monkeypatch,
+):
     monkeypatch.setattr(
         recovery_service,
         "_persist_recovery_failure",

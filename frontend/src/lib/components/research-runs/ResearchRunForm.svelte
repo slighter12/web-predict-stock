@@ -130,6 +130,9 @@
         if (form.slippage < 0 || form.fees < 0) {
             nextErrors.execution = "Fees and slippage cannot be negative.";
         }
+        if (form.portfolioAum !== null && form.portfolioAum <= 0) {
+            nextErrors.portfolioAum = "Portfolio AUM must be greater than 0.";
+        }
 
         const uniqueFeatures = new Set<string>();
         form.features.forEach((feature) => {
@@ -401,6 +404,24 @@
         <label>
             <span>Fees</span>
             <input type="number" min="0" step="0.001" bind:value={form.fees} />
+        </label>
+        <label>
+            <span>Portfolio AUM</span>
+            <input
+                type="number"
+                min="0"
+                step="100000"
+                bind:value={form.portfolioAum}
+                placeholder="Optional"
+            />
+            {#if errors.portfolioAum}<small>{errors.portfolioAum}</small>{/if}
+        </label>
+    </div>
+
+    <div class="group two">
+        <label class="toggle">
+            <span>Record As P3 Monitor Run</span>
+            <input type="checkbox" bind:checked={form.recordAsMonitorRun} />
         </label>
         <label>
             <span>Baselines</span>
