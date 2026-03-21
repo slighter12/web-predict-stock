@@ -109,10 +109,13 @@ export const createTickArchiveImport = ({
     formData.append("notes", notes);
   }
   formData.append("archive_file", archive_file);
-  return requestJson<TickArchiveImportResponse>("/api/v1/data/tick-archive-imports", {
-    method: "POST",
-    body: formData,
-  });
+  return requestJson<TickArchiveImportResponse>(
+    "/api/v1/data/tick-archive-imports",
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
 };
 
 export const fetchTickArchives = () =>

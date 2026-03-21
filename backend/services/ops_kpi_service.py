@@ -409,9 +409,7 @@ def _calculate_kpi_data_004(reference_date: date) -> dict:
 
 def _calculate_kpi_data_005(reference_date: date) -> dict:
     start_date = reference_date - timedelta(days=89)
-    start_dt = datetime.combine(
-        start_date, datetime.min.time(), tzinfo=timezone.utc
-    )
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     durations_hours: list[float] = []
     try:
         with SessionLocal() as session:
@@ -463,9 +461,7 @@ def _calculate_kpi_data_005(reference_date: date) -> dict:
 
 def _calculate_kpi_data_006_and_008(reference_date: date) -> tuple[dict, dict]:
     start_date = reference_date - timedelta(days=89)
-    start_dt = datetime.combine(
-        start_date, datetime.min.time(), tzinfo=timezone.utc
-    )
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     try:
         with SessionLocal() as session:
             rows = (
@@ -526,9 +522,7 @@ def _calculate_kpi_data_006_and_008(reference_date: date) -> tuple[dict, dict]:
 
 def _calculate_kpi_data_007(reference_date: date) -> dict:
     start_date = reference_date - timedelta(days=89)
-    start_dt = datetime.combine(
-        start_date, datetime.min.time(), tzinfo=timezone.utc
-    )
+    start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     due_slots: set[tuple[int, date]] = set()
     try:
         with SessionLocal() as session:

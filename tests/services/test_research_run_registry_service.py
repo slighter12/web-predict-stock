@@ -3,8 +3,8 @@ from datetime import date, datetime, timezone
 import pytest
 
 import backend.services.research_run_registry_service as registry_service
-from backend.errors import UnsupportedConfigurationError
 from backend.domain.runtime_bundle import build_version_pack_payload
+from backend.errors import UnsupportedConfigurationError
 from backend.schemas.research_runs import (
     ConfigSources,
     EffectiveStrategyConfig,
@@ -117,6 +117,7 @@ def test_record_success_builds_registry_payload(monkeypatch):
     assert captured["symbols"] == ["2330"]
     assert captured["metrics"]["total_return"] == pytest.approx(0.12)
     assert captured["warnings"] == ["warn"]
+    assert captured["tradability_contract_version"] is None
 
 
 def test_record_rejection_builds_error_code(monkeypatch):
@@ -137,9 +138,7 @@ def test_record_rejection_builds_error_code(monkeypatch):
     )
 
     assert captured["status"] == "rejected"
-    assert captured["validation_outcome"] == {
-        "error_code": "UNSUPPORTED_CONFIGURATION"
-    }
+    assert captured["validation_outcome"] == {"error_code": "UNSUPPORTED_CONFIGURATION"}
     assert captured["rejection_reason"] == "bad config"
 
 
@@ -181,7 +180,9 @@ def test_record_validation_failure_uses_raw_request_payload(monkeypatch):
             "symbols": ["2330"],
             "strategy": {"type": "research_v1", "allow_proactive_sells": True},
         },
-        details={"fields": [{"field": "symbols", "code": "invalid", "reason": "duplicate"}]},
+        details={
+            "fields": [{"field": "symbols", "code": "invalid", "reason": "duplicate"}]
+        },
     )
 
     assert captured["status"] == "validation_failed"
@@ -212,7 +213,4 @@ def test_record_unexpected_failure_uses_request_payload(monkeypatch):
 
     assert captured["status"] == "failed"
     assert captured["strategy_type"] == "research_v1"
-    assert captured["validation_outcome"] == {
-        "error_code": "INTERNAL_SERVER_ERROR"
-    }
-
+    assert captured["validation_outcome"] == {"error_code": "INTERNAL_SERVER_ERROR"}

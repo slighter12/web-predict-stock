@@ -324,15 +324,21 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
         "create_ingestion_watchlist_entry",
         lambda request: watchlist_entry,
     )
-    monkeypatch.setattr(data_plane_api, "list_ingestion_watchlist", lambda: [watchlist_entry])
+    monkeypatch.setattr(
+        data_plane_api, "list_ingestion_watchlist", lambda: [watchlist_entry]
+    )
     monkeypatch.setattr(
         data_plane_api,
         "dispatch_due_scheduled_ingestions",
         lambda scheduled_for_date=None: dispatch_summary,
     )
     monkeypatch.setattr(data_plane_api, "get_ops_kpi_summary", lambda: kpi_summary)
-    monkeypatch.setattr(data_plane_api, "crawl_lifecycle_records", lambda: crawler_summary)
-    monkeypatch.setattr(data_plane_api, "crawl_important_events", lambda: crawler_summary)
+    monkeypatch.setattr(
+        data_plane_api, "crawl_lifecycle_records", lambda: crawler_summary
+    )
+    monkeypatch.setattr(
+        data_plane_api, "crawl_important_events", lambda: crawler_summary
+    )
 
     benchmark_response = client.post(
         "/api/v1/data/benchmark-profiles",
@@ -353,13 +359,14 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
     dispatch_response = client.post("/api/v1/data/ingestion-dispatches", json={})
     kpi_response = client.get("/api/v1/data/ops/kpis")
     lifecycle_crawl_response = client.post("/api/v1/data/lifecycle-crawls")
-    important_event_crawl_response = client.post(
-        "/api/v1/data/important-event-crawls"
-    )
+    important_event_crawl_response = client.post("/api/v1/data/important-event-crawls")
 
     assert benchmark_response.status_code == 200
     assert benchmark_response.json()["id"] == "one_week_rebuild_v1"
-    assert client.get("/api/v1/data/benchmark-profiles").json()[0]["cpu_class"] == "m-class"
+    assert (
+        client.get("/api/v1/data/benchmark-profiles").json()[0]["cpu_class"]
+        == "m-class"
+    )
     assert watchlist_response.status_code == 200
     assert watchlist_response.json()["symbol"] == "2330"
     assert client.get("/api/v1/data/ingestion-watchlist").json()[0]["years"] == 5

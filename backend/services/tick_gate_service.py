@@ -33,17 +33,22 @@ def get_tick_phase_gate_summary() -> dict:
                     select(TickArchiveObject)
                     .join(TickArchiveRun, TickArchiveRun.id == TickArchiveObject.run_id)
                     .where(TickArchiveRun.status == _SUCCEEDED_STATUS)
-                    .order_by(TickArchiveObject.created_at.desc(), TickArchiveObject.id.desc())
+                    .order_by(
+                        TickArchiveObject.created_at.desc(), TickArchiveObject.id.desc()
+                    )
                     .limit(1)
                 )
                 .scalars()
                 .first()
             )
-            succeeded_restore_count = session.scalar(
-                select(func.count())
-                .select_from(TickRestoreRun)
-                .where(TickRestoreRun.restore_status == _SUCCEEDED_STATUS)
-            ) or 0
+            succeeded_restore_count = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(TickRestoreRun)
+                    .where(TickRestoreRun.restore_status == _SUCCEEDED_STATUS)
+                )
+                or 0
+            )
     except Exception as exc:
         raise DataAccessError("Failed to evaluate tick phase gate summary.") from exc
 
@@ -81,22 +86,24 @@ def get_tick_phase_gate_summary() -> dict:
                 latest_archive_object_reference = (
                     f"tick_archive_object:{latest_archive_object.id}"
                 )
-                latest_archive_observation_count = session.scalar(
-                    select(func.count())
-                    .select_from(TickObservation)
-                    .where(
-                        TickObservation.archive_object_reference
-                        == latest_archive_object_reference
+                latest_archive_observation_count = (
+                    session.scalar(
+                        select(func.count())
+                        .select_from(TickObservation)
+                        .where(
+                            TickObservation.archive_object_reference
+                            == latest_archive_object_reference
+                        )
                     )
-                ) or 0
+                    or 0
+                )
         except Exception as exc:
-            raise DataAccessError("Failed to evaluate tick phase gate summary.") from exc
+            raise DataAccessError(
+                "Failed to evaluate tick phase gate summary."
+            ) from exc
 
     raw_archive_status = (
-        "pass"
-        if latest_archive_object is not None
-        and archive_exists
-        else "fail"
+        "pass" if latest_archive_object is not None and archive_exists else "fail"
     )
     replay_status = (
         "pass"
@@ -154,7 +161,9 @@ def get_tick_phase_gate_summary() -> dict:
                 if latest_archive_restore_run is not None
                 else None,
                 "latest_archive_object_reference": latest_archive_object_reference,
-                "latest_replay_observation_count": int(latest_archive_observation_count),
+                "latest_replay_observation_count": int(
+                    latest_archive_observation_count
+                ),
             },
         ),
         "archive_metadata": _artifact(

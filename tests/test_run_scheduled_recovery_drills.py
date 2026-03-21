@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 
-def test_run_scheduled_recovery_drills_main_returns_zero(capsys, monkeypatch, load_script):
+def test_run_scheduled_recovery_drills_main_returns_zero(
+    capsys, monkeypatch, load_script
+):
     module = load_script(
         "run_scheduled_recovery_drills.py",
         "run_scheduled_recovery_drills_script",
@@ -28,7 +30,9 @@ def test_run_scheduled_recovery_drills_main_returns_zero(capsys, monkeypatch, lo
     assert '"succeeded_count": 1' in captured.out
 
 
-def test_run_scheduled_recovery_drills_main_returns_one_on_failure(capsys, monkeypatch, load_script):
+def test_run_scheduled_recovery_drills_main_returns_one_on_failure(
+    capsys, monkeypatch, load_script
+):
     module = load_script(
         "run_scheduled_recovery_drills.py",
         "run_scheduled_recovery_drills_script",

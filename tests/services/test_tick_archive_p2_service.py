@@ -50,7 +50,11 @@ def test_fetch_twse_public_snapshot_prefers_ca_bundle(monkeypatch):
     monkeypatch.setattr(
         tick_archive_provider,
         "_ca_bundle_target_path",
-        lambda: type("P", (), {"exists": lambda self: True, "__str__": lambda self: "/tmp/twse-ca.pem"})(),
+        lambda: type(
+            "P",
+            (),
+            {"exists": lambda self: True, "__str__": lambda self: "/tmp/twse-ca.pem"},
+        )(),
     )
 
     def fake_get(url, *, params, headers, timeout, verify):
@@ -196,9 +200,7 @@ def test_create_tick_archive_dispatch_persists_run_and_objects(monkeypatch):
             "observations": [
                 {
                     "trading_date": date(2026, 3, 20),
-                    "observation_ts": datetime(
-                        2026, 3, 20, 7, 5, tzinfo=timezone.utc
-                    ),
+                    "observation_ts": datetime(2026, 3, 20, 7, 5, tzinfo=timezone.utc),
                     "symbol": "2330",
                     "market": "TW",
                     "last_price": 1840.0,
@@ -291,7 +293,9 @@ def test_create_tick_archive_dispatch_raises_after_persisting_failed_run(monkeyp
     assert "upstream snapshot unavailable" in str(persisted_runs[-1]["abort_reason"])
 
 
-def test_create_tick_archive_dispatch_cleans_up_persisted_parts_on_late_failure(monkeypatch):
+def test_create_tick_archive_dispatch_cleans_up_persisted_parts_on_late_failure(
+    monkeypatch,
+):
     persisted_runs: list[dict] = []
     persisted_objects: list[dict] = []
     deleted_object_ids: list[int] = []
@@ -363,10 +367,18 @@ def test_create_tick_archive_dispatch_cleans_up_persisted_parts_on_late_failure(
         "resolve_tw_tick_archive_symbols",
         lambda *, trading_date: ["2330", "2317"],
     )
-    monkeypatch.setattr(tick_archive_service, "_chunk_symbols", lambda symbols, chunk_size: [["2330"], ["2317"]])
+    monkeypatch.setattr(
+        tick_archive_service,
+        "_chunk_symbols",
+        lambda symbols, chunk_size: [["2330"], ["2317"]],
+    )
     monkeypatch.setattr(tick_archive_service, "fetch_twse_public_snapshot", fake_fetch)
-    monkeypatch.setattr(tick_archive_service, "write_archive_part", lambda **kwargs: next(write_results))
-    monkeypatch.setattr(tick_archive_service, "persist_tick_archive_object", capture_object)
+    monkeypatch.setattr(
+        tick_archive_service, "write_archive_part", lambda **kwargs: next(write_results)
+    )
+    monkeypatch.setattr(
+        tick_archive_service, "persist_tick_archive_object", capture_object
+    )
     monkeypatch.setattr(
         tick_archive_service,
         "delete_tick_archive_objects",
@@ -424,9 +436,7 @@ def test_create_tick_archive_dispatch_resolves_symbols_for_requested_trading_dat
             "observations": [
                 {
                     "trading_date": date(2026, 3, 18),
-                    "observation_ts": datetime(
-                        2026, 3, 18, 7, 5, tzinfo=timezone.utc
-                    ),
+                    "observation_ts": datetime(2026, 3, 18, 7, 5, tzinfo=timezone.utc),
                     "symbol": "2330",
                     "market": "TW",
                     "last_price": 1840.0,
@@ -534,7 +544,9 @@ def test_create_tick_archive_import_rejects_mismatched_archive_metadata(monkeypa
         lambda *, object_key, storage_backend: deleted_keys.append(object_key) or True,
     )
 
-    with pytest.raises(ValueError, match="trading_date does not match archive observations"):
+    with pytest.raises(
+        ValueError, match="trading_date does not match archive observations"
+    ):
         tick_archive_service.create_tick_archive_import(
             market="TW",
             trading_date=date(2026, 3, 21),
@@ -565,7 +577,9 @@ def test_create_tick_replay_persists_restore_metrics(monkeypatch):
     monkeypatch.setattr(
         tick_replay_service,
         "read_archive_entries",
-        lambda object_key: [{"raw_response_body": "{}", "fetch_timestamp": "2026-03-20T07:05:00+00:00"}],
+        lambda object_key: [
+            {"raw_response_body": "{}", "fetch_timestamp": "2026-03-20T07:05:00+00:00"}
+        ],
     )
     monkeypatch.setattr(
         tick_replay_service,
@@ -639,7 +653,9 @@ def test_create_tick_replay_omits_throughput_for_zero_elapsed_time(monkeypatch):
     monkeypatch.setattr(
         tick_replay_service,
         "read_archive_entries",
-        lambda object_key: [{"raw_response_body": "{}", "fetch_timestamp": "2026-03-20T07:05:00+00:00"}],
+        lambda object_key: [
+            {"raw_response_body": "{}", "fetch_timestamp": "2026-03-20T07:05:00+00:00"}
+        ],
     )
     monkeypatch.setattr(
         tick_replay_service,
@@ -697,7 +713,9 @@ def test_create_tick_replay_preserves_missing_archive_error(monkeypatch):
         tick_replay_service,
         "get_tick_archive_object",
         lambda archive_object_id: (_ for _ in ()).throw(
-            DataNotFoundError(f"Tick archive object '{archive_object_id}' was not found.")
+            DataNotFoundError(
+                f"Tick archive object '{archive_object_id}' was not found."
+            )
         ),
     )
 
@@ -809,7 +827,9 @@ def test_get_tick_ops_kpi_summary_excludes_incomplete_restore_windows(monkeypatc
     assert result["metrics"]["KPI-TICK-002"]["details"]["eligible_window_count"] == 0
 
 
-def test_get_tick_ops_kpi_summary_uses_latest_succeeded_archive_run_per_day(monkeypatch):
+def test_get_tick_ops_kpi_summary_uses_latest_succeeded_archive_run_per_day(
+    monkeypatch,
+):
     monkeypatch.setattr(
         tick_ops_kpi_service,
         "list_recent_tick_archive_trading_dates",
@@ -849,7 +869,9 @@ def test_get_tick_ops_kpi_summary_uses_latest_succeeded_archive_run_per_day(monk
                 "archive_object_id": 11,
                 "elapsed_seconds": 60.0,
                 "restore_started_at": datetime(2026, 3, 20, 8, 0, tzinfo=timezone.utc),
-                "restore_completed_at": datetime(2026, 3, 20, 8, 1, tzinfo=timezone.utc),
+                "restore_completed_at": datetime(
+                    2026, 3, 20, 8, 1, tzinfo=timezone.utc
+                ),
                 "compressed_bytes": 110,
                 "trading_date": date(2026, 3, 20),
                 "benchmark_profile_id": "local_manual_v1",
@@ -907,7 +929,9 @@ def test_get_tick_ops_kpi_summary_uses_window_wall_clock_for_parallel_restores(
                 "archive_object_id": 21,
                 "elapsed_seconds": 120.0,
                 "restore_started_at": datetime(2026, 3, 20, 8, 0, tzinfo=timezone.utc),
-                "restore_completed_at": datetime(2026, 3, 20, 8, 2, tzinfo=timezone.utc),
+                "restore_completed_at": datetime(
+                    2026, 3, 20, 8, 2, tzinfo=timezone.utc
+                ),
                 "compressed_bytes": compressed_bytes,
                 "trading_date": date(2026, 3, 20),
                 "benchmark_profile_id": "local_manual_v1",
@@ -916,7 +940,9 @@ def test_get_tick_ops_kpi_summary_uses_window_wall_clock_for_parallel_restores(
                 "archive_object_id": 22,
                 "elapsed_seconds": 120.0,
                 "restore_started_at": datetime(2026, 3, 20, 8, 1, tzinfo=timezone.utc),
-                "restore_completed_at": datetime(2026, 3, 20, 8, 3, tzinfo=timezone.utc),
+                "restore_completed_at": datetime(
+                    2026, 3, 20, 8, 3, tzinfo=timezone.utc
+                ),
                 "compressed_bytes": compressed_bytes,
                 "trading_date": date(2026, 3, 20),
                 "benchmark_profile_id": "local_manual_v1",
@@ -928,7 +954,9 @@ def test_get_tick_ops_kpi_summary_uses_window_wall_clock_for_parallel_restores(
 
     expected_throughput = 0.5 / 3.0
     assert result["metrics"]["KPI-TICK-002"]["value"] == pytest.approx(3.0)
-    assert result["metrics"]["KPI-TICK-003"]["value"] == pytest.approx(expected_throughput)
+    assert result["metrics"]["KPI-TICK-003"]["value"] == pytest.approx(
+        expected_throughput
+    )
     assert result["selection_policy"]["restore_time_model"] == "window_wall_clock"
 
 
@@ -1081,15 +1109,28 @@ def test_get_tick_phase_gate_summary_reports_artifacts(monkeypatch):
     assert result["gate_id"] == "GATE-P2-001"
     assert result["overall_status"] == "pass"
     assert result["artifacts"]["raw_tick_archive"]["details"]["path_exists"] is True
-    assert result["artifacts"]["normalized_replay_path"]["details"]["latest_restore_status"] == "succeeded"
-    assert result["artifacts"]["normalized_replay_path"]["details"]["latest_archive_object_id"] == 7
+    assert (
+        result["artifacts"]["normalized_replay_path"]["details"][
+            "latest_restore_status"
+        ]
+        == "succeeded"
+    )
+    assert (
+        result["artifacts"]["normalized_replay_path"]["details"][
+            "latest_archive_object_id"
+        ]
+        == 7
+    )
     assert result["artifacts"]["retention_policy"]["status"] == "pass"
     assert (
         result["artifacts"]["retention_policy"]["details"]["actual_retention_class"]
         == "provisional_until_tbd_002_resolved"
     )
     assert result["artifacts"]["restore_telemetry"]["status"] == "pass"
-    assert result["artifacts"]["restore_telemetry"]["details"]["latest_elapsed_seconds"] == 12.0
+    assert (
+        result["artifacts"]["restore_telemetry"]["details"]["latest_elapsed_seconds"]
+        == 12.0
+    )
 
 
 def test_get_tick_phase_gate_summary_fails_when_latest_replay_failed(monkeypatch):
@@ -1148,11 +1189,18 @@ def test_get_tick_phase_gate_summary_fails_when_latest_replay_failed(monkeypatch
     result = tick_gate_service.get_tick_phase_gate_summary()
 
     assert result["artifacts"]["normalized_replay_path"]["status"] == "fail"
-    assert result["artifacts"]["normalized_replay_path"]["details"]["latest_restore_status"] == "failed"
+    assert (
+        result["artifacts"]["normalized_replay_path"]["details"][
+            "latest_restore_status"
+        ]
+        == "failed"
+    )
     assert result["artifacts"]["restore_telemetry"]["status"] == "fail"
 
 
-def test_get_tick_phase_gate_summary_uses_restore_for_latest_archive_object(monkeypatch):
+def test_get_tick_phase_gate_summary_uses_restore_for_latest_archive_object(
+    monkeypatch,
+):
     class _ArchiveObject:
         id = 9
         object_key = "var/tick_archives/TW/2026-03-20/9/part-00001.jsonl.gz"
@@ -1208,12 +1256,24 @@ def test_get_tick_phase_gate_summary_uses_restore_for_latest_archive_object(monk
     result = tick_gate_service.get_tick_phase_gate_summary()
 
     assert result["artifacts"]["normalized_replay_path"]["status"] == "fail"
-    assert result["artifacts"]["normalized_replay_path"]["details"]["latest_archive_object_id"] == 9
-    assert result["artifacts"]["normalized_replay_path"]["details"]["latest_restore_run_id"] == 22
+    assert (
+        result["artifacts"]["normalized_replay_path"]["details"][
+            "latest_archive_object_id"
+        ]
+        == 9
+    )
+    assert (
+        result["artifacts"]["normalized_replay_path"]["details"][
+            "latest_restore_run_id"
+        ]
+        == 22
+    )
     assert result["artifacts"]["restore_telemetry"]["status"] == "fail"
 
 
-def test_get_tick_phase_gate_summary_reports_storage_backend_existence_errors(monkeypatch):
+def test_get_tick_phase_gate_summary_reports_storage_backend_existence_errors(
+    monkeypatch,
+):
     class _ArchiveObject:
         id = 9
         object_key = "s3://bucket/object"
@@ -1261,10 +1321,15 @@ def test_get_tick_phase_gate_summary_reports_storage_backend_existence_errors(mo
     result = tick_gate_service.get_tick_phase_gate_summary()
 
     assert result["artifacts"]["raw_tick_archive"]["status"] == "fail"
-    assert "Unsupported tick archive storage backend" in result["artifacts"]["raw_tick_archive"]["details"]["existence_check_error"]
+    assert (
+        "Unsupported tick archive storage backend"
+        in result["artifacts"]["raw_tick_archive"]["details"]["existence_check_error"]
+    )
 
 
-def test_get_tick_phase_gate_summary_fails_when_latest_archive_policy_mismatches(monkeypatch):
+def test_get_tick_phase_gate_summary_fails_when_latest_archive_policy_mismatches(
+    monkeypatch,
+):
     class _ArchiveObject:
         id = 12
         object_key = "var/tick_archives/TW/2026-03-20/12/part-00001.jsonl.gz"
@@ -1320,5 +1385,13 @@ def test_get_tick_phase_gate_summary_fails_when_latest_archive_policy_mismatches
     result = tick_gate_service.get_tick_phase_gate_summary()
 
     assert result["artifacts"]["retention_policy"]["status"] == "fail"
-    assert result["artifacts"]["retention_policy"]["details"]["actual_retention_class"] == "legacy_policy"
-    assert result["artifacts"]["retention_policy"]["details"]["actual_archive_layout_version"] == "legacy_layout_v0"
+    assert (
+        result["artifacts"]["retention_policy"]["details"]["actual_retention_class"]
+        == "legacy_policy"
+    )
+    assert (
+        result["artifacts"]["retention_policy"]["details"][
+            "actual_archive_layout_version"
+        ]
+        == "legacy_layout_v0"
+    )

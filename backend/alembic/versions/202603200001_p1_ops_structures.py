@@ -144,11 +144,13 @@ def upgrade() -> None:
                 name="uq_scheduled_ingestion_watchlist_slot",
             ),
         )
-    if _has_table("scheduled_ingestion_runs") and _has_column(
-        "scheduled_ingestion_runs", "watchlist_id"
-    ) and not _has_foreign_key(
-        "scheduled_ingestion_runs",
-        "fk_sched_ing_runs_watchlist",
+    if (
+        _has_table("scheduled_ingestion_runs")
+        and _has_column("scheduled_ingestion_runs", "watchlist_id")
+        and not _has_foreign_key(
+            "scheduled_ingestion_runs",
+            "fk_sched_ing_runs_watchlist",
+        )
     ):
         op.create_foreign_key(
             "fk_sched_ing_runs_watchlist",
@@ -213,11 +215,13 @@ def upgrade() -> None:
                 name="uq_scheduled_ingestion_attempt_run_number",
             ),
         )
-    if _has_table("scheduled_ingestion_attempts") and _has_column(
-        "scheduled_ingestion_attempts", "run_id"
-    ) and not _has_foreign_key(
-        "scheduled_ingestion_attempts",
-        "fk_sched_ing_attempts_run",
+    if (
+        _has_table("scheduled_ingestion_attempts")
+        and _has_column("scheduled_ingestion_attempts", "run_id")
+        and not _has_foreign_key(
+            "scheduled_ingestion_attempts",
+            "fk_sched_ing_attempts_run",
+        )
     ):
         op.create_foreign_key(
             "fk_sched_ing_attempts_run",

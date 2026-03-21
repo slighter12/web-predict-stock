@@ -293,3 +293,73 @@ def test_list_research_runs(monkeypatch):
 
     assert response.status_code == 200
     assert [item["run_id"] for item in response.json()] == ["run_a", "run_b"]
+
+
+def test_read_p3_gate(monkeypatch):
+    monkeypatch.setattr(
+        research_runs_api,
+        "get_p3_phase_gate_summary",
+        lambda: {
+            "gate_id": "GATE-P3-001",
+            "verification_gate_id": "GATE-VERIFICATION-001",
+            "overall_status": "pass",
+            "metrics": {
+                "KPI-RESEARCH-004": {
+                    "value": 1.0,
+                    "status": "pass",
+                    "numerator": 20.0,
+                    "denominator": 20.0,
+                    "unit": None,
+                    "window": "rolling 20 runs",
+                    "details": {},
+                }
+            },
+            "artifacts": {
+                "lifecycle_aware_execution_universe": {
+                    "status": "pass",
+                    "details": {"latest_run_id": "run_123"},
+                }
+            },
+            "missing_reasons": [],
+        },
+    )
+
+    response = client.get("/api/v1/research/gates/p3")
+
+    assert response.status_code == 200
+    assert response.json()["gate_id"] == "GATE-P3-001"
+    assert response.json()["metrics"]["KPI-RESEARCH-004"]["status"] == "pass"
+
+
+def test_read_micro_kpis(monkeypatch):
+    monkeypatch.setattr(
+        research_runs_api,
+        "get_micro_kpi_summary",
+        lambda market="TW": {
+            "gate_id": "GATE-P3-OPS-001",
+            "overall_status": "pass",
+            "metrics": {
+                "KPI-MICRO-001": {
+                    "value": 0.8,
+                    "status": "pass",
+                    "numerator": None,
+                    "denominator": None,
+                    "unit": None,
+                    "window": "20 active trading days + 60 baseline trading days",
+                    "details": {},
+                }
+            },
+            "selection_policy": {
+                "monitor_profile_id": "p3_monitor_default_v1",
+                "market": market,
+            },
+            "binding_status": "monitoring",
+            "binding_reason": None,
+        },
+    )
+
+    response = client.get("/api/v1/research/micro-kpis?market=TW")
+
+    assert response.status_code == 200
+    assert response.json()["gate_id"] == "GATE-P3-OPS-001"
+    assert response.json()["selection_policy"]["market"] == "TW"

@@ -51,7 +51,9 @@ def test_save_important_event_normalizes_payload(monkeypatch):
         captured.update(payload)
         return {"id": 7, **payload}
 
-    monkeypatch.setattr(important_event_service, "upsert_important_event_record", capture)
+    monkeypatch.setattr(
+        important_event_service, "upsert_important_event_record", capture
+    )
 
     record = important_event_service.save_important_event(
         ImportantEventUpsert(

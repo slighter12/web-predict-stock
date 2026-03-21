@@ -66,9 +66,13 @@ def _assert_no_null_recovery_drill_raw_payload_ids() -> None:
         "recovery_drills", "raw_payload_id"
     ):
         return
-    null_count = op.get_bind().execute(
-        sa.text("SELECT COUNT(*) FROM recovery_drills WHERE raw_payload_id IS NULL")
-    ).scalar()
+    null_count = (
+        op.get_bind()
+        .execute(
+            sa.text("SELECT COUNT(*) FROM recovery_drills WHERE raw_payload_id IS NULL")
+        )
+        .scalar()
+    )
     if int(null_count or 0) > 0:
         raise RuntimeError(
             "Cannot downgrade 202603190001: recovery_drills.raw_payload_id contains NULL values."

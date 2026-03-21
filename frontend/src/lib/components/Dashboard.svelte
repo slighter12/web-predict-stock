@@ -1,167 +1,112 @@
 <script lang="ts">
-    import { createMutation, createQuery } from "@tanstack/svelte-query";
+    import { onMount } from "svelte";
 
-    import {
-        ApiError,
-        createResearchRun,
-        fetchResearchRun,
-        fetchSystemHealth,
-    } from "../api";
-    import type {
-        AppError,
-        HealthResponse,
-        ResearchRunCreateRequest,
-        ResearchRunRecord,
-        ResearchRunResponse,
-    } from "../types";
     import WorkspaceSection from "./layout/WorkspaceSection.svelte";
-    import DataIngestionPanel from "./data-plane/DataIngestionPanel.svelte";
-    import ImportantEventPanel from "./data-plane/ImportantEventPanel.svelte";
-    import LifecyclePanel from "./data-plane/LifecyclePanel.svelte";
-    import RecoveryDrillPanel from "./data-plane/RecoveryDrillPanel.svelte";
-    import ReplayPanel from "./data-plane/ReplayPanel.svelte";
-    import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
-    import ResearchRunForm from "./research-runs/ResearchRunForm.svelte";
-    import ResearchRunInspector from "./research-runs/ResearchRunInspector.svelte";
 
-    let latestResult: ResearchRunResponse | null = null;
-    let submitError: AppError | null = null;
-    let researchRunRecord: ResearchRunRecord | null = null;
-    let recordError: string | null = null;
-    let runLookupId = "";
-    let isRunLoading = false;
-    let inspectorRunState: {
-        result: ResearchRunResponse | null;
-        isSubmitting: boolean;
-        error: AppError | null;
-    };
-    let inspectorRegistryState: {
-        researchRunRecord: ResearchRunRecord | null;
-        recordError: string | null;
-        isRunLoading: boolean;
-        runLookupId: string;
-        onRunLookup: (runId: string) => void;
-    };
-    let inspectorHealthState: {
-        health: HealthResponse | null;
-        isHealthLoading: boolean;
-        healthError: string | null;
+    type SvelteModule = {
+        default: new (...args: never[]) => unknown;
     };
 
-    const loadResearchRun = async (runId: string) => {
-        if (!runId.trim()) {
-            researchRunRecord = null;
-            recordError = null;
+    const researchWorkspacePromise = import("./ResearchWorkspace.svelte");
+    let dataPlaneWorkspacePromise: Promise<SvelteModule> | null = null;
+    let dataPlaneLoadError: string | null = null;
+
+    function loadDataPlaneWorkspace() {
+        if (dataPlaneWorkspacePromise) {
             return;
         }
 
-        isRunLoading = true;
-        try {
-            researchRunRecord = await fetchResearchRun(runId.trim());
-            recordError = null;
-        } catch (error) {
-            researchRunRecord = null;
-            if (error instanceof ApiError) {
-                recordError = `${error.code}: ${error.message}`;
-            } else {
-                recordError = "Unable to load research run details.";
+        dataPlaneLoadError = null;
+        dataPlaneWorkspacePromise = import("./DataPlaneWorkspace.svelte").catch(
+            (error) => {
+                dataPlaneLoadError =
+                    error instanceof Error
+                        ? error.message
+                        : "Unable to load data plane workspace.";
+                dataPlaneWorkspacePromise = null;
+                throw error;
+            },
+        );
+    }
+
+    onMount(() => {
+        let isDisposed = false;
+
+        const queueLoad = () => {
+            if (!isDisposed) {
+                loadDataPlaneWorkspace();
             }
-        } finally {
-            isRunLoading = false;
-        }
-    };
+        };
 
-    const healthQuery = createQuery({
-        queryKey: ["system", "health"],
-        queryFn: fetchSystemHealth,
-        retry: false,
-        refetchOnWindowFocus: false,
-    });
+        if (typeof window.requestIdleCallback === "function") {
+            const handle = window.requestIdleCallback(queueLoad, {
+                timeout: 500,
+            });
 
-    const researchRunMutation = createMutation({
-        mutationFn: createResearchRun,
-        onSuccess: (data) => {
-            latestResult = data;
-            submitError = null;
-            runLookupId = data.run_id;
-            void loadResearchRun(data.run_id);
-        },
-        onError: (error) => {
-            latestResult = null;
-            if (error instanceof ApiError) {
-                submitError = error;
-                return;
-            }
-
-            submitError = {
-                status: 0,
-                code: "NETWORK_ERROR",
-                message:
-                    "Unable to reach the backend. Check VITE_API_BASE_URL and backend status.",
-                requestId: null,
+            return () => {
+                isDisposed = true;
+                window.cancelIdleCallback(handle);
             };
-        },
+        }
+
+        const timeoutId = window.setTimeout(queueLoad, 180);
+
+        return () => {
+            isDisposed = true;
+            window.clearTimeout(timeoutId);
+        };
     });
-
-    const handleSubmit = (payload: ResearchRunCreateRequest) => {
-        submitError = null;
-        $researchRunMutation.mutate(payload);
-    };
-
-    const handleRunLookup = (runId: string) => {
-        runLookupId = runId;
-        void loadResearchRun(runId);
-    };
-
-    $: inspectorRunState = {
-        result: latestResult,
-        isSubmitting: $researchRunMutation.isPending,
-        error: submitError,
-    };
-
-    $: inspectorRegistryState = {
-        researchRunRecord,
-        recordError,
-        isRunLoading,
-        runLookupId,
-        onRunLookup: handleRunLookup,
-    };
-
-    $: inspectorHealthState = {
-        health: $healthQuery.data ?? null,
-        isHealthLoading: $healthQuery.isPending,
-        healthError:
-            $healthQuery.error instanceof Error
-                ? $healthQuery.error.message
-                : null,
-    };
 </script>
 
 <div class="dashboard-grid">
-    <WorkspaceSection eyebrow="Research Runs" title="Research Run Workspace">
-        <div class="research-grid">
-            <ResearchRunForm
-                isSubmitting={$researchRunMutation.isPending}
-                onSubmit={handleSubmit}
-            />
-            <ResearchRunInspector
-                runState={inspectorRunState}
-                registryState={inspectorRegistryState}
-                healthState={inspectorHealthState}
-            />
-        </div>
-    </WorkspaceSection>
+    {#await researchWorkspacePromise}
+        <WorkspaceSection
+            eyebrow="Research Runs"
+            title="Research Run Workspace"
+        >
+            <div class="workspace-placeholder">
+                Loading research workspace...
+            </div>
+        </WorkspaceSection>
+    {:then researchWorkspaceModule}
+        <svelte:component this={researchWorkspaceModule.default} />
+    {:catch error}
+        <WorkspaceSection
+            eyebrow="Research Runs"
+            title="Research Run Workspace"
+        >
+            <p class="workspace-error">
+                {error instanceof Error
+                    ? error.message
+                    : "Unable to load research workspace."}
+            </p>
+        </WorkspaceSection>
+    {/await}
 
-    <WorkspaceSection eyebrow="Data Plane" title="Data Plane Workspace">
-        <div class="data-grid">
-            <DataIngestionPanel />
-            <ReplayPanel />
-            <RecoveryDrillPanel />
-            <LifecyclePanel />
-            <ImportantEventPanel />
-            <TickArchivePanel />
-        </div>
-    </WorkspaceSection>
+    {#if dataPlaneWorkspacePromise}
+        {#await dataPlaneWorkspacePromise}
+            <WorkspaceSection eyebrow="Data Plane" title="Data Plane Workspace">
+                <div class="workspace-placeholder">
+                    Loading data plane workspace...
+                </div>
+            </WorkspaceSection>
+        {:then dataPlaneWorkspaceModule}
+            <svelte:component this={dataPlaneWorkspaceModule.default} />
+        {:catch}
+            <WorkspaceSection eyebrow="Data Plane" title="Data Plane Workspace">
+                <p class="workspace-error">
+                    {dataPlaneLoadError ??
+                        "Unable to load data plane workspace."}
+                </p>
+            </WorkspaceSection>
+        {/await}
+    {:else}
+        <WorkspaceSection eyebrow="Data Plane" title="Data Plane Workspace">
+            <div class="workspace-placeholder">
+                Preparing data plane workspace...
+            </div>
+        </WorkspaceSection>
+    {/if}
 </div>
 
 <style>
@@ -170,23 +115,21 @@
         gap: 1.2rem;
     }
 
-    .research-grid {
+    .workspace-placeholder,
+    .workspace-error {
+        min-height: 5.5rem;
         display: grid;
-        grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
-        gap: 1.2rem;
-        align-items: start;
+        place-items: center;
+        margin: 0;
+        border-radius: 18px;
+        border: 1px dashed rgba(148, 163, 184, 0.22);
+        background: rgba(15, 23, 42, 0.2);
+        color: var(--muted);
+        text-align: center;
+        padding: 1rem;
     }
 
-    .data-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 1rem;
-    }
-
-    @media (max-width: 1100px) {
-        .research-grid,
-        .data-grid {
-            grid-template-columns: 1fr;
-        }
+    .workspace-error {
+        color: #fca5a5;
     }
 </style>

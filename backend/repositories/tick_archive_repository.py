@@ -320,9 +320,8 @@ def list_recent_tick_archive_trading_dates(
 ) -> list[date]:
     try:
         with SessionLocal() as session:
-            stmt = (
-                select(distinct(TickArchiveRun.trading_date))
-                .where(TickArchiveRun.market == market)
+            stmt = select(distinct(TickArchiveRun.trading_date)).where(
+                TickArchiveRun.market == market
             )
             normalized_statuses = [item for item in (statuses or []) if item]
             if normalized_statuses:
@@ -331,7 +330,9 @@ def list_recent_tick_archive_trading_dates(
             return [item for item in session.execute(stmt).scalars().all() if item]
     except Exception as exc:
         logger.exception("Failed to list recent tick archive trading dates")
-        raise DataAccessError("Failed to list recent tick archive trading dates.") from exc
+        raise DataAccessError(
+            "Failed to list recent tick archive trading dates."
+        ) from exc
 
 
 def list_tick_archive_objects_for_dates(
@@ -420,17 +421,26 @@ def list_tick_restore_runs_for_dates(
                 item for item in (archive_run_statuses or []) if item
             ]
             if normalized_archive_run_statuses:
-                stmt = stmt.where(TickArchiveRun.status.in_(normalized_archive_run_statuses))
-            normalized_restore_statuses = [item for item in (restore_statuses or []) if item]
+                stmt = stmt.where(
+                    TickArchiveRun.status.in_(normalized_archive_run_statuses)
+                )
+            normalized_restore_statuses = [
+                item for item in (restore_statuses or []) if item
+            ]
             if normalized_restore_statuses:
-                stmt = stmt.where(TickRestoreRun.restore_status.in_(normalized_restore_statuses))
+                stmt = stmt.where(
+                    TickRestoreRun.restore_status.in_(normalized_restore_statuses)
+                )
             stmt = stmt.order_by(
                 desc(TickRestoreRun.created_at), desc(TickRestoreRun.id)
             )
             records: list[dict[str, Any]] = []
-            for row, compressed_bytes, trading_date, archive_run_status in session.execute(
-                stmt
-            ).all():
+            for (
+                row,
+                compressed_bytes,
+                trading_date,
+                archive_run_status,
+            ) in session.execute(stmt).all():
                 record = _tick_restore_run_row_to_dict(row)
                 record["compressed_bytes"] = compressed_bytes
                 record["trading_date"] = trading_date

@@ -147,9 +147,16 @@ def _build_benchmark_windows(
         archive_object_id = run.get("archive_object_id")
         if archive_object_id is None:
             continue
-        if eligible_archive_object_ids and int(archive_object_id) not in eligible_archive_object_ids:
+        if (
+            eligible_archive_object_ids
+            and int(archive_object_id) not in eligible_archive_object_ids
+        ):
             continue
-        archive_object_key = (trading_date, benchmark_profile_id, int(archive_object_id))
+        archive_object_key = (
+            trading_date,
+            benchmark_profile_id,
+            int(archive_object_id),
+        )
         if archive_object_key in seen_archive_objects:
             continue
         seen_archive_objects.add(archive_object_key)
@@ -171,7 +178,9 @@ def _build_benchmark_windows(
         bucket["compressed_bytes"] += float(run.get("compressed_bytes") or 0)
         elapsed_seconds = float(run.get("elapsed_seconds") or 0.0)
         bucket["elapsed_seconds_sum"] += elapsed_seconds
-        bucket["max_elapsed_seconds"] = max(bucket["max_elapsed_seconds"], elapsed_seconds)
+        bucket["max_elapsed_seconds"] = max(
+            bucket["max_elapsed_seconds"], elapsed_seconds
+        )
         bucket["run_count"] += 1
         bucket["archive_object_ids"].append(int(archive_object_id))
         restore_started_at = run.get("restore_started_at")
@@ -205,8 +214,7 @@ def _build_benchmark_windows(
                 elapsed_seconds = window_elapsed_seconds
         throughput = (
             _bytes_to_gb(bucket["compressed_bytes"]) / (elapsed_seconds / 60)
-            if bucket["compressed_bytes"] > 0
-            and elapsed_seconds is not None
+            if bucket["compressed_bytes"] > 0 and elapsed_seconds is not None
             else None
         )
         eligible_windows.append(

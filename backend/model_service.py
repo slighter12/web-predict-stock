@@ -48,7 +48,6 @@ def prepare_training_data(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     df = df.copy()
     df["target"] = compute_return_target(df, return_target, horizon_days)
-    df = df.dropna()
 
     original_cols = {
         "open",
@@ -71,6 +70,9 @@ def prepare_training_data(
         raise ValueError(
             "No features available for training. Ensure the feature engine added columns."
         )
+
+    # Ignore nullable metadata columns when preparing the training frame.
+    df = df.dropna(subset=[*features, "target"])
 
     X = df[features]
     y = df["target"]

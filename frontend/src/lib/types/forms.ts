@@ -32,6 +32,8 @@ export interface ResearchRunFormState {
   allowProactiveSells: boolean;
   slippage: number;
   fees: number;
+  portfolioAum: number | null;
+  recordAsMonitorRun: boolean;
   enableValidation: boolean;
   validationMethod: ValidationMethod;
   validationSplits: number;

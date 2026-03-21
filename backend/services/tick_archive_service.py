@@ -37,7 +37,10 @@ TICK_COMPRESSION_CODEC = "gzip"
 
 
 def _chunk_symbols(symbols: list[str], chunk_size: int) -> list[list[str]]:
-    return [symbols[index : index + chunk_size] for index in range(0, len(symbols), chunk_size)]
+    return [
+        symbols[index : index + chunk_size]
+        for index in range(0, len(symbols), chunk_size)
+    ]
 
 
 def _base_run_payload(
@@ -124,9 +127,7 @@ def _translate_tick_archive_dispatch_error(exc: Exception) -> Exception:
 def _cleanup_tick_archive_parts(parts: list[dict[str, object]]) -> list[str]:
     cleanup_failures: list[str] = []
     object_ids = [
-        int(item["object_id"])
-        for item in parts
-        if item.get("object_id") is not None
+        int(item["object_id"]) for item in parts if item.get("object_id") is not None
     ]
     if object_ids:
         try:
@@ -157,8 +158,14 @@ def _validate_import_observations(
     if not observations:
         raise ValueError("Tick archive import must contain at least one observation.")
 
-    observed_markets = {str(item.get("market") or "").strip().upper() for item in observations}
-    observed_dates = {item.get("trading_date") for item in observations if item.get("trading_date") is not None}
+    observed_markets = {
+        str(item.get("market") or "").strip().upper() for item in observations
+    }
+    observed_dates = {
+        item.get("trading_date")
+        for item in observations
+        if item.get("trading_date") is not None
+    }
 
     if observed_markets != {market}:
         raise ValueError(
@@ -262,9 +269,7 @@ def create_tick_archive_dispatch(request) -> dict:
             _persist_tick_archive_failure(run_payload=run_payload, reason=reason)
             failure_recorded = True
             first_exception = (
-                failure_exceptions[0]
-                if failure_exceptions
-                else ValueError(reason)
+                failure_exceptions[0] if failure_exceptions else ValueError(reason)
             )
             raise _translate_tick_archive_dispatch_error(first_exception)
 
@@ -280,7 +285,9 @@ def create_tick_archive_dispatch(request) -> dict:
             if cleanup_failures:
                 failure_reason = f"{failure_reason}; {'; '.join(cleanup_failures[:10])}"
             run_payload["observation_count"] = 0
-            _persist_tick_archive_failure(run_payload=run_payload, reason=failure_reason)
+            _persist_tick_archive_failure(
+                run_payload=run_payload, reason=failure_reason
+            )
         raise _translate_tick_archive_dispatch_error(exc)
 
 

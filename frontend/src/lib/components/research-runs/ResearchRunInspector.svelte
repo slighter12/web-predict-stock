@@ -49,6 +49,10 @@
 
     const serialize = (value: unknown) => JSON.stringify(value, null, 2);
     const submitLookup = () => registryState.onRunLookup(lookupInput);
+    const formatRatio = (value: number | null | undefined) =>
+        value === null || value === undefined
+            ? "N/A"
+            : `${(value * 100).toFixed(1)}%`;
 </script>
 
 <div class="results-shell">
@@ -56,7 +60,8 @@
         <div class="error-banner" role="alert">
             <strong>{runState.error.code}</strong>
             <span>{runState.error.message}</span>
-            {#if runState.error.runId}<span>run_id: {runState.error.runId}</span>{/if}
+            {#if runState.error.runId}<span>run_id: {runState.error.runId}</span
+                >{/if}
             {#if runState.error.requestId}
                 <span>request_id: {runState.error.requestId}</span>
             {/if}
@@ -73,7 +78,8 @@
                 <span class="muted">Checking...</span>
             {:else if healthState.health}
                 <span class="muted"
-                    >{healthState.health.status} / {healthState.health.version}</span
+                    >{healthState.health.status} / {healthState.health
+                        .version}</span
                 >
             {/if}
         </div>
@@ -112,35 +118,118 @@
                 </div>
                 <div>
                     <strong>Runtime Mode</strong>
-                    <span>{registryState.researchRunRecord.runtime_mode ?? "N/A"}</span>
+                    <span
+                        >{registryState.researchRunRecord.runtime_mode ??
+                            "N/A"}</span
+                    >
                 </div>
                 <div>
                     <strong>Default Bundle</strong>
                     <span
-                        >{registryState.researchRunRecord.default_bundle_version ??
-                            "N/A"}</span
+                        >{registryState.researchRunRecord
+                            .default_bundle_version ?? "N/A"}</span
                     >
                 </div>
                 <div>
                     <strong>Comparison State</strong>
                     <span
-                        >{registryState.researchRunRecord.comparison_eligibility ??
+                        >{registryState.researchRunRecord
+                            .comparison_eligibility ?? "N/A"}</span
+                    >
+                </div>
+                <div>
+                    <strong>Tradability State</strong>
+                    <span
+                        >{registryState.researchRunRecord.tradability_state ??
                             "N/A"}</span
+                    >
+                </div>
+                <div>
+                    <strong>Execution Universe</strong>
+                    <span
+                        >{registryState.researchRunRecord
+                            .execution_universe_count ?? "N/A"} / {registryState
+                            .researchRunRecord.full_universe_count ??
+                            "N/A"}</span
+                    >
+                </div>
+                <div>
+                    <strong>Execution Ratio</strong>
+                    <span
+                        >{formatRatio(
+                            registryState.researchRunRecord
+                                .execution_universe_ratio,
+                        )}</span
+                    >
+                </div>
+                <div>
+                    <strong>Monitor Observation</strong>
+                    <span
+                        >{registryState.researchRunRecord
+                            .monitor_observation_status ?? "N/A"}</span
                     >
                 </div>
             </div>
             <div class="metadata-grid">
                 <div>
+                    <p class="eyebrow">P3 Summary</p>
+                    <pre>{serialize({
+                            tradability_state:
+                                registryState.researchRunRecord
+                                    .tradability_state,
+                            capacity_screening_active:
+                                registryState.researchRunRecord
+                                    .capacity_screening_active,
+                            missing_feature_policy_state:
+                                registryState.researchRunRecord
+                                    .missing_feature_policy_state,
+                            corporate_event_state:
+                                registryState.researchRunRecord
+                                    .corporate_event_state,
+                            full_universe_count:
+                                registryState.researchRunRecord
+                                    .full_universe_count,
+                            execution_universe_count:
+                                registryState.researchRunRecord
+                                    .execution_universe_count,
+                            execution_universe_ratio:
+                                registryState.researchRunRecord
+                                    .execution_universe_ratio,
+                            stale_mark_days_with_open_positions:
+                                registryState.researchRunRecord
+                                    .stale_mark_days_with_open_positions,
+                            stale_risk_share:
+                                registryState.researchRunRecord
+                                    .stale_risk_share,
+                            monitor_observation_status:
+                                registryState.researchRunRecord
+                                    .monitor_observation_status,
+                        })}</pre>
+                </div>
+                <div>
+                    <p class="eyebrow">Liquidity Buckets</p>
+                    <pre>{serialize(
+                            registryState.researchRunRecord
+                                .liquidity_bucket_coverages,
+                        )}</pre>
+                </div>
+                <div>
                     <p class="eyebrow">Config Sources</p>
-                    <pre>{serialize(registryState.researchRunRecord.config_sources)}</pre>
+                    <pre>{serialize(
+                            registryState.researchRunRecord.config_sources,
+                        )}</pre>
                 </div>
                 <div>
                     <p class="eyebrow">Fallback Audit</p>
-                    <pre>{serialize(registryState.researchRunRecord.fallback_audit)}</pre>
+                    <pre>{serialize(
+                            registryState.researchRunRecord.fallback_audit,
+                        )}</pre>
                 </div>
                 <div>
                     <p class="eyebrow">Validation Outcome</p>
-                    <pre>{serialize(registryState.researchRunRecord.validation_outcome)}</pre>
+                    <pre>{serialize(
+                            registryState.researchRunRecord.validation_outcome,
+                        )}</pre>
                 </div>
                 <div>
                     <p class="eyebrow">Version Pack</p>
@@ -157,8 +246,24 @@
                             comparison_eligibility:
                                 registryState.researchRunRecord
                                     .comparison_eligibility,
+                            investability_screening_active:
+                                registryState.researchRunRecord
+                                    .investability_screening_active,
+                            capacity_screening_version:
+                                registryState.researchRunRecord
+                                    .capacity_screening_version,
+                            adv_basis_version:
+                                registryState.researchRunRecord
+                                    .adv_basis_version,
+                            missing_feature_policy_version:
+                                registryState.researchRunRecord
+                                    .missing_feature_policy_version,
+                            execution_cost_model_version:
+                                registryState.researchRunRecord
+                                    .execution_cost_model_version,
                             version_pack_status:
-                                registryState.researchRunRecord.version_pack_status,
+                                registryState.researchRunRecord
+                                    .version_pack_status,
                         })}</pre>
                 </div>
             </div>

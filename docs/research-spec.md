@@ -208,8 +208,26 @@ The minimum metadata subset required for phase `P0` validation-ready status is:
 
 - dividends, splits, capital reduction, delisting, merger, tender, and ticker
   changes must be handled explicitly
+- explicit handling does not imply that every event family blocks tradability
+- deterministic price-adjustment families must be handled explicitly but do not
+  enter `unresolved_corporate_event` solely because the event exists:
+  - stock split
+  - reverse split
+  - cash dividend
+  - stock dividend
+  - capital reduction
+- the following event families are blocking until point-in-time identity or
+  terminal-state resolution is available:
+  - merger
+  - tender offer
+  - delisting without a matching lifecycle terminal-state record
+  - listing-status change without a matching lifecycle state transition
+  - ticker change without a resolvable successor mapping
 - unknown terminal events move the affected symbol and run into
   `unresolved_corporate_event` state until conversion terms are resolved
+- `reference_symbol` on lifecycle `ticker_change` records is interpreted as
+  `old -> new`; from `effective_date` onward the old symbol must resolve to the
+  successor symbol for point-in-time execution-universe evaluation
 
 ### SPEC-DATA-009: Tradability-state required fields
 
@@ -225,6 +243,12 @@ Phase `P3` and later runs must persist:
 - `execution_universe_ratio`
 - bucket coverage summaries for at least one persisted liquidity or market-cap
   schema
+- `tradability_contract_version` must identify the active P3 tradability
+  contract used to qualify the run for governance windows; the current active
+  value is `p3_tradability_monitoring_v1`
+- until `TBD-001` is closed, `investability_screening_active` remains
+  deliberately persisted as `false` for P3 runs; this is a policy lock that
+  prevents durable investability claims, not a runtime inference failure
 
 ### SPEC-DATA-010: Important-event backfill scope
 
@@ -273,6 +297,10 @@ Phase `P3` and later runs must persist:
 
 - `capacity_screening_version` must encode the ex-ante pricing basis used to
   value buy-side order notional
+- `capacity_screening_version` may still be persisted when
+  `capacity_screening_active = false`; in that case it identifies the declared
+  contract version for the run and must not be interpreted as evidence that the
+  screen was applied
 
 ### SPEC-EXEC-004: Initial capacity defaults
 

@@ -5,19 +5,22 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from ..errors import BacktestError, DataAccessError
-from ..repositories.research_run_repository import get_research_run_record, list_research_run_records
+from ..repositories.research_run_repository import (
+    get_research_run_record,
+    list_research_run_records,
+)
 from ..schemas.research_runs import (
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
 )
+from .backtest_engine_service import execute_research_run
 from .research_run_registry_service import (
     record_failure,
     record_rejection,
     record_success,
     record_unexpected_failure,
 )
-from .backtest_engine_service import execute_research_run
 
 logger = logging.getLogger(__name__)
 

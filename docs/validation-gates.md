@@ -228,8 +228,15 @@ Interpretation rule:
 | `KPI-RESEARCH-001` | research-only scheduled family-day ratio | distinct scheduled family-day pairs labeled research-only divided by scheduled family-day pairs in the persisted review matrix | active review window with at least 120 scheduled family-day observations | `<= 30%` |
 | `KPI-RESEARCH-002` | alignment completeness | non-null `price_basis_version`, `threshold_policy_version`, and `comparison_eligibility` | per comparable family | required |
 | `KPI-RESEARCH-003` | turnover and concentration reporting | turnover plus at least one concentration metric | per comparable family | required |
-| `KPI-RESEARCH-004` | tradability-state completeness | share of phase `P3+` runs that persist all `SPEC-DATA-009` required fields with non-null values | rolling 20-run window | `= 100%` |
+| `KPI-RESEARCH-004` | tradability-state completeness | share of succeeded runs persisted with the active `tradability_contract_version` for the P3 tradability contract that also persist all `SPEC-DATA-009` required fields with non-null values | rolling 20-run window | `= 100%` |
 | `KPI-RESEARCH-005` | review-matrix completeness | scheduled family-day observations with persisted `comparison_review_matrix_version` and scheduled cadence metadata divided by scheduled family-day observations in the active review window | active review window | `= 100%` |
+
+For `GATE-P3-001` artifact interpretation:
+
+- `capacity_screening_version` is treated as a declared contract field, not as
+  proof that capacity screening was active on the run
+- artifact pass/fail must rely on `capacity_screening_active` for activation
+  semantics and on the active `tradability_contract_version` for scope control
 
 ### Model Adoption
 

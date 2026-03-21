@@ -77,6 +77,16 @@ def compute_turnover(weights: pd.DataFrame) -> float:
     return float(turnover)
 
 
+def build_target_weights(
+    scores: pd.DataFrame,
+    strategy: StrategyConfig | ResearchStrategyConfig,
+) -> pd.DataFrame:
+    strategy_config = resolve_strategy_config(strategy)
+    runner = get_strategy_runner(strategy_config.type)
+    weights = runner.build_weights(scores=scores, strategy=strategy_config)
+    return weights.reindex(scores.index).fillna(0.0).sort_index()
+
+
 def compute_metrics(equity: pd.Series) -> Dict[str, float]:
     if equity.empty:
         return {"total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0}
@@ -264,11 +274,7 @@ def run_backtest(
 ) -> Tuple[Dict[str, float], List[dict], List[dict], List[str]]:
     warnings: List[str] = []
     strategy_config = resolve_strategy_config(strategy)
-    runner = get_strategy_runner(strategy_config.type)
-    weights = runner.build_weights(scores=scores, strategy=strategy_config)
-
-    weights = weights.reindex(scores.index).fillna(0.0)
-    weights = weights.sort_index()
+    weights = build_target_weights(scores=scores, strategy=strategy_config)
     logger.info(
         "Running backtest strategy=%s market=%s symbols=%s periods=%s",
         strategy_config.type,

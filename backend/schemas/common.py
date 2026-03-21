@@ -25,6 +25,21 @@ ComparisonEligibility = Literal[
     "research_only_comparable",
     "unresolved_event_quarantine",
 ]
+TradabilityState = Literal[
+    "execution_ready",
+    "research_only",
+    "unresolved_corporate_event",
+    "stale_risk",
+]
+MissingFeaturePolicyState = Literal[
+    "feature_complete",
+    "core_data_gaps_filtered",
+    "native_missing_supported",
+]
+CorporateEventState = Literal["clear", "unresolved_corporate_event"]
+MonitorObservationStatus = Literal["not_requested", "persisted", "skipped"]
+ResearchMonitorProfileId = Literal["p3_monitor_default_v1"]
+TradabilityContractVersion = Literal["p3_tradability_monitoring_v1"]
 RunStatus = Literal["succeeded", "rejected", "validation_failed", "failed"]
 ReplayStatus = Literal["succeeded", "failed"]
 RecoveryDrillStatus = Literal["succeeded", "failed"]
@@ -53,6 +68,7 @@ TimestampSourceClass = Literal[
     "official_exchange", "official_issuer", "vendor_published"
 ]
 VersionFieldStatus = Literal["implemented", "placeholder"]
+ACTIVE_TRADABILITY_CONTRACT_VERSION = "p3_tradability_monitoring_v1"
 
 
 class RequestModel(BaseModel):

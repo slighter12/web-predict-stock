@@ -26,6 +26,7 @@ from ..schemas.research_runs import (
     ValidationSummary,
 )
 from ..schemas.runtime import ConfigSources, EffectiveStrategyConfig, FallbackAudit
+from ..services.p3_screening_service import build_p3_summary
 from ..strategy_service import (
     COMPARISON_ELIGIBILITY,
     ResearchStrategyConfig,
@@ -131,6 +132,7 @@ def load_symbol_data(
         "high": df_model.loc[X_test.index, "high"].rename(symbol),
         "low": df_model.loc[X_test.index, "low"].rename(symbol),
         "close": df_model.loc[X_test.index, "close"].rename(symbol),
+        "volume": df_model.loc[X_test.index, "volume"].rename(symbol),
     }
 
 
@@ -239,6 +241,13 @@ def execute_research_run(
     close_df = pd.concat([item["close"] for item in symbol_data], axis=1).reindex(
         scores_df.index
     )
+    volume_df = pd.concat([item["volume"] for item in symbol_data], axis=1).reindex(
+        scores_df.index
+    )
+    weights = backtest_service.build_target_weights(
+        scores=scores_df,
+        strategy=resolved_strategy,
+    )
 
     metrics, equity_curve, signals, warnings = backtest_service.run_backtest(
         scores=scores_df,
@@ -250,6 +259,12 @@ def execute_research_run(
         execution=request.execution,
         market=request.market,
         return_target=request.return_target,
+    )
+    p3_summary = build_p3_summary(
+        request=request,
+        strategy=resolved_strategy,
+        weights=weights,
+        volume_df=volume_df,
     )
 
     baselines: dict = {}
@@ -279,7 +294,20 @@ def execute_research_run(
             ),
             "price_basis_version": build_price_basis_version(request.return_target),
             "benchmark_comparability_gate": False,
-            "comparison_eligibility": COMPARISON_ELIGIBILITY,
+            "comparison_eligibility": (
+                "unresolved_event_quarantine"
+                if p3_summary["corporate_event_state"] == "unresolved_corporate_event"
+                else COMPARISON_ELIGIBILITY
+            ),
+            "investability_screening_active": p3_summary[
+                "investability_screening_active"
+            ],
+            "capacity_screening_version": p3_summary["capacity_screening_version"],
+            "adv_basis_version": p3_summary["adv_basis_version"],
+            "missing_feature_policy_version": p3_summary[
+                "missing_feature_policy_version"
+            ],
+            "execution_cost_model_version": p3_summary["execution_cost_model_version"],
         }
     )
 
@@ -299,11 +327,29 @@ def execute_research_run(
         ),
         config_sources=ConfigSources(**runtime_context["config_sources"]),
         fallback_audit=FallbackAudit(**runtime_context["fallback_audit"]),
+        tradability_state=p3_summary["tradability_state"],
+        tradability_contract_version=p3_summary["tradability_contract_version"],
+        capacity_screening_active=p3_summary["capacity_screening_active"],
+        missing_feature_policy_state=p3_summary["missing_feature_policy_state"],
+        corporate_event_state=p3_summary["corporate_event_state"],
+        full_universe_count=p3_summary["full_universe_count"],
+        execution_universe_count=p3_summary["execution_universe_count"],
+        execution_universe_ratio=p3_summary["execution_universe_ratio"],
+        liquidity_bucket_schema_version=p3_summary["liquidity_bucket_schema_version"],
+        liquidity_bucket_coverages=p3_summary["liquidity_bucket_coverages"],
+        stale_mark_days_with_open_positions=p3_summary[
+            "stale_mark_days_with_open_positions"
+        ],
+        stale_risk_share=p3_summary["stale_risk_share"],
+        monitor_observation_status=p3_summary["monitor_observation_status"],
         **version_pack,
     )
     return ResearchRunExecutionArtifacts(
         response=response,
-        runtime_context=runtime_context,
+        runtime_context={
+            **runtime_context,
+            "p3_summary": p3_summary,
+        },
         validation_summary=validation_summary,
         warnings=warnings,
     )

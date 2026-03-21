@@ -112,7 +112,9 @@ def _to_int(value: str | None) -> int | None:
         return None
 
 
-def _parse_observation_ts(payload: dict[str, Any], fetch_timestamp: datetime) -> datetime:
+def _parse_observation_ts(
+    payload: dict[str, Any], fetch_timestamp: datetime
+) -> datetime:
     tlong = _to_int(str(payload.get("tlong")) if payload.get("tlong") else None)
     if tlong is not None and tlong > 0:
         return datetime.fromtimestamp(tlong / 1000, tz=timezone.utc)
@@ -160,16 +162,24 @@ def parse_snapshot_payload(
                 "last_size": _to_int(item.get("tv")),
                 "cumulative_volume": _to_int(item.get("v")),
                 "best_bid_prices": [
-                    value for value in (_to_float(raw) for raw in _split_field(item.get("b"))) if value is not None
+                    value
+                    for value in (_to_float(raw) for raw in _split_field(item.get("b")))
+                    if value is not None
                 ],
                 "best_bid_sizes": [
-                    value for value in (_to_int(raw) for raw in _split_field(item.get("g"))) if value is not None
+                    value
+                    for value in (_to_int(raw) for raw in _split_field(item.get("g")))
+                    if value is not None
                 ],
                 "best_ask_prices": [
-                    value for value in (_to_float(raw) for raw in _split_field(item.get("a"))) if value is not None
+                    value
+                    for value in (_to_float(raw) for raw in _split_field(item.get("a")))
+                    if value is not None
                 ],
                 "best_ask_sizes": [
-                    value for value in (_to_int(raw) for raw in _split_field(item.get("f"))) if value is not None
+                    value
+                    for value in (_to_int(raw) for raw in _split_field(item.get("f")))
+                    if value is not None
                 ],
                 "source_name": TWSE_PUBLIC_SNAPSHOT_SOURCE,
                 "parser_version": TWSE_PUBLIC_SNAPSHOT_PARSER_VERSION,

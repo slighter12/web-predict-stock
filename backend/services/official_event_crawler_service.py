@@ -86,9 +86,7 @@ def _fetch_official_feed(
             logger.warning(
                 "Failed to record crawler fetch failure source=%s", source_name
             )
-        raise ExternalFetchError(
-            f"Failed to fetch official feed: {exc}"
-        ) from exc
+        raise ExternalFetchError(f"Failed to fetch official feed: {exc}") from exc
 
     try:
         payload = json.loads(payload_body)

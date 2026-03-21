@@ -14,6 +14,7 @@ export const DEFAULT_THRESHOLD = 0.003;
 export const DEFAULT_TOP_N = 5;
 export const SPEC_BUNDLE_THRESHOLD = 0.01;
 export const SPEC_BUNDLE_TOP_N = 10;
+export const DEFAULT_MONITOR_PROFILE_ID = "p3_monitor_default_v1" as const;
 
 const defaultFeature = (
   index = 0,
@@ -48,6 +49,8 @@ export const createDefaultResearchRunFormState = (): ResearchRunFormState => ({
   allowProactiveSells: true,
   slippage: 0.001,
   fees: 0.002,
+  portfolioAum: null,
+  recordAsMonitorRun: false,
   enableValidation: true,
   validationMethod: "walk_forward",
   validationSplits: 3,
@@ -112,6 +115,10 @@ export const buildResearchRunPayload = (
       slippage: form.slippage,
       fees: form.fees,
     },
+    portfolio_aum: form.portfolioAum ?? undefined,
+    monitor_profile_id: form.recordAsMonitorRun
+      ? DEFAULT_MONITOR_PROFILE_ID
+      : undefined,
     validation: form.enableValidation
       ? {
           method: form.validationMethod,

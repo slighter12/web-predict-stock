@@ -171,17 +171,24 @@
                 /></label
             >
             <label class="wide"
-                ><span>Notes</span><input bind:value={dispatchForm.notes} /></label
+                ><span>Notes</span><input
+                    bind:value={dispatchForm.notes}
+                /></label
             >
         </div>
-        <button type="button" onclick={submitDispatch}>Create Tick Dispatch</button>
+        <button type="button" onclick={submitDispatch}
+            >Create Tick Dispatch</button
+        >
     </div>
 
     <div class="section">
         <h4>Manual Import</h4>
         <div class="form-grid">
             <label
-                ><span>Market</span><input bind:value={importForm.market} disabled /></label
+                ><span>Market</span><input
+                    bind:value={importForm.market}
+                    disabled
+                /></label
             >
             <label
                 ><span>Trading Date</span><input
@@ -190,7 +197,9 @@
                 /></label
             >
             <label class="wide"
-                ><span>Notes</span><input bind:value={importForm.notes} /></label
+                ><span>Notes</span><input
+                    bind:value={importForm.notes}
+                /></label
             >
             <label class="wide"
                 ><span>Archive File</span><input
@@ -200,7 +209,8 @@
                 /></label
             >
         </div>
-        <button type="button" onclick={submitImport}>Import Tick Archive</button>
+        <button type="button" onclick={submitImport}>Import Tick Archive</button
+        >
     </div>
 
     <div class="section">
@@ -218,10 +228,13 @@
                 /></label
             >
             <label class="wide"
-                ><span>Notes</span><input bind:value={replayForm.notes} /></label
+                ><span>Notes</span><input
+                    bind:value={replayForm.notes}
+                /></label
             >
         </div>
-        <button type="button" onclick={submitReplay}>Replay Tick Archive</button>
+        <button type="button" onclick={submitReplay}>Replay Tick Archive</button
+        >
     </div>
 
     {#if loadError}<p class="muted">{loadError}</p>{/if}
@@ -249,9 +262,9 @@
                 <div class="row">
                     <strong>#{run.id}</strong>
                     <span>
-                        {run.trigger_mode} / {run.status} / date={run.trading_date} /
-                        symbols={run.symbol_count} / requests={run.request_count} /
-                        observations={run.observation_count}
+                        {run.trigger_mode} / {run.status} / date={run.trading_date}
+                        / symbols={run.symbol_count} / requests={run.request_count}
+                        / observations={run.observation_count}
                     </span>
                 </div>
             {/each}
@@ -265,8 +278,9 @@
                 <div class="row">
                     <strong>#{archive.id}</strong>
                     <span>
-                        run={archive.run_id} / records={archive.record_count} /
-                        ratio={(archive.compression_ratio * 100).toFixed(1)}% /
+                        run={archive.run_id} / records={archive.record_count} / ratio={(
+                            archive.compression_ratio * 100
+                        ).toFixed(1)}% /
                         {archive.object_key}
                     </span>
                 </div>
@@ -281,8 +295,8 @@
                 <div class="row">
                     <strong>#{replay.id}</strong>
                     <span>
-                        archive={replay.archive_object_id} / {replay.restore_status} /
-                        rows={replay.restored_row_count} / throughput={replay.throughput_gb_per_minute ??
+                        archive={replay.archive_object_id} / {replay.restore_status}
+                        / rows={replay.restored_row_count} / throughput={replay.throughput_gb_per_minute ??
                             "n/a"}
                     </span>
                 </div>

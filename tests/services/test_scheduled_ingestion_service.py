@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from backend.database import ScheduledIngestionAttempt, ScheduledIngestionRun
 import backend.services.scheduled_ingestion_service as scheduled_ingestion_service
+from backend.database import ScheduledIngestionAttempt, ScheduledIngestionRun
 
 
 def test_dispatch_due_scheduled_ingestions_creates_run_and_attempt(monkeypatch):
@@ -75,7 +75,9 @@ def test_dispatch_due_scheduled_ingestions_creates_run_and_attempt(monkeypatch):
     assert persisted_attempts[0]["raw_payload_id"] == 41
 
 
-def test_dispatch_due_scheduled_ingestions_skips_succeeded_and_retry_ceiling(monkeypatch):
+def test_dispatch_due_scheduled_ingestions_skips_succeeded_and_retry_ceiling(
+    monkeypatch,
+):
     monkeypatch.setattr(
         scheduled_ingestion_service,
         "list_watchlist_entries",
@@ -124,7 +126,5 @@ def test_scheduled_ingestion_foreign_key_delete_policies():
     assert run_foreign_keys[0].target_fullname == "ingestion_watchlist.id"
     assert run_foreign_keys[0].ondelete == "RESTRICT"
     assert len(attempt_foreign_keys) == 1
-    assert (
-        attempt_foreign_keys[0].target_fullname == "scheduled_ingestion_runs.id"
-    )
+    assert attempt_foreign_keys[0].target_fullname == "scheduled_ingestion_runs.id"
     assert attempt_foreign_keys[0].ondelete == "CASCADE"

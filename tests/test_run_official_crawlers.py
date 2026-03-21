@@ -22,7 +22,9 @@ def test_run_lifecycle_crawler_main_returns_zero(capsys, monkeypatch, load_scrip
     assert '"upserted_count": 1' in captured.out
 
 
-def test_run_important_event_crawler_main_returns_one_on_error(capsys, monkeypatch, load_script):
+def test_run_important_event_crawler_main_returns_one_on_error(
+    capsys, monkeypatch, load_script
+):
     module = load_script(
         "run_important_event_crawler.py",
         "run_important_event_crawler_script",

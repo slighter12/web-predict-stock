@@ -5,6 +5,7 @@ import type {
   MarketCode,
   PriceSource,
   ReturnTarget,
+  ResearchMonitorProfileId,
   RunStatus,
   RuntimeMode,
   ValidationMethod,
@@ -13,6 +14,7 @@ import type {
   ConfigSources,
   EffectiveStrategy,
   FallbackAudit,
+  P3Summary,
   VersionPack,
 } from "./runtime";
 
@@ -57,6 +59,8 @@ export interface ResearchRunCreateRequest {
   };
   validation?: ValidationConfig;
   baselines: BaselineName[];
+  portfolio_aum?: number;
+  monitor_profile_id?: ResearchMonitorProfileId | null;
 }
 
 export interface Metrics {
@@ -83,7 +87,7 @@ export interface ValidationSummary {
   metrics: Record<string, number>;
 }
 
-export interface ResearchRunResponse extends VersionPack {
+export interface ResearchRunResponse extends VersionPack, P3Summary {
   run_id: string;
   metrics: Metrics;
   equity_curve: EquityPoint[];
@@ -98,7 +102,7 @@ export interface ResearchRunResponse extends VersionPack {
   fallback_audit: FallbackAudit;
 }
 
-export interface ResearchRunRecord extends VersionPack {
+export interface ResearchRunRecord extends VersionPack, P3Summary {
   run_id: string;
   request_id: string | null;
   status: RunStatus;

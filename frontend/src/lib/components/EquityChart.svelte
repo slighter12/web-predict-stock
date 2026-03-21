@@ -1,17 +1,21 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import * as echarts from "echarts";
 
     import type { EquityPoint } from "../types";
 
     export let points: EquityPoint[] = [];
 
+    type EChartsCoreModule = typeof import("echarts/core");
+
     let chartElement: HTMLDivElement;
-    let chart: echarts.ECharts | null = null;
+    let echartsModule: Pick<EChartsCoreModule, "graphic" | "init"> | null =
+        null;
+    let chart: import("echarts/core").ECharts | null = null;
     let observer: ResizeObserver | null = null;
+    let echartsRegistered = false;
 
     function renderChart() {
-        if (!chart) {
+        if (!chart || !echartsModule) {
             return;
         }
 
@@ -55,10 +59,22 @@
                     data: points.map((point) => point.equity),
                     lineStyle: { width: 3, color: "#f59e0b" },
                     areaStyle: {
-                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: "rgba(245, 158, 11, 0.35)" },
-                            { offset: 1, color: "rgba(245, 158, 11, 0.02)" },
-                        ]),
+                        color: new echartsModule.graphic.LinearGradient(
+                            0,
+                            0,
+                            0,
+                            1,
+                            [
+                                {
+                                    offset: 0,
+                                    color: "rgba(245, 158, 11, 0.35)",
+                                },
+                                {
+                                    offset: 1,
+                                    color: "rgba(245, 158, 11, 0.02)",
+                                },
+                            ],
+                        ),
                     },
                 },
             ],
@@ -67,14 +83,49 @@
     }
 
     onMount(() => {
-        chart = echarts.init(chartElement);
-        observer = new ResizeObserver(() => chart?.resize());
-        observer.observe(chartElement);
-        renderChart();
+        let isDisposed = false;
+
+        const setupChart = async () => {
+            const [
+                coreModule,
+                chartsModule,
+                componentsModule,
+                renderersModule,
+            ] = await Promise.all([
+                import("echarts/core"),
+                import("echarts/charts"),
+                import("echarts/components"),
+                import("echarts/renderers"),
+            ]);
+
+            if (!echartsRegistered) {
+                coreModule.use([
+                    chartsModule.LineChart,
+                    componentsModule.GridComponent,
+                    componentsModule.TooltipComponent,
+                    renderersModule.CanvasRenderer,
+                ]);
+                echartsRegistered = true;
+            }
+
+            if (isDisposed) {
+                return;
+            }
+
+            echartsModule = coreModule;
+            chart = coreModule.init(chartElement);
+            observer = new ResizeObserver(() => chart?.resize());
+            observer.observe(chartElement);
+            renderChart();
+        };
+
+        void setupChart();
 
         return () => {
+            isDisposed = true;
             observer?.disconnect();
             chart?.dispose();
+            chart = null;
         };
     });
 

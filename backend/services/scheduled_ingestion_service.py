@@ -75,7 +75,9 @@ def _run_watchlist_attempt(
         )
 
     completed_at = utc_now()
-    is_final = status == "succeeded" or attempt_number >= MAX_SCHEDULED_INGESTION_ATTEMPTS
+    is_final = (
+        status == "succeeded" or attempt_number >= MAX_SCHEDULED_INGESTION_ATTEMPTS
+    )
     run_payload = {
         "id": existing_run["id"] if existing_run else None,
         "watchlist_id": watchlist["id"],
