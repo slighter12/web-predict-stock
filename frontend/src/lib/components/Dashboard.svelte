@@ -20,6 +20,7 @@
     import LifecyclePanel from "./data-plane/LifecyclePanel.svelte";
     import RecoveryDrillPanel from "./data-plane/RecoveryDrillPanel.svelte";
     import ReplayPanel from "./data-plane/ReplayPanel.svelte";
+    import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
     import ResearchRunForm from "./research-runs/ResearchRunForm.svelte";
     import ResearchRunInspector from "./research-runs/ResearchRunInspector.svelte";
 
@@ -158,6 +159,7 @@
             <RecoveryDrillPanel />
             <LifecyclePanel />
             <ImportantEventPanel />
+            <TickArchivePanel />
         </div>
     </WorkspaceSection>
 </div>

@@ -6,7 +6,7 @@ workspaces:
 - `research runs`: model execution, validation, comparison metadata, and run
   registry
 - `data plane`: raw ingest preservation, replay, recovery drills, lifecycle
-  records, and important events
+  records, important events, and Stage 2 tick archive preservation
 
 This file is descriptive and navigational. Normative rules live in the
 governance documents under `docs/`.
@@ -102,6 +102,12 @@ set +a
 
 Frontend setup, data loading, optional developer dependencies, and smoke or
 test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
+
+If you need the Stage 2 data-plane schema locally, run migrations first:
+
+```bash
+.venv/bin/python -m alembic upgrade head
+```
 
 ## Repository Structure
 

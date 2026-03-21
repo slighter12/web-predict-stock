@@ -60,6 +60,12 @@ Optional developer dependencies:
 uv sync --extra dev
 ```
 
+Apply database migrations before using the data-plane workflows:
+
+```bash
+.venv/bin/python -m alembic upgrade head
+```
+
 Alternative Makefile path:
 
 ```bash
@@ -143,6 +149,41 @@ Run important event crawler:
 .venv/bin/python scripts/run_important_event_crawler.py
 ```
 
+Run a local TWSE tick snapshot smoke test:
+
+```bash
+export TWSE_MIS_SKIP_TLS_VERIFY=true
+.venv/bin/python -c "from backend.services.tick_archive_provider import fetch_twse_public_snapshot; result = fetch_twse_public_snapshot(['2330','2317']); print(len(result['observations']))"
+```
+
+Run the deterministic P2 acceptance fixture for failed-run and partial-replay gating:
+
+```bash
+.venv/bin/python scripts/run_tick_p2_acceptance.py
+```
+
+Manual import note:
+
+- `POST /api/v1/data/tick-archive-imports` now validates that uploaded archive
+  observations match the submitted `market` and `trading_date`; mismatched
+  payloads are rejected before archive metadata is persisted.
+- upload validation is content-based after archive write/read/parse; the
+  current `P2` implementation does not treat browser MIME type as a trusted
+  acceptance signal for JSONL.GZ payloads.
+- operator-facing `trading_date` should be interpreted against the `Asia/Taipei`
+  market calendar even though the browser date input defaults from the local
+  workstation timezone.
+
+Tick archive operational notes:
+
+- archive storage is currently `local_filesystem` only under `var/tick_archives/`
+- symbol resolution prefers lifecycle records and falls back to `daily_ohlcv`
+  coverage when lifecycle data is incomplete
+- tick KPI history intentionally uses a fixed rolling `20` trading-day window
+  for comparability
+- near-zero benchmark-window wall-clock restore durations are omitted from
+  throughput telemetry rather than turned into extreme values
+
 ## Frontend
 
 The frontend lives in `frontend/` and uses `bun`.
@@ -176,6 +217,7 @@ Current frontend ownership is:
 - `frontend/src/lib/state/`: form defaults and payload mappers
 - `frontend/src/lib/components/research-runs/`: research-run form and inspector
 - `frontend/src/lib/components/data-plane/`: ingestion, replay, recovery, lifecycle, important-event panels
+  and tick-archive panel
 - `frontend/src/lib/components/layout/`: shared workspace shells
 
 ## Smoke and Test Commands
@@ -203,6 +245,11 @@ Backend:
 - `POSTGRES_PORT`
 - `POSTGRES_DB`
 - `CORS_ALLOWED_ORIGINS`
+- `TWSE_MIS_CA_BUNDLE`
+- `TWSE_MIS_CA_CACHE_PATH`
+- `TWSE_MIS_CA_BUNDLE_URL`
+- `TWSE_MIS_CA_AUTO_DOWNLOAD`
+- `TWSE_MIS_SKIP_TLS_VERIFY`
 
 Frontend:
 
@@ -213,5 +260,8 @@ Frontend:
 - `POSTGRES_HOST=localhost` is the normal host-machine setting
 - `POSTGRES_HOST=db` is the container-network setting
 - the default frontend API target is `http://127.0.0.1:8000`
+- TWSE tick snapshot fetches use `requests`; prefer `TWSE_MIS_CA_BUNDLE` when a
+  local CA chain is available, keep `TWSE_MIS_SKIP_TLS_VERIFY=true` for local
+  fallback only
 - if XGBoost fails on macOS because `libomp.dylib` is missing, install OpenMP:
   `brew install libomp`

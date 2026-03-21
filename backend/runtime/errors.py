@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from ..errors import (
     BacktestError,
     DataNotFoundError,
+    ExternalFetchError,
     InsufficientDataError,
     UnsupportedConfigurationError,
 )
@@ -53,6 +54,8 @@ def build_error_response(
 def research_run_error_code(exc: BacktestError) -> str:
     if isinstance(exc, DataNotFoundError):
         return "RESOURCE_NOT_FOUND"
+    if isinstance(exc, ExternalFetchError):
+        return "EXTERNAL_FETCH_FAILED"
     if isinstance(exc, InsufficientDataError):
         return "INSUFFICIENT_DATA"
     if isinstance(exc, UnsupportedConfigurationError):
