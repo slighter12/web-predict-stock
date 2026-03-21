@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 
 from ..errors import DataAccessError, ExternalFetchError, UnsupportedConfigurationError
@@ -22,6 +23,8 @@ from .tick_archive_provider import (
 )
 from .tick_archive_storage import (
     delete_archive_object,
+    delete_google_drive_archive_mirror,
+    mirror_archive_to_google_drive,
     read_archive_entries,
     write_archive_part,
     write_uploaded_archive,
@@ -34,6 +37,7 @@ TICK_ARCHIVE_LAYOUT_VERSION = "twse_public_observation_v1"
 TICK_ARCHIVE_RETENTION_CLASS = "provisional_until_tbd_002_resolved"
 TICK_STORAGE_BACKEND = "local_filesystem"
 TICK_COMPRESSION_CODEC = "gzip"
+TICK_ARCHIVE_BACKUP_REQUIRED_ENV = "TICK_ARCHIVE_BACKUP_REQUIRED"
 
 
 def _chunk_symbols(symbols: list[str], chunk_size: int) -> list[list[str]]:
@@ -73,8 +77,10 @@ def _build_archive_object_payload(
     run_id: int,
     file_metadata: dict,
     observations: list[dict],
+    backup_metadata: dict | None = None,
 ) -> dict:
     observation_ts_values = [item["observation_ts"] for item in observations]
+    backup_metadata = backup_metadata or {}
     return {
         "run_id": run_id,
         "storage_backend": TICK_STORAGE_BACKEND,
@@ -93,6 +99,11 @@ def _build_archive_object_payload(
         else None,
         "checksum": file_metadata["checksum"],
         "retention_class": TICK_ARCHIVE_RETENTION_CLASS,
+        "backup_backend": backup_metadata.get("backup_backend"),
+        "backup_object_key": backup_metadata.get("backup_object_key"),
+        "backup_status": backup_metadata.get("backup_status"),
+        "backup_completed_at": backup_metadata.get("backup_completed_at"),
+        "backup_error": backup_metadata.get("backup_error"),
     }
 
 
@@ -112,6 +123,51 @@ def _persist_tick_archive_failure(
             run_payload.get("id"),
         )
         return None
+
+
+def _is_truthy(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _backup_is_required() -> bool:
+    return _is_truthy(os.getenv(TICK_ARCHIVE_BACKUP_REQUIRED_ENV))
+
+
+def _collect_backup_metadata(*, object_key: str) -> dict:
+    backup_required = _backup_is_required()
+    try:
+        backup_metadata = mirror_archive_to_google_drive(object_key=object_key)
+    except Exception as exc:
+        logger.exception(
+            "Tick archive mirror failed object_key=%s reason=%s",
+            object_key,
+            exc,
+        )
+        if backup_required:
+            raise ValueError(
+                "Tick archive backup is required but mirror_archive_to_google_drive "
+                f"failed for object_key='{object_key}': {exc}"
+            ) from exc
+        return {
+            "backup_backend": "google_drive_mirror",
+            "backup_object_key": None,
+            "backup_status": "failed",
+            "backup_completed_at": None,
+            "backup_error": str(exc),
+        }
+
+    backup_status = str(backup_metadata.get("backup_status") or "").strip().lower()
+    if backup_required and backup_status != "succeeded":
+        if backup_status == "not_configured":
+            raise UnsupportedConfigurationError(
+                "Tick archive backup is required but "
+                "GOOGLE_DRIVE_TICK_ARCHIVE_ROOT is not configured."
+            )
+        raise ValueError(
+            "Tick archive backup is required but did not succeed for "
+            f"object_key='{object_key}' (status='{backup_status or 'unknown'}')."
+        )
+    return backup_metadata
 
 
 def _translate_tick_archive_dispatch_error(exc: Exception) -> Exception:
@@ -135,6 +191,14 @@ def _cleanup_tick_archive_parts(parts: list[dict[str, object]]) -> list[str]:
         except DataAccessError as exc:
             cleanup_failures.append(f"db_cleanup_failed: {exc}")
     for item in parts:
+        backup_object_key = item.get("backup_object_key")
+        if isinstance(backup_object_key, str) and backup_object_key:
+            try:
+                delete_google_drive_archive_mirror(
+                    backup_object_key=backup_object_key
+                )
+            except ValueError as exc:
+                cleanup_failures.append(f"backup_cleanup_failed: {exc}")
         object_key = item.get("object_key")
         storage_backend = item.get("storage_backend")
         if not isinstance(object_key, str) or not isinstance(storage_backend, str):
@@ -233,15 +297,23 @@ def create_tick_archive_dispatch(request) -> dict:
                     "object_id": None,
                     "object_key": file_metadata["object_key"],
                     "storage_backend": TICK_STORAGE_BACKEND,
+                    "backup_object_key": None,
                 }
                 persisted_parts.append(persisted_part)
                 observations = fetch_result["observations"]
+                backup_metadata = _collect_backup_metadata(
+                    object_key=file_metadata["object_key"]
+                )
+                persisted_part["backup_object_key"] = backup_metadata.get(
+                    "backup_object_key"
+                )
                 observation_count += len(observations)
                 archive_object = persist_tick_archive_object(
                     _build_archive_object_payload(
                         run_id=run["id"],
                         file_metadata=file_metadata,
                         observations=observations,
+                        backup_metadata=backup_metadata,
                     )
                 )
                 persisted_part["object_id"] = archive_object["id"]
@@ -313,6 +385,7 @@ def create_tick_archive_import(
     )
     run = persist_tick_archive_run(run_payload)
     uploaded_object_key: str | None = None
+    uploaded_backup_object_key: str | None = None
     try:
         file_metadata = write_uploaded_archive(
             market=normalized_market,
@@ -332,11 +405,16 @@ def create_tick_archive_import(
             market=normalized_market,
             trading_date=trading_date,
         )
+        backup_metadata = _collect_backup_metadata(
+            object_key=file_metadata["object_key"]
+        )
+        uploaded_backup_object_key = backup_metadata.get("backup_object_key")
         archive_object = persist_tick_archive_object(
             _build_archive_object_payload(
                 run_id=run["id"],
                 file_metadata=file_metadata,
                 observations=observations,
+                backup_metadata=backup_metadata,
             )
         )
         run_payload["id"] = run["id"]
@@ -363,6 +441,17 @@ def create_tick_archive_import(
                     "Failed to cleanup uploaded tick archive run_id=%s object_key=%s",
                     run["id"],
                     uploaded_object_key,
+                )
+        if uploaded_backup_object_key:
+            try:
+                delete_google_drive_archive_mirror(
+                    backup_object_key=uploaded_backup_object_key
+                )
+            except ValueError:
+                logger.exception(
+                    "Failed to cleanup uploaded tick archive mirror run_id=%s backup_object_key=%s",
+                    run["id"],
+                    uploaded_backup_object_key,
                 )
         raise ValueError(f"Failed to import tick archive: {exc}") from exc
 

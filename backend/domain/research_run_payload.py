@@ -50,6 +50,14 @@ def build_research_run_payload(
     monitor_profile_id: str | None = None,
     monitor_observation_status: str | None = None,
     microstructure_observations: list[dict[str, Any]] | None = None,
+    comparison_review_matrix_version: str | None = None,
+    scheduled_review_cadence: str | None = None,
+    model_family: str | None = None,
+    training_output_contract_version: str | None = None,
+    adoption_comparison_policy_version: str | None = None,
+    split_policy_version: str | None = None,
+    bootstrap_policy_version: str | None = None,
+    ic_overlap_policy_version: str | None = None,
 ) -> dict[str, Any]:
     runtime_context = runtime_context or {}
     strategy_context = runtime_context.get("strategy")
@@ -112,6 +120,14 @@ def build_research_run_payload(
                 "adv_basis_version": adv_basis_version,
                 "missing_feature_policy_version": missing_feature_policy_version,
                 "execution_cost_model_version": execution_cost_model_version,
+                "comparison_review_matrix_version": comparison_review_matrix_version,
+                "scheduled_review_cadence": scheduled_review_cadence,
+                "model_family": model_family,
+                "training_output_contract_version": training_output_contract_version,
+                "adoption_comparison_policy_version": adoption_comparison_policy_version,
+                "split_policy_version": split_policy_version,
+                "bootstrap_policy_version": bootstrap_policy_version,
+                "ic_overlap_policy_version": ic_overlap_policy_version,
             }
         )
     )

@@ -61,6 +61,14 @@ class VersionPackMixin(BaseModel):
     version_pack_status: Dict[str, VersionFieldStatus]
 
 
+class GovernanceMetadataMixin(BaseModel):
+    comparison_review_matrix_version: Optional[str] = None
+    scheduled_review_cadence: Optional[str] = None
+    model_family: Optional[str] = None
+    training_output_contract_version: Optional[str] = None
+    adoption_comparison_policy_version: Optional[str] = None
+
+
 class LiquidityBucketCoverage(BaseModel):
     bucket_key: str
     bucket_label: str

@@ -177,12 +177,22 @@ Manual import note:
 Tick archive operational notes:
 
 - archive storage is currently `local_filesystem` only under `var/tick_archives/`
-- symbol resolution prefers lifecycle records and falls back to `daily_ohlcv`
-  coverage when lifecycle data is incomplete
+- when `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured, each new tick archive is
+  mirrored into the same relative object-key layout under that Google Drive path
+- when `TICK_ARCHIVE_BACKUP_REQUIRED=true`, tick archive dispatch and import
+  fail fast if the Google Drive mirror is unavailable or the mirror write does
+  not complete successfully
+- symbol resolution prefers active `tw_company_profiles`, then lifecycle
+  records, and falls back to `daily_ohlcv` only when the curated universe is
+  unavailable
 - tick KPI history intentionally uses a fixed rolling `20` trading-day window
   for comparability
 - near-zero benchmark-window wall-clock restore durations are omitted from
   throughput telemetry rather than turned into extreme values
+- TW company universe crawl defaults to the current TWSE/TPEX public company
+  profile feeds and can be overridden through:
+  - `TWSE_COMPANY_SOURCE_URL`
+  - `TPEX_COMPANY_SOURCE_URL`
 
 ## Frontend
 

@@ -13,10 +13,16 @@ VNEXT_SPEC_MODE = "vnext_spec_mode"
 RESEARCH_SPEC_V1 = "research_spec_v1"
 THRESHOLD_POLICY_VERSION = "static_absolute_gross_label_v1"
 COMPARISON_ELIGIBILITY = "comparison_metadata_only"
+FINAL_COMPARISON_PENDING = "sample_window_pending"
 PRICE_BASIS_VERSION_TEMPLATE = (
     "label_{return_target}__entry_ohlc_default__exit_ohlc_default__benchmark_unset_v1"
 )
 GROSS_LABEL_RETURN_TARGET = "open_to_open"
+BOOTSTRAP_POLICY_VERSION = "claim_bootstrap_default_v1"
+IC_OVERLAP_POLICY_VERSION = "daily_horizon_overlap_adjusted_v1"
+COMPARISON_REVIEW_MATRIX_VERSION = "tw_core_review_matrix_v1"
+SCHEDULED_REVIEW_CADENCE = "weekly"
+ADOPTION_COMPARISON_POLICY_VERSION = "matched_top_n_equal_weight_v1"
 
 
 @dataclass(frozen=True)
@@ -214,6 +220,33 @@ def build_price_basis_version(return_target: str) -> str | None:
     if return_target != GROSS_LABEL_RETURN_TARGET:
         return None
     return PRICE_BASIS_VERSION_TEMPLATE.format(return_target=return_target)
+
+
+def build_split_policy_version(validation_method: str | None) -> str:
+    if validation_method:
+        return f"time_series_{validation_method}_v1"
+    return "time_series_holdout_v1"
+
+
+def build_comparison_eligibility(
+    *,
+    corporate_event_state: str | None,
+    price_basis_version: str | None,
+    threshold_policy_version: str | None,
+    execution_cost_model_version: str | None,
+    sample_window_pending: bool = False,
+) -> str:
+    if corporate_event_state == "unresolved_corporate_event":
+        return "unresolved_event_quarantine"
+    # Reserved for a future sample-window gate. Current callers intentionally keep
+    # this disabled until the underlying comparability check is implemented.
+    if sample_window_pending and (
+        price_basis_version is not None
+        and threshold_policy_version is not None
+        and execution_cost_model_version is not None
+    ):
+        return FINAL_COMPARISON_PENDING
+    return COMPARISON_ELIGIBILITY
 
 
 def get_strategy_runner(strategy_type: str) -> StrategyRunner:

@@ -5,12 +5,55 @@ from datetime import date
 
 from sqlalchemy import desc, func, select
 
-from scripts import scraper
-
-from ..database import DailyOHLCV, RawIngestAudit, SessionLocal
+from ..database import DailyOHLCV, RawIngestAudit, SessionLocal, engine
 from ..errors import DataAccessError, DataNotFoundError
+from ..time_utils import utc_now
 
 logger = logging.getLogger(__name__)
+
+FETCH_STATUS_SUCCESS = "success"
+FETCH_STATUS_FAILED = "failed"
+
+
+def persist_raw_ingest_record(
+    *,
+    source_name: str,
+    symbol: str,
+    market: str,
+    parser_version: str,
+    fetch_status: str,
+    expected_symbol_context: str,
+    payload_body: str,
+    fetch_timestamp=None,
+) -> int:
+    # This path intentionally uses a direct INSERT for a small, single-row audit
+    # write so crawler error handling can persist telemetry without holding an ORM
+    # session open across request/parse branches.
+    record = {
+        "source_name": source_name,
+        "symbol": symbol,
+        "market": market,
+        "fetch_timestamp": fetch_timestamp or utc_now(),
+        "parser_version": parser_version,
+        "fetch_status": fetch_status,
+        "expected_symbol_context": expected_symbol_context,
+        "payload_body": payload_body,
+    }
+    try:
+        with engine.begin() as conn:
+            insert_stmt = (
+                RawIngestAudit.__table__.insert()
+                .values(record)
+                .returning(RawIngestAudit.id)
+            )
+            return conn.execute(insert_stmt).scalar_one()
+    except Exception as exc:
+        logger.exception(
+            "Failed to persist raw ingest audit record source=%s symbol=%s",
+            source_name,
+            symbol,
+        )
+        raise DataAccessError("Failed to persist raw ingest audit record.") from exc
 
 
 def get_raw_ingest_record(raw_payload_id: int) -> RawIngestAudit:
@@ -42,7 +85,7 @@ def get_latest_successful_raw_ingest_for_scope(
         with SessionLocal() as session:
             stmt = (
                 select(RawIngestAudit)
-                .where(RawIngestAudit.fetch_status == scraper.FETCH_STATUS_SUCCESS)
+                .where(RawIngestAudit.fetch_status == FETCH_STATUS_SUCCESS)
                 .where(RawIngestAudit.payload_body.is_not(None))
                 .where(RawIngestAudit.payload_body != "")
             )

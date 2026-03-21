@@ -6,6 +6,8 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, conint
 
 from .common import (
+    ArchiveBackupBackend,
+    ArchiveBackupStatus,
     ImportantEventType,
     KpiStatus,
     LifecycleEventType,
@@ -256,6 +258,11 @@ class TickArchiveObjectResponse(BaseModel):
     last_observation_ts: Optional[datetime] = None
     checksum: str
     retention_class: str
+    backup_backend: Optional[ArchiveBackupBackend] = None
+    backup_object_key: Optional[str] = None
+    backup_status: Optional[ArchiveBackupStatus] = None
+    backup_completed_at: Optional[datetime] = None
+    backup_error: Optional[str] = None
     created_at: datetime
 
 
@@ -311,7 +318,52 @@ class CrawlerRunResponse(BaseModel):
     raw_payload_id: Optional[int] = None
     processed_count: int
     upserted_count: int
+    created_count: int = 0
+    updated_count: int = 0
+    noop_count: int = 0
+    duplicate_symbol_count: int = 0
+    conflict_count: int = 0
+    overwritten_count: int = 0
     errors: list[str] = Field(default_factory=list)
+
+
+class TwCompanyCrawlRequest(RequestModel):
+    include_tpex: bool = True
+
+
+class TwCompanyCrawlerRunResponse(BaseModel):
+    market: MarketCode = "TW"
+    source_names: list[str] = Field(default_factory=list)
+    raw_payload_ids: list[int] = Field(default_factory=list)
+    processed_count: int
+    upserted_count: int
+    created_count: int = 0
+    updated_count: int = 0
+    noop_count: int = 0
+    duplicate_symbol_count: int = 0
+    conflict_count: int = 0
+    overwritten_count: int = 0
+    active_symbol_count: int
+    errors: list[str] = Field(default_factory=list)
+
+
+class TwCompanyProfileResponse(BaseModel):
+    id: int
+    symbol: str
+    market: MarketCode = "TW"
+    exchange: str
+    board: str
+    company_name: str
+    isin_code: Optional[str] = None
+    industry_category: Optional[str] = None
+    listing_date: Optional[date] = None
+    trading_status: str
+    source_name: str
+    raw_payload_id: Optional[int] = None
+    archive_object_reference: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class LifecycleRecordUpsert(RequestModel):

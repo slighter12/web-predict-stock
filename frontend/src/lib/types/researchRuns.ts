@@ -3,6 +3,7 @@ import type {
   DefaultBundleVersion,
   FeatureName,
   MarketCode,
+  ModelType,
   PriceSource,
   ReturnTarget,
   ResearchMonitorProfileId,
@@ -14,6 +15,7 @@ import type {
   ConfigSources,
   EffectiveStrategy,
   FallbackAudit,
+  GovernanceMetadata,
   P3Summary,
   VersionPack,
 } from "./runtime";
@@ -44,8 +46,8 @@ export interface ResearchRunCreateRequest {
   horizon_days: number;
   features: FeatureSpec[];
   model: {
-    type: "xgboost";
-    params: Record<string, never>;
+    type: ModelType;
+    params: Record<string, unknown>;
   };
   strategy: {
     type: "research_v1";
@@ -87,7 +89,10 @@ export interface ValidationSummary {
   metrics: Record<string, number>;
 }
 
-export interface ResearchRunResponse extends VersionPack, P3Summary {
+export interface ResearchRunResponse
+  extends VersionPack,
+    P3Summary,
+    GovernanceMetadata {
   run_id: string;
   metrics: Metrics;
   equity_curve: EquityPoint[];
@@ -102,7 +107,10 @@ export interface ResearchRunResponse extends VersionPack, P3Summary {
   fallback_audit: FallbackAudit;
 }
 
-export interface ResearchRunRecord extends VersionPack, P3Summary {
+export interface ResearchRunRecord
+  extends VersionPack,
+    P3Summary,
+    GovernanceMetadata {
   run_id: string;
   request_id: string | null;
   status: RunStatus;

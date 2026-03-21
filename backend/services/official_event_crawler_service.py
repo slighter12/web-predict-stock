@@ -8,9 +8,12 @@ from typing import Any
 
 import requests
 
-from scripts import scraper
-
-from ..errors import ExternalFetchError, UnsupportedConfigurationError
+from ..errors import DataAccessError, ExternalFetchError, UnsupportedConfigurationError
+from ..repositories.raw_ingest_repository import (
+    FETCH_STATUS_FAILED,
+    FETCH_STATUS_SUCCESS,
+    persist_raw_ingest_record,
+)
 from ..schemas.data_plane import ImportantEventUpsert, LifecycleRecordUpsert
 from ..time_utils import utc_now
 from .important_event_service import save_important_event
@@ -60,29 +63,19 @@ def _fetch_official_feed(
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         payload_body = response.text
-        raw_payload_id = scraper.persist_raw_ingest_record(
-            source_name=source_name,
-            symbol="TW_OFFICIAL",
-            market="TW",
-            parser_version="official_feed_v1",
-            fetch_status=scraper.FETCH_STATUS_SUCCESS,
-            expected_symbol_context=expected_context,
-            payload_body=payload_body,
-            fetch_timestamp=fetch_timestamp,
-        )
     except requests.exceptions.RequestException as exc:
         try:
-            scraper.persist_raw_ingest_record(
+            persist_raw_ingest_record(
                 source_name=source_name,
                 symbol="TW_OFFICIAL",
                 market="TW",
                 parser_version="official_feed_v1",
-                fetch_status=scraper.FETCH_STATUS_FAILED,
+                fetch_status=FETCH_STATUS_FAILED,
                 expected_symbol_context=expected_context,
                 payload_body=payload_body,
                 fetch_timestamp=fetch_timestamp,
             )
-        except Exception:
+        except DataAccessError:
             logger.warning(
                 "Failed to record crawler fetch failure source=%s", source_name
             )
@@ -90,11 +83,38 @@ def _fetch_official_feed(
 
     try:
         payload = json.loads(payload_body)
-        return raw_payload_id, _extract_records(payload)
+        records = _extract_records(payload)
     except Exception as exc:
+        try:
+            persist_raw_ingest_record(
+                source_name=source_name,
+                symbol="TW_OFFICIAL",
+                market="TW",
+                parser_version="official_feed_v1",
+                fetch_status=FETCH_STATUS_FAILED,
+                expected_symbol_context=expected_context,
+                payload_body=payload_body,
+                fetch_timestamp=fetch_timestamp,
+            )
+        except DataAccessError:
+            logger.warning(
+                "Failed to record crawler parse failure source=%s", source_name
+            )
         raise UnsupportedConfigurationError(
             "Official crawler payload parsing failed."
         ) from exc
+
+    raw_payload_id = persist_raw_ingest_record(
+        source_name=source_name,
+        symbol="TW_OFFICIAL",
+        market="TW",
+        parser_version="official_feed_v1",
+        fetch_status=FETCH_STATUS_SUCCESS,
+        expected_symbol_context=expected_context,
+        payload_body=payload_body,
+        fetch_timestamp=fetch_timestamp,
+    )
+    return raw_payload_id, records
 
 
 def crawl_lifecycle_records() -> dict:
