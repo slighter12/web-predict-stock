@@ -59,6 +59,14 @@ surface and must never be used as the source of truth for normative behavior.
 - `POST /api/v1/data/ingestions`
 - `POST /api/v1/data/replays`
 - `GET /api/v1/data/replays`
+- `POST /api/v1/data/tick-archive-dispatches`
+- `GET /api/v1/data/tick-archive-dispatches`
+- `POST /api/v1/data/tick-archive-imports`
+- `GET /api/v1/data/tick-archives`
+- `POST /api/v1/data/tick-replays`
+- `GET /api/v1/data/tick-replays`
+- `GET /api/v1/data/tick-ops/kpis`
+- `GET /api/v1/data/tick-gates/p2`
 - `POST /api/v1/data/recovery-drills`
 - `GET /api/v1/data/recovery-drills`
 - `POST /api/v1/data/recovery-drill-schedules`
@@ -85,6 +93,11 @@ surface and must never be used as the source of truth for normative behavior.
 - `Data Plane Workspace`
   - `DataIngestionPanel`
   - `ReplayPanel`
+  - `TickArchivePanel`
+    - post-close tick archive dispatch
+    - manual tick archive import
+    - tick archive replay
+    - `KPI-TICK-*` telemetry display
   - `RecoveryDrillPanel`
     - manual recovery drill execution
     - monthly recovery drill schedule creation
@@ -96,6 +109,7 @@ surface and must never be used as the source of truth for normative behavior.
   - `/api/v1/data/ingestion-watchlist`
   - `/api/v1/data/ingestion-dispatches`
   - `/api/v1/data/ops/kpis`
+  - `/api/v1/data/tick-gates/p2`
   - `/api/v1/data/lifecycle-crawls`
   - `/api/v1/data/important-event-crawls`
 
@@ -152,8 +166,79 @@ Status: `exit-gate implemented; ops instrumentation implemented`
 - recovery trading-day delta uses persisted market trading dates from `daily_ohlcv`
 - frontend includes a data-plane workspace for manual and scheduled recovery operations
 - frontend does not yet expose dedicated panels or API clients for benchmark
-  profiles, ingestion watchlist or dispatch management, ops KPI reporting, or
-  official crawler triggers
+  profiles, ingestion watchlist or dispatch management, or official crawler
+  triggers
+
+### P2
+
+Status: `exit-gate implemented; ops telemetry implemented`
+
+- `tick_archive_runs`, `tick_archive_objects`, `tick_restore_runs`, and
+  `tick_observations` persist the P2 data plane
+- tick archive dispatch, manual import, and replay exist through:
+  - `/api/v1/data/tick-archive-dispatches`
+  - `/api/v1/data/tick-archive-imports`
+  - `/api/v1/data/tick-replays`
+- tick archive storage currently uses local filesystem `jsonl.gz` objects under
+  `var/tick_archives/`
+- `GET /api/v1/data/tick-gates/p2` exposes the phase-scoped `GATE-P2-001`
+  artifact report
+- `GET /api/v1/data/tick-ops/kpis` exposes `KPI-TICK-001` to `KPI-TICK-003`
+  with succeeded-run filtering, the current benchmark window policy, and an
+  explicit exploratory binding status while `TBD-002` remains open
+- benchmark telemetry currently uses only succeeded archive runs, succeeded
+  restore runs, persisted `benchmark_profile_id`, and full-day benchmark
+  windows capped at `5` compressed GB for the latest succeeded archive run per
+  `(trading_date, benchmark_profile_id)`; restore timing uses benchmark-window
+  wall-clock duration instead of summed per-object elapsed seconds
+- `GET /api/v1/data/tick-gates/p2` evaluates retention policy against the
+  latest succeeded archive object's actual `retention_class` and
+  `archive_layout_version`, while still exposing the expected baseline values
+- manual archive import validates the embedded observation `market` and
+  `trading_date` against the submitted metadata before persisting archive
+  object metadata
+- frontend includes a `TickArchivePanel` in the data-plane workspace
+
+Still not complete for durable `P2-OPS`:
+
+- `TBD-002` remains open, so `KPI-TICK-*` values are still exploratory
+  telemetry rather than binding durable qualification
+- TWSE TLS verification may still require local CA configuration depending on
+  the runtime environment
+- full-market dispatch quality depends on the current coverage of
+  `symbol_lifecycle_records` or the `daily_ohlcv` fallback, evaluated against
+  the requested `trading_date`
+
+Current accepted `P2` constraints and follow-ups:
+
+- archive retention policy is still provisional:
+  `TICK_ARCHIVE_RETENTION_CLASS` remains
+  `provisional_until_tbd_002_resolved`, so retention evidence is useful for
+  telemetry and gate inspection but not yet a durable production baseline
+- archive storage is limited to `local_filesystem`; `TickArchiveObject` already
+  persists `storage_backend`, but there is no S3/GCS-backed implementation,
+  cross-instance sharing, or storage redundancy yet
+- symbol resolution falls back to `daily_ohlcv` when lifecycle coverage is
+  incomplete; this is acceptable for `P2`, but it can include stale symbols if
+  lifecycle events are missing and must not be treated as a formally governed
+  investability universe
+- list endpoints use fixed `limit` values without cursor or offset pagination;
+  current panel scope is recent operational inspection only
+- manual upload validates archive content after write/read/parse, not by MIME
+  type alone; invalid or mismatched payloads are rejected during import, but
+  upload preflight does not enforce a browser-supplied content type contract
+- frontend trading-date defaults come from the browser local date input; this
+  is acceptable for now because `trading_date` is a user-editable field, but
+  operators should treat `Asia/Taipei` as the authoritative market calendar
+- `TICK_KPI_TRADING_DAY_WINDOW` is intentionally fixed at `20` trading days so
+  KPI history is comparable across runs; changing it currently requires a code
+  change
+- replay samples with effectively zero benchmark-window wall-clock duration are
+  excluded from throughput telemetry rather than coerced into extreme values;
+  this is a telemetry hygiene choice, not a replay failure signal
+- snapshot parsing does not pre-deduplicate duplicated symbols inside one raw
+  payload; current protection relies on replay replacement semantics and the
+  normalized storage path rather than parser-side duplicate rejection
 
 Still not complete for `P1-OPS`:
 
@@ -162,10 +247,10 @@ Still not complete for `P1-OPS`:
 
 ## Current Verification Snapshot
 
-- last updated: `2026-03-20`
+- last updated: `2026-03-21`
 - backend test suite:
   - `.venv/bin/python -m pytest -q`
-  - result: `96 passed`
+  - result: `133 passed`
 - frontend production build:
   - `cd frontend && bun run build`
   - result: `passed (Vite chunk-size warning only)`

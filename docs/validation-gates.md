@@ -102,6 +102,23 @@ Interpretation rule:
   until `TBD-002` is resolved and the archive storage policy is frozen as the
   binding baseline, `KPI-TICK-*` values are exploratory telemetry only; they
   may be measured and trended but must not determine durable `P2` pass or fail
+- Tick-storage scope rule:
+  current `P2` gate evidence assumes a local archive backend and recent-ops
+  inspection workflow; pagination, remote object-store redundancy, and
+  cross-instance archive portability are outside the current binding scope
+- Tick benchmark-window rule:
+  `KPI-TICK-002` and `KPI-TICK-003` must use only succeeded
+  `tick_archive_runs` and succeeded `tick_restore_runs`; the benchmark window is
+  the summed compressed archive size for the latest succeeded archive run of a
+  single trading day, evaluated per `(trading_date, benchmark_profile_id)` pair;
+  only windows that fully replay that latest succeeded day snapshot and remain
+  `<= 5` compressed GB are eligible; restore latency and throughput must use the
+  benchmark window wall-clock interval from the earliest restore start to the
+  latest restore completion within the window
+- Tick-date-authority rule:
+  `trading_date` is governed by the TW market calendar (`Asia/Taipei`); client
+  defaults may originate from a local browser timezone, but server-side trading
+  day interpretation and gate evidence must follow the market date
 - Simulation-platform binding rule:
   until `TBD-003` is resolved and the simulation platform is frozen as the
   binding baseline, `KPI-SIM-*` values are exploratory telemetry only; they may
@@ -162,8 +179,8 @@ Interpretation rule:
 | ID | Metric | Formula or definition | Window | Gate |
 | --- | --- | --- | --- | --- |
 | `KPI-TICK-001` | compression target | size reduction versus uncompressed raw archive | per market and source archive | `>= 50%` |
-| `KPI-TICK-002` | restore latency p95 | p95 restore time for up to 5 compressed GB per day with a persisted `benchmark_profile_id` | benchmark size bucket | `< 30 minutes` |
-| `KPI-TICK-003` | restore throughput history | `compressed_restore_gb_per_minute` with p50 and p95 under a persisted `benchmark_profile_id` | rolling 20 trading days | required telemetry |
+| `KPI-TICK-002` | restore latency p95 | p95 benchmark-window wall-clock restore time for succeeded, full-day benchmark restore windows up to `5` compressed GB per `(trading_date, benchmark_profile_id)` with a persisted `benchmark_profile_id` | benchmark size bucket | `< 30 minutes` |
+| `KPI-TICK-003` | restore throughput history | `compressed_restore_gb_per_minute` with p50 and p95 for the same succeeded benchmark windows used by `KPI-TICK-002`, using benchmark-window wall-clock time rather than summed per-object elapsed time | rolling 20 succeeded trading days | required telemetry |
 
 ### Comparability and Performance Claims
 
@@ -502,6 +519,10 @@ Accepted comparable runs must publish the following comparison statistics:
   and restore telemetry emission
 - pass condition:
   `GATE-VERIFICATION-001`
+- implementation evidence:
+  `GET /api/v1/data/tick-gates/p2` returns the current artifact check output for
+  this phase gate; it is phase-scoped evidence for `P2` and does not replace
+  the broader governance meaning of `GATE-VERIFICATION-001`
 
 ### GATE-P2-OPS-001
 
@@ -512,6 +533,8 @@ Accepted comparable runs must publish the following comparison statistics:
   and `TBD-002` is resolved with a frozen archive storage baseline
 - pass condition:
   `KPI-TICK-001` to `KPI-TICK-003`
+- implementation evidence:
+  `GET /api/v1/data/tick-ops/kpis`
 
 ### GATE-P3-001
 

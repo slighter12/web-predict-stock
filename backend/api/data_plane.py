@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from datetime import date
+
+from fastapi import APIRouter, File, Form, UploadFile
 
 from ..schemas.data_plane import (
     BenchmarkProfileRequest,
@@ -23,6 +25,14 @@ from ..schemas.data_plane import (
     RecoveryDrillScheduleResponse,
     ReplayRequest,
     ReplayResponse,
+    TickArchiveDispatchRequest,
+    TickArchiveImportResponse,
+    TickArchiveObjectResponse,
+    TickArchiveRunResponse,
+    TickPhaseGateResponse,
+    TickOpsKpiResponse,
+    TickReplayRequest,
+    TickReplayResponse,
 )
 from ..services.benchmark_profile_service import (
     create_benchmark_profile,
@@ -51,6 +61,15 @@ from ..services.recovery_service import (
 )
 from ..services.replay_service import list_replays, replay_raw_payload
 from ..services.scheduled_ingestion_service import dispatch_due_scheduled_ingestions
+from ..services.tick_archive_service import (
+    create_tick_archive_dispatch,
+    create_tick_archive_import,
+    list_tick_archive_dispatches,
+    list_tick_archives,
+)
+from ..services.tick_gate_service import get_tick_phase_gate_summary
+from ..services.tick_ops_kpi_service import get_tick_ops_kpi_summary
+from ..services.tick_replay_service import create_tick_replay, list_tick_replays
 
 router = APIRouter()
 
@@ -79,6 +98,100 @@ def create_replay(request: ReplayRequest) -> ReplayResponse:
 )
 def read_replays() -> list[ReplayResponse]:
     return [ReplayResponse(**item) for item in list_replays()]
+
+
+@router.post(
+    "/api/v1/data/tick-archive-dispatches",
+    tags=["Data Plane"],
+    response_model=TickArchiveRunResponse,
+)
+def create_tick_archive_dispatch_endpoint(
+    request: TickArchiveDispatchRequest,
+) -> TickArchiveRunResponse:
+    return TickArchiveRunResponse(**create_tick_archive_dispatch(request))
+
+
+@router.get(
+    "/api/v1/data/tick-archive-dispatches",
+    tags=["Data Plane"],
+    response_model=list[TickArchiveRunResponse],
+)
+def read_tick_archive_dispatches() -> list[TickArchiveRunResponse]:
+    return [
+        TickArchiveRunResponse(**item) for item in list_tick_archive_dispatches()
+    ]
+
+
+@router.post(
+    "/api/v1/data/tick-archive-imports",
+    tags=["Data Plane"],
+    response_model=TickArchiveImportResponse,
+)
+async def create_tick_archive_import_endpoint(
+    market: str = Form(...),
+    trading_date: date = Form(...),
+    notes: str | None = Form(default=None),
+    archive_file: UploadFile = File(...),
+) -> TickArchiveImportResponse:
+    file_bytes = await archive_file.read()
+    result = create_tick_archive_import(
+        market=market,
+        trading_date=trading_date,
+        notes=notes,
+        file_bytes=file_bytes,
+    )
+    return TickArchiveImportResponse(**result)
+
+
+@router.get(
+    "/api/v1/data/tick-archives",
+    tags=["Data Plane"],
+    response_model=list[TickArchiveObjectResponse],
+)
+def read_tick_archives() -> list[TickArchiveObjectResponse]:
+    return [TickArchiveObjectResponse(**item) for item in list_tick_archives()]
+
+
+@router.post(
+    "/api/v1/data/tick-replays",
+    tags=["Data Plane"],
+    response_model=TickReplayResponse,
+)
+def create_tick_replay_endpoint(request: TickReplayRequest) -> TickReplayResponse:
+    return TickReplayResponse(
+        **create_tick_replay(
+            archive_object_id=request.archive_object_id,
+            benchmark_profile_id=request.benchmark_profile_id,
+            notes=request.notes,
+        )
+    )
+
+
+@router.get(
+    "/api/v1/data/tick-replays",
+    tags=["Data Plane"],
+    response_model=list[TickReplayResponse],
+)
+def read_tick_replays() -> list[TickReplayResponse]:
+    return [TickReplayResponse(**item) for item in list_tick_replays()]
+
+
+@router.get(
+    "/api/v1/data/tick-ops/kpis",
+    tags=["Data Plane"],
+    response_model=TickOpsKpiResponse,
+)
+def read_tick_ops_kpis() -> TickOpsKpiResponse:
+    return TickOpsKpiResponse(**get_tick_ops_kpi_summary())
+
+
+@router.get(
+    "/api/v1/data/tick-gates/p2",
+    tags=["Data Plane"],
+    response_model=TickPhaseGateResponse,
+)
+def read_tick_phase_gate() -> TickPhaseGateResponse:
+    return TickPhaseGateResponse(**get_tick_phase_gate_summary())
 
 
 @router.post(

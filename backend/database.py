@@ -311,6 +311,103 @@ class ImportantEvent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class TickArchiveRun(Base):
+    __tablename__ = "tick_archive_runs"
+
+    id = Column(Integer, primary_key=True)
+    source_name = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    trading_date = Column(Date, nullable=False, index=True)
+    trigger_mode = Column(String, nullable=False, index=True)
+    scope = Column(String, nullable=False)
+    status = Column(String, nullable=False, index=True)
+    notes = Column(Text, nullable=True)
+    symbol_count = Column(Integer, nullable=False, default=0)
+    request_count = Column(Integer, nullable=False, default=0)
+    observation_count = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    abort_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class TickArchiveObject(Base):
+    __tablename__ = "tick_archive_objects"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        Integer,
+        ForeignKey("tick_archive_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    storage_backend = Column(String, nullable=False)
+    object_key = Column(String, nullable=False, unique=True)
+    compression_codec = Column(String, nullable=False)
+    archive_layout_version = Column(String, nullable=False)
+    compressed_bytes = Column(Integer, nullable=False, default=0)
+    uncompressed_bytes = Column(Integer, nullable=False, default=0)
+    compression_ratio = Column(Float, nullable=False, default=0.0)
+    record_count = Column(Integer, nullable=False, default=0)
+    first_observation_ts = Column(DateTime(timezone=True), nullable=True)
+    last_observation_ts = Column(DateTime(timezone=True), nullable=True)
+    checksum = Column(String, nullable=False)
+    retention_class = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class TickRestoreRun(Base):
+    __tablename__ = "tick_restore_runs"
+
+    id = Column(Integer, primary_key=True)
+    archive_object_id = Column(
+        Integer,
+        ForeignKey("tick_archive_objects.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    benchmark_profile_id = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    restore_status = Column(String, nullable=False, index=True)
+    restored_row_count = Column(Integer, nullable=False, default=0)
+    restore_started_at = Column(DateTime(timezone=True), nullable=False)
+    restore_completed_at = Column(DateTime(timezone=True), nullable=True)
+    elapsed_seconds = Column(Float, nullable=True)
+    throughput_gb_per_minute = Column(Float, nullable=True)
+    abort_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class TickObservation(Base):
+    __tablename__ = "tick_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "archive_object_reference",
+            "symbol",
+            "observation_ts",
+            name="uq_tick_observation_archive_symbol_ts",
+        ),
+        Index("idx_tick_observations_symbol_ts", "symbol", "observation_ts"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    trading_date = Column(Date, nullable=False, index=True)
+    observation_ts = Column(DateTime(timezone=True), nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    last_price = Column(Float, nullable=True)
+    last_size = Column(Integer, nullable=True)
+    cumulative_volume = Column(Integer, nullable=True)
+    best_bid_prices_json = Column(Text, nullable=False, default="[]")
+    best_bid_sizes_json = Column(Text, nullable=False, default="[]")
+    best_ask_prices_json = Column(Text, nullable=False, default="[]")
+    best_ask_sizes_json = Column(Text, nullable=False, default="[]")
+    source_name = Column(String, nullable=False)
+    archive_object_reference = Column(String, nullable=False, index=True)
+    parser_version = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 # --- Database Session Management ---
 def get_db():
     db = SessionLocal()

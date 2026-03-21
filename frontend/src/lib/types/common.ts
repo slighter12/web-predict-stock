@@ -25,6 +25,11 @@ export type RunStatus =
   | "failed";
 export type RecoveryDrillTriggerMode = "manual" | "scheduled";
 export type RecoveryDrillCadence = "monthly";
+export type TickArchiveStatus = "succeeded" | "failed";
+export type TickArchiveTriggerMode = "post_close_crawl" | "manual_import";
+export type TickStorageBackend = "local_filesystem";
+export type TickCompressionCodec = "gzip";
+export type KpiStatus = "pass" | "fail" | "insufficient_sample";
 export type LifecycleEventType =
   | "listing"
   | "delisting"

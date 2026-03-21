@@ -16,6 +16,10 @@ from .common import (
     ReplayStatus,
     RequestModel,
     ScheduledIngestionStatus,
+    TickArchiveStatus,
+    TickArchiveTriggerMode,
+    TickCompressionCodec,
+    TickStorageBackend,
     TimestampSourceClass,
 )
 
@@ -210,6 +214,96 @@ class OpsKpiResponse(BaseModel):
     gate_id: str
     overall_status: KpiStatus
     metrics: dict[str, OpsKpiMetricResponse]
+
+
+class TickArchiveDispatchRequest(RequestModel):
+    market: MarketCode = "TW"
+    trading_date: date
+    mode: TickArchiveTriggerMode = "post_close_crawl"
+    notes: Optional[str] = None
+
+
+class TickArchiveRunResponse(BaseModel):
+    id: int
+    source_name: str
+    market: MarketCode
+    trading_date: date
+    trigger_mode: TickArchiveTriggerMode
+    scope: str
+    status: TickArchiveStatus
+    notes: Optional[str] = None
+    symbol_count: int
+    request_count: int
+    observation_count: int
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    abort_reason: Optional[str] = None
+    created_at: datetime
+
+
+class TickArchiveObjectResponse(BaseModel):
+    id: int
+    run_id: int
+    storage_backend: TickStorageBackend
+    object_key: str
+    compression_codec: TickCompressionCodec
+    archive_layout_version: str
+    compressed_bytes: int
+    uncompressed_bytes: int
+    compression_ratio: float
+    record_count: int
+    first_observation_ts: Optional[datetime] = None
+    last_observation_ts: Optional[datetime] = None
+    checksum: str
+    retention_class: str
+    created_at: datetime
+
+
+class TickArchiveImportResponse(BaseModel):
+    run: TickArchiveRunResponse
+    archive_object: TickArchiveObjectResponse
+
+
+class TickReplayRequest(RequestModel):
+    archive_object_id: int = Field(..., ge=1)
+    benchmark_profile_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TickReplayResponse(BaseModel):
+    id: int
+    archive_object_id: int
+    benchmark_profile_id: Optional[str] = None
+    notes: Optional[str] = None
+    restore_status: ReplayStatus
+    restored_row_count: int
+    restore_started_at: datetime
+    restore_completed_at: Optional[datetime] = None
+    elapsed_seconds: Optional[float] = None
+    throughput_gb_per_minute: Optional[float] = None
+    abort_reason: Optional[str] = None
+    created_at: datetime
+
+
+class TickOpsKpiResponse(BaseModel):
+    gate_id: str
+    overall_status: KpiStatus
+    metrics: dict[str, OpsKpiMetricResponse]
+    selection_policy: dict[str, Any] = Field(default_factory=dict)
+    binding_status: str = "exploratory"
+    binding_reason: Optional[str] = None
+
+
+class TickGateArtifactResponse(BaseModel):
+    status: KpiStatus
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class TickPhaseGateResponse(BaseModel):
+    gate_id: str
+    verification_gate_id: str
+    overall_status: KpiStatus
+    artifacts: dict[str, TickGateArtifactResponse]
 
 
 class CrawlerRunResponse(BaseModel):

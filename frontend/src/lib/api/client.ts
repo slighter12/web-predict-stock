@@ -50,11 +50,13 @@ async function parseError(response: Response): Promise<ApiError> {
 
 export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const requestId = buildRequestId();
+  const bodyIsFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
       "X-Request-Id": requestId,
+      ...(bodyIsFormData ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers ?? {}),
     },
   });
