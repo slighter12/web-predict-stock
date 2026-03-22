@@ -12,6 +12,13 @@ branch_labels = None
 depends_on = None
 
 metadata = sa.MetaData()
+_existing_table_names = {"research_runs"}
+
+sa.Table(
+    "research_runs",
+    metadata,
+    sa.Column("run_id", sa.String(), primary_key=True),
+)
 
 adaptive_profiles = sa.Table(
     "adaptive_profiles",
@@ -119,10 +126,14 @@ adaptive_surface_exclusions = sa.Table(
 def upgrade() -> None:
     bind = op.get_bind()
     for table in metadata.sorted_tables:
+        if table.name in _existing_table_names:
+            continue
         table.create(bind=bind, checkfirst=True)
 
 
 def downgrade() -> None:
     bind = op.get_bind()
     for table in reversed(metadata.sorted_tables):
+        if table.name in _existing_table_names:
+            continue
         table.drop(bind=bind, checkfirst=True)

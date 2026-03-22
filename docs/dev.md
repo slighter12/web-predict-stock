@@ -103,13 +103,14 @@ Run the API locally:
 
 Current backend ownership is:
 
-- `backend/app.py`: FastAPI app, middleware, exception registration, router include
-- `backend/api/`: HTTP routes for `system`, `research_runs`, and `data_plane`
-- `backend/schemas/`: request and response contracts
-- `backend/services/`: orchestration and domain-facing operations
-- `backend/repositories/`: DB persistence and row mapping
-- `backend/runtime/`: request-id, run-id, and error-envelope helpers
-- `backend/domain/`: version-pack and runtime-bundle rules
+- `backend/app/`: FastAPI app assembly, middleware, exception registration, router include
+- `backend/platform/`: HTTP request context, error envelopes, DB session/model aggregation, shared runtime helpers
+- `backend/shared/`: analytics core and truly shared contracts
+- `backend/system/`: system-health routes
+- `backend/research/`: research-run routes, contracts, services, repositories, and run metadata domain helpers
+- `backend/market_data/`: ingestion, replay, recovery, lifecycle, important-event, tick-archive, and TW company workflows
+- `backend/signals/`: external-signal, factor-catalog, cluster, and peer-feature contracts and persistence
+- `backend/execution/`: simulation, live-stub, and kill-switch routes and services
 
 ## Data Loading
 
@@ -153,7 +154,7 @@ Run a local TWSE tick snapshot smoke test:
 
 ```bash
 export TWSE_MIS_SKIP_TLS_VERIFY=true
-.venv/bin/python -c "from backend.services.tick_archive_provider import fetch_twse_public_snapshot; result = fetch_twse_public_snapshot(['2330','2317']); print(len(result['observations']))"
+.venv/bin/python -c "from backend.market_data.services.tick_archive_provider import fetch_twse_public_snapshot; result = fetch_twse_public_snapshot(['2330','2317']); print(len(result['observations']))"
 ```
 
 Run the deterministic P2 acceptance fixture for failed-run and partial-replay gating:
@@ -260,6 +261,7 @@ Backend:
 - `TWSE_MIS_CA_BUNDLE_URL`
 - `TWSE_MIS_CA_AUTO_DOWNLOAD`
 - `TWSE_MIS_SKIP_TLS_VERIFY`
+- `TWSE_MIS_ENABLE_INSECURE_FALLBACK`
 
 Frontend:
 
@@ -271,7 +273,9 @@ Frontend:
 - `POSTGRES_HOST=db` is the container-network setting
 - the default frontend API target is `http://127.0.0.1:8000`
 - TWSE tick snapshot fetches use `requests`; prefer `TWSE_MIS_CA_BUNDLE` when a
-  local CA chain is available, keep `TWSE_MIS_SKIP_TLS_VERIFY=true` for local
-  fallback only
+  local CA chain is available, or configure `TWSE_MIS_CA_AUTO_DOWNLOAD=true`
+  with `TWSE_MIS_CA_BUNDLE_URL`
+- keep `TWSE_MIS_SKIP_TLS_VERIFY=true` or
+  `TWSE_MIS_ENABLE_INSECURE_FALLBACK=true` for local emergency use only
 - if XGBoost fails on macOS because `libomp.dylib` is missing, install OpenMP:
   `brew install libomp`

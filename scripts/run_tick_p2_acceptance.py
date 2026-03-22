@@ -15,29 +15,34 @@ from backend.database import (
     TickObservation,
     TickRestoreRun,
 )
-from backend.repositories.benchmark_profile_repository import persist_benchmark_profile
-from backend.repositories.tick_archive_repository import (
+from backend.market_data.repositories.benchmark_profiles import (
+    persist_benchmark_profile,
+)
+from backend.market_data.repositories.tick_archives import (
     list_recent_tick_archive_trading_dates,
     list_tick_archive_objects_for_dates,
     list_tick_restore_runs_for_dates,
     persist_tick_archive_object,
     persist_tick_archive_run,
 )
-from backend.services.tick_archive_provider import (
+from backend.market_data.services.tick_archive_provider import (
     TWSE_PUBLIC_SNAPSHOT_SOURCE,
     parse_archive_entry,
 )
-from backend.services.tick_archive_service import (
+from backend.market_data.services.tick_archive_storage import (
+    object_key_to_path,
+    write_archive_part,
+)
+from backend.market_data.services.tick_archives import (
     TICK_ARCHIVE_LAYOUT_VERSION,
     TICK_ARCHIVE_RETENTION_CLASS,
     TICK_COMPRESSION_CODEC,
     TICK_STORAGE_BACKEND,
 )
-from backend.services.tick_archive_storage import object_key_to_path, write_archive_part
-from backend.services.tick_gate_service import get_tick_phase_gate_summary
-from backend.services.tick_ops_kpi_service import get_tick_ops_kpi_summary
-from backend.services.tick_replay_service import create_tick_replay
-from backend.time_utils import utc_now
+from backend.market_data.services.tick_governance import get_tick_phase_gate_summary
+from backend.market_data.services.tick_ops import get_tick_ops_kpi_summary
+from backend.market_data.services.tick_replay import create_tick_replay
+from backend.platform.time import utc_now
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:

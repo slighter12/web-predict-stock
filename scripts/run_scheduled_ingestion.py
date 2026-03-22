@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from backend.services.scheduled_ingestion_service import (
+from backend.market_data.services.scheduled_ingestion import (
     dispatch_due_scheduled_ingestions,
 )
 
