@@ -263,6 +263,13 @@ class RecoveryDrill(Base):
 
 class RecoveryDrillSchedule(Base):
     __tablename__ = "recovery_drill_schedules"
+    __table_args__ = (
+        Index(
+            "idx_recovery_drill_schedules_active_created_at",
+            "is_active",
+            "created_at",
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
     market = Column(String, nullable=False, index=True)
@@ -272,7 +279,7 @@ class RecoveryDrillSchedule(Base):
     timezone = Column(String, nullable=False, default="Asia/Taipei")
     benchmark_profile_id = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
@@ -295,13 +302,14 @@ class IngestionWatchlist(Base):
         UniqueConstraint(
             "symbol", "market", name="uq_ingestion_watchlist_symbol_market"
         ),
+        Index("idx_ingestion_watchlist_active_created_at", "is_active", "created_at"),
     )
 
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, index=True)
     market = Column(String, nullable=False, index=True)
     years = Column(Integer, nullable=False, default=5)
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
@@ -607,13 +615,16 @@ class ExternalSignalAudit(Base):
 
 class FactorCatalog(Base):
     __tablename__ = "factor_catalogs"
+    __table_args__ = (
+        Index("idx_factor_catalogs_active_created_at", "is_active", "created_at"),
+    )
 
     id = Column(String, primary_key=True)
     market = Column(String, nullable=False, index=True, default="TW")
     source_family = Column(String, nullable=False)
     lineage_version = Column(String, nullable=False)
     minimum_coverage_ratio = Column(Float, nullable=False, default=0.8)
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
@@ -1008,7 +1019,6 @@ class AdaptiveSurfaceExclusion(Base):
         String,
         ForeignKey("research_runs.run_id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
         unique=True,
     )
     exclusion_surface = Column(String, nullable=False)
