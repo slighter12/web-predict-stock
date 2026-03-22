@@ -138,7 +138,7 @@
     aria-label="Equity curve chart"
 ></div>
 
-<style>
+<style lang="scss">
     .chart {
         width: 100%;
         height: 320px;

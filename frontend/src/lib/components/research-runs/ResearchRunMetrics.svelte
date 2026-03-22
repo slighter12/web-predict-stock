@@ -26,7 +26,7 @@
     <MetricCard label="Turnover" value={formatMetric(metrics.turnover)} />
 </div>
 
-<style>
+<style lang="scss">
     .metrics-grid {
         display: grid;
         gap: 1rem;

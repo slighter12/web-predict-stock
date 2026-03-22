@@ -26,11 +26,6 @@
     let recordError: string | null = null;
     let runLookupId = "";
     let isRunLoading = false;
-    let inspectorRunState: {
-        result: ResearchRunResponse | null;
-        isSubmitting: boolean;
-        error: AppError | null;
-    };
     let inspectorRegistryState: {
         researchRunRecord: ResearchRunRecord | null;
         recordError: string | null;
@@ -71,49 +66,49 @@
         }
     };
 
-    const healthQuery = createQuery({
+    const healthQuery = createQuery(() => ({
         queryKey: ["system", "health"],
         queryFn: fetchSystemHealth,
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const p7GateQuery = createQuery({
+    const p7GateQuery = createQuery(() => ({
         queryKey: ["research", "gate", "p7"],
         queryFn: () => fetchResearchGate("p7"),
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const p8GateQuery = createQuery({
+    const p8GateQuery = createQuery(() => ({
         queryKey: ["research", "gate", "p8"],
         queryFn: () => fetchResearchGate("p8"),
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const p9GateQuery = createQuery({
+    const p9GateQuery = createQuery(() => ({
         queryKey: ["research", "gate", "p9"],
         queryFn: () => fetchResearchGate("p9"),
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const p10GateQuery = createQuery({
+    const p10GateQuery = createQuery(() => ({
         queryKey: ["research", "gate", "p10"],
         queryFn: () => fetchResearchGate("p10"),
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const p11GateQuery = createQuery({
+    const p11GateQuery = createQuery(() => ({
         queryKey: ["research", "gate", "p11"],
         queryFn: () => fetchResearchGate("p11"),
         retry: false,
         refetchOnWindowFocus: false,
-    });
+    }));
 
-    const researchRunMutation = createMutation({
+    const researchRunMutation = createMutation(() => ({
         mutationFn: createResearchRun,
         onSuccess: (data) => {
             latestResult = data;
@@ -136,22 +131,16 @@
                 requestId: null,
             };
         },
-    });
+    }));
 
     const handleSubmit = (payload: ResearchRunCreateRequest) => {
         submitError = null;
-        $researchRunMutation.mutate(payload);
+        researchRunMutation.mutate(payload);
     };
 
     const handleRunLookup = (runId: string) => {
         runLookupId = runId;
         void loadResearchRun(runId);
-    };
-
-    $: inspectorRunState = {
-        result: latestResult,
-        isSubmitting: $researchRunMutation.isPending,
-        error: submitError,
     };
 
     $: inspectorRegistryState = {
@@ -163,51 +152,58 @@
     };
 
     $: inspectorHealthState = {
-        health: $healthQuery.data ?? null,
-        isHealthLoading: $healthQuery.isPending,
+        health: healthQuery.data ?? null,
+        isHealthLoading: healthQuery.isPending,
         healthError:
-            $healthQuery.error instanceof Error
-                ? $healthQuery.error.message
+            healthQuery.error instanceof Error
+                ? healthQuery.error.message
                 : null,
     };
 
     $: inspectorGateState = {
         gates: [
-            $p7GateQuery.data,
-            $p8GateQuery.data,
-            $p9GateQuery.data,
-            $p10GateQuery.data,
-            $p11GateQuery.data,
+            p7GateQuery.data,
+            p8GateQuery.data,
+            p9GateQuery.data,
+            p10GateQuery.data,
+            p11GateQuery.data,
         ].filter(Boolean) as ResearchPhaseGateResponse[],
         gateError:
             [
-                $p7GateQuery.error,
-                $p8GateQuery.error,
-                $p9GateQuery.error,
-                $p10GateQuery.error,
-                $p11GateQuery.error,
+                p7GateQuery.error,
+                p8GateQuery.error,
+                p9GateQuery.error,
+                p10GateQuery.error,
+                p11GateQuery.error,
             ].find((item) => item instanceof Error) instanceof Error
                 ? (
                       [
-                          $p7GateQuery.error,
-                          $p8GateQuery.error,
-                          $p9GateQuery.error,
-                          $p10GateQuery.error,
-                          $p11GateQuery.error,
+                          p7GateQuery.error,
+                          p8GateQuery.error,
+                          p9GateQuery.error,
+                          p10GateQuery.error,
+                          p11GateQuery.error,
                       ].find((item) => item instanceof Error) as Error
                   ).message
                 : null,
     };
 </script>
 
-<WorkspaceSection eyebrow="Research Runs" title="Research Run Workspace">
+<WorkspaceSection
+    id="research-workspace"
+    eyebrow="Research Runs"
+    title="Research Workspace"
+    description="Configure runs on the left and review health, saved records, and results on the right."
+>
     <div class="research-grid">
         <ResearchRunForm
-            isSubmitting={$researchRunMutation.isPending}
+            isSubmitting={researchRunMutation.isPending}
             onSubmit={handleSubmit}
         />
         <ResearchRunInspector
-            runState={inspectorRunState}
+            result={latestResult}
+            isSubmitting={researchRunMutation.isPending}
+            {submitError}
             registryState={inspectorRegistryState}
             healthState={inspectorHealthState}
             gateState={inspectorGateState}
@@ -215,11 +211,11 @@
     </div>
 </WorkspaceSection>
 
-<style>
+<style lang="scss">
     .research-grid {
         display: grid;
-        grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
-        gap: 1.2rem;
+        grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+        gap: 1.25rem;
         align-items: start;
     }
 

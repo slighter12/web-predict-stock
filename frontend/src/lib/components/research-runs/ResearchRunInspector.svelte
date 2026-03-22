@@ -11,15 +11,9 @@
         ResearchRunResponse,
     } from "../../types";
 
-    export let runState: {
-        result: ResearchRunResponse | null;
-        isSubmitting: boolean;
-        error: AppError | null;
-    } = {
-        result: null,
-        isSubmitting: false,
-        error: null,
-    };
+    export let result: ResearchRunResponse | null = null;
+    export let isSubmitting = false;
+    export let submitError: AppError | null = null;
     export let registryState: {
         researchRunRecord: ResearchRunRecord | null;
         recordError: string | null;
@@ -52,6 +46,18 @@
 
     let lookupInput = "";
 
+    const gateNames: Record<string, string> = {
+        P7: "External Data Readiness",
+        P8: "Peer and Cluster Coverage",
+        P9: "Simulation Setup",
+        P10: "Live Control Setup",
+        P11: "Adaptive Workflow Readiness",
+    };
+    const valueLabels: Record<string, string> = {
+        runtime_compatibility_mode: "Manual Threshold Mode",
+        vnext_spec_mode: "Standard Research Mode",
+    };
+
     $: lookupInput = registryState.runLookupId;
 
     const serialize = (value: unknown) => JSON.stringify(value, null, 2);
@@ -60,18 +66,59 @@
         value === null || value === undefined
             ? "N/A"
             : `${(value * 100).toFixed(1)}%`;
+    const toLabel = (value: string) =>
+        value
+            .replace(/^GATE-/, "")
+            .replace(/^KPI-/, "")
+            .replace(/[_-]+/g, " ")
+            .toLowerCase()
+            .replace(/\b\w/g, (character) => character.toUpperCase());
+    const formatDisplayValue = (value: string | null | undefined) =>
+        value === null || value === undefined
+            ? "N/A"
+            : (valueLabels[value] ?? toLabel(value));
+    const getGateTitle = (gateId: string) =>
+        Object.entries(gateNames).find(([phase]) =>
+            gateId.includes(phase),
+        )?.[1] ?? "Readiness Check";
+    const summarizeGate = (
+        gate: import("../../types").ResearchPhaseGateResponse,
+    ) => {
+        const metricValues = Object.values(gate.metrics);
+        const artifactValues = Object.values(gate.artifacts);
+
+        return {
+            passedMetrics: metricValues.filter(
+                (metric) => metric.status === "pass",
+            ).length,
+            totalMetrics: metricValues.length,
+            passedArtifacts: artifactValues.filter(
+                (artifact) => artifact.status === "pass",
+            ).length,
+            totalArtifacts: artifactValues.length,
+        };
+    };
 </script>
 
 <div class="results-shell">
-    {#if runState.error}
+    {#if submitError}
         <div class="error-banner" role="alert">
-            <strong>{runState.error.code}</strong>
-            <span>{runState.error.message}</span>
-            {#if runState.error.runId}<span>run_id: {runState.error.runId}</span
-                >{/if}
-            {#if runState.error.requestId}
-                <span>request_id: {runState.error.requestId}</span>
+            <strong>{submitError.code}</strong>
+            <span>{submitError.message}</span>
+            {#if submitError.runId}<span>run ID: {submitError.runId}</span>{/if}
+            {#if submitError.requestId}
+                <span>request ID: {submitError.requestId}</span>
             {/if}
+        </div>
+    {/if}
+
+    {#if isSubmitting}
+        <div class="status-banner" aria-live="polite">
+            <strong>Research run in progress</strong>
+            <span>
+                The latest results stay visible while the backend completes the
+                new run.
+            </span>
         </div>
     {/if}
 
@@ -101,17 +148,17 @@
         <div class="surface-header">
             <div>
                 <p class="eyebrow">Run Registry</p>
-                <h3>Research Run Record</h3>
+                <h3>Saved Run Record</h3>
             </div>
         </div>
         <div class="lookup-row">
-            <input bind:value={lookupInput} placeholder="Paste a run_id" />
+            <input bind:value={lookupInput} placeholder="Paste a run ID" />
             <button
                 type="button"
                 onclick={submitLookup}
                 disabled={!lookupInput.trim() || registryState.isRunLoading}
             >
-                {registryState.isRunLoading ? "Loading..." : "Load Run"}
+                {registryState.isRunLoading ? "Loading..." : "Load Saved Run"}
             </button>
         </div>
 
@@ -124,10 +171,11 @@
                     <span>{registryState.researchRunRecord.status}</span>
                 </div>
                 <div>
-                    <strong>Runtime Mode</strong>
+                    <strong>Selection Mode</strong>
                     <span
-                        >{registryState.researchRunRecord.runtime_mode ??
-                            "N/A"}</span
+                        >{formatDisplayValue(
+                            registryState.researchRunRecord.runtime_mode,
+                        )}</span
                     >
                 </div>
                 <div>
@@ -179,7 +227,7 @@
             </div>
             <div class="metadata-grid">
                 <div>
-                    <p class="eyebrow">P3 Summary</p>
+                    <p class="eyebrow">Execution Readiness</p>
                     <pre>{serialize({
                             tradability_state:
                                 registryState.researchRunRecord
@@ -258,7 +306,7 @@
                         })}</pre>
                 </div>
                 <div>
-                    <p class="eyebrow">P7-P11 Foundations</p>
+                    <p class="eyebrow">Data and Control Setup</p>
                     <pre>{serialize({
                             factor_catalog_version:
                                 registryState.researchRunRecord
@@ -382,18 +430,14 @@
             </div>
         {:else}
             <p class="muted">
-                Create a research run or load a `run_id` to inspect persisted
+                Create a research run or load a run ID to inspect persisted
                 metadata.
             </p>
         {/if}
     </div>
 
-    {#if runState.result}
-        {#if runState.isSubmitting}
-            <div class="overlay">Refreshing latest run...</div>
-        {/if}
-
-        <ResearchRunMetrics metrics={runState.result.metrics} />
+    {#if result}
+        <ResearchRunMetrics metrics={result.metrics} />
 
         <div class="surface">
             <div class="surface-header">
@@ -401,17 +445,17 @@
                     <p class="eyebrow">Performance</p>
                     <h3>Equity Curve</h3>
                 </div>
-                <span class="run-id">{runState.result.run_id}</span>
+                <span class="run-id">{result.run_id}</span>
             </div>
-            <EquityChart points={runState.result.equity_curve} />
+            <EquityChart points={result.equity_curve} />
         </div>
 
         <ResearchRunValidation
-            validation={runState.result.validation}
-            warnings={runState.result.warnings}
+            validation={result.validation}
+            warnings={result.warnings}
         />
 
-        {#if Object.keys(runState.result.baselines).length}
+        {#if Object.keys(result.baselines).length}
             <div class="surface">
                 <div class="surface-header">
                     <div>
@@ -431,7 +475,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            {#each Object.entries(runState.result.baselines) as [baseline, metrics]}
+                            {#each Object.entries(result.baselines) as [baseline, metrics]}
                                 <tr>
                                     <td>{baseline}</td>
                                     <td
@@ -458,11 +502,11 @@
             </div>
         {/if}
 
-        <ResearchRunSignals signals={runState.result.signals} />
+        <ResearchRunSignals signals={result.signals} />
     {:else}
         <div class="surface">
             <p class="eyebrow">Research Runs</p>
-            <h3>No Active Result</h3>
+            <h3>No Results Yet</h3>
             <p class="muted">
                 Create a research run to populate metrics, validation,
                 comparison metadata, and signal traces.
@@ -473,32 +517,79 @@
     <div class="surface">
         <div class="surface-header">
             <div>
-                <p class="eyebrow">Phase Gates</p>
-                <h3>P7-P11 Structural Gates</h3>
+                <p class="eyebrow">Readiness</p>
+                <h3>Readiness Checks</h3>
             </div>
         </div>
         {#if gateState.gateError}
             <p class="muted">{gateState.gateError}</p>
         {:else if gateState.gates.length}
-            <div class="metadata-grid">
+            <div class="gate-grid">
                 {#each gateState.gates as gate}
-                    <div>
-                        <p class="eyebrow">{gate.gate_id}</p>
-                        <pre>{serialize(gate)}</pre>
-                    </div>
+                    {@const summary = summarizeGate(gate)}
+                    <article class="gate-card">
+                        <div class="gate-card__header">
+                            <div>
+                                <p class="eyebrow">Readiness Check</p>
+                                <h4>{getGateTitle(gate.gate_id)}</h4>
+                            </div>
+                            <span
+                                class:gate-status={true}
+                                class:gate-status--pass={gate.overall_status ===
+                                    "pass"}
+                                class:gate-status--attention={gate.overall_status !==
+                                    "pass"}
+                            >
+                                {toLabel(gate.overall_status)}
+                            </span>
+                        </div>
+
+                        <div class="mini-grid">
+                            <div>
+                                <strong>Metrics</strong>
+                                <span
+                                    >{summary.passedMetrics} / {summary.totalMetrics}
+                                    passing</span
+                                >
+                            </div>
+                            <div>
+                                <strong>Artifacts</strong>
+                                <span
+                                    >{summary.passedArtifacts} / {summary.totalArtifacts}
+                                    ready</span
+                                >
+                            </div>
+                        </div>
+
+                        {#if gate.missing_reasons.length}
+                            <div class="gate-card__reasons">
+                                <strong>Needs Attention</strong>
+                                <ul>
+                                    {#each gate.missing_reasons as reason}
+                                        <li>{toLabel(reason)}</li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        {:else}
+                            <p class="muted">
+                                No missing requirements reported.
+                            </p>
+                        {/if}
+                    </article>
                 {/each}
             </div>
         {:else}
-            <p class="muted">Gate summaries are not available yet.</p>
+            <p class="muted">Readiness summaries are not available yet.</p>
         {/if}
     </div>
 </div>
 
-<style>
+<style lang="scss">
     .results-shell,
     .lookup-row,
     .mini-grid,
-    .metadata-grid {
+    .metadata-grid,
+    .gate-grid {
         display: grid;
         gap: 1rem;
     }
@@ -507,15 +598,13 @@
         position: relative;
     }
 
-    .overlay {
-        position: absolute;
-        inset: 0;
+    .status-banner {
         display: grid;
-        place-items: center;
-        border-radius: 24px;
-        backdrop-filter: blur(6px);
-        background: rgba(2, 6, 23, 0.42);
-        z-index: 2;
+        gap: 0.25rem;
+        padding: 0.9rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(125, 211, 252, 0.24);
+        background: rgba(8, 47, 73, 0.42);
     }
 
     .surface {
@@ -581,6 +670,67 @@
 
     .metadata-grid {
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .gate-grid {
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+
+    .gate-card {
+        display: grid;
+        gap: 1rem;
+        padding: 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(15, 23, 42, 0.5);
+    }
+
+    .gate-card__header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    .gate-card h4 {
+        margin: 0;
+    }
+
+    .gate-status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.25rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .gate-status--pass {
+        color: #bbf7d0;
+        background: rgba(34, 197, 94, 0.16);
+    }
+
+    .gate-status--attention {
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.16);
+    }
+
+    .gate-card__reasons {
+        display: grid;
+        gap: 0.5rem;
+    }
+
+    .gate-card__reasons strong {
+        font-size: 0.82rem;
+    }
+
+    .gate-card__reasons ul {
+        margin: 0;
+        padding-left: 1.1rem;
+        color: var(--text-secondary);
     }
 
     pre {

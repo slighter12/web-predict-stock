@@ -310,7 +310,7 @@
     {/if}
 </div>
 
-<style>
+<style lang="scss">
     .surface,
     .section,
     .form-grid,
