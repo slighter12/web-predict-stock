@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date
 
 import pytest
 
@@ -69,6 +69,7 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
                 "price_basis_version": "label_open_to_open__entry_ohlc_default__exit_ohlc_default__benchmark_unset_v1",
                 "benchmark_comparability_gate": False,
                 "comparison_eligibility": "comparison_metadata_only",
+                "scoring_factor_ids": [],
             }
         ),
     )
@@ -118,6 +119,27 @@ def test_record_success_builds_registry_payload(monkeypatch):
     assert captured["metrics"]["total_return"] == pytest.approx(0.12)
     assert captured["warnings"] == ["warn"]
     assert captured["tradability_contract_version"] is None
+
+
+def test_record_started_builds_running_payload(monkeypatch):
+    captured: dict = {}
+
+    monkeypatch.setattr(
+        registry_service,
+        "persist_research_run_record",
+        lambda payload: captured.update(payload) or payload,
+    )
+
+    registry_service.record_started(
+        run_id="run_123",
+        request_id="req_123",
+        request=make_request(),
+    )
+
+    assert captured["status"] == "running"
+    assert captured["strategy_type"] == "research_v1"
+    assert captured["symbols"] == ["2330"]
+    assert captured["comparison_eligibility"] == "comparison_metadata_only"
 
 
 def test_record_rejection_builds_error_code(monkeypatch):

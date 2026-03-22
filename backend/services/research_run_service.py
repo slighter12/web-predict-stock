@@ -18,6 +18,7 @@ from .backtest_engine_service import execute_research_run
 from .research_run_registry_service import (
     record_failure,
     record_rejection,
+    record_started,
     record_success,
     record_unexpected_failure,
 )
@@ -48,6 +49,13 @@ def create_research_run(
     run_id = run_id or str(uuid4())
     runtime_context = None
     try:
+        _record_registry_event(
+            record_started,
+            raise_on_failure=True,
+            run_id=run_id,
+            request_id=request_id,
+            request=request,
+        )
         artifacts = execute_research_run(run_id=run_id, request=request)
         runtime_context = artifacts.runtime_context
         _record_registry_event(

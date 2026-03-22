@@ -42,6 +42,13 @@
         isHealthLoading: false,
         healthError: null,
     };
+    export let gateState: {
+        gates: import("../../types").ResearchPhaseGateResponse[];
+        gateError: string | null;
+    } = {
+        gates: [],
+        gateError: null,
+    };
 
     let lookupInput = "";
 
@@ -251,6 +258,63 @@
                         })}</pre>
                 </div>
                 <div>
+                    <p class="eyebrow">P7-P11 Foundations</p>
+                    <pre>{serialize({
+                            factor_catalog_version:
+                                registryState.researchRunRecord
+                                    .factor_catalog_version,
+                            scoring_factor_ids:
+                                registryState.researchRunRecord
+                                    .scoring_factor_ids,
+                            external_signal_policy_version:
+                                registryState.researchRunRecord
+                                    .external_signal_policy_version,
+                            external_lineage_version:
+                                registryState.researchRunRecord
+                                    .external_lineage_version,
+                            cluster_snapshot_version:
+                                registryState.researchRunRecord
+                                    .cluster_snapshot_version,
+                            peer_policy_version:
+                                registryState.researchRunRecord
+                                    .peer_policy_version,
+                            peer_comparison_policy_version:
+                                registryState.researchRunRecord
+                                    .peer_comparison_policy_version,
+                            execution_route:
+                                registryState.researchRunRecord.execution_route,
+                            simulation_profile_id:
+                                registryState.researchRunRecord
+                                    .simulation_profile_id,
+                            simulation_adapter_version:
+                                registryState.researchRunRecord
+                                    .simulation_adapter_version,
+                            live_control_profile_id:
+                                registryState.researchRunRecord
+                                    .live_control_profile_id,
+                            live_control_version:
+                                registryState.researchRunRecord
+                                    .live_control_version,
+                            adaptive_mode:
+                                registryState.researchRunRecord.adaptive_mode,
+                            adaptive_profile_id:
+                                registryState.researchRunRecord
+                                    .adaptive_profile_id,
+                            adaptive_contract_version:
+                                registryState.researchRunRecord
+                                    .adaptive_contract_version,
+                            reward_definition_version:
+                                registryState.researchRunRecord
+                                    .reward_definition_version,
+                            state_definition_version:
+                                registryState.researchRunRecord
+                                    .state_definition_version,
+                            rollout_control_version:
+                                registryState.researchRunRecord
+                                    .rollout_control_version,
+                        })}</pre>
+                </div>
+                <div>
                     <p class="eyebrow">Version Pack</p>
                     <pre>{serialize({
                             threshold_policy_version:
@@ -289,6 +353,27 @@
                             ic_overlap_policy_version:
                                 registryState.researchRunRecord
                                     .ic_overlap_policy_version,
+                            factor_catalog_version:
+                                registryState.researchRunRecord
+                                    .factor_catalog_version,
+                            external_lineage_version:
+                                registryState.researchRunRecord
+                                    .external_lineage_version,
+                            cluster_snapshot_version:
+                                registryState.researchRunRecord
+                                    .cluster_snapshot_version,
+                            peer_comparison_policy_version:
+                                registryState.researchRunRecord
+                                    .peer_comparison_policy_version,
+                            simulation_adapter_version:
+                                registryState.researchRunRecord
+                                    .simulation_adapter_version,
+                            live_control_version:
+                                registryState.researchRunRecord
+                                    .live_control_version,
+                            adaptive_contract_version:
+                                registryState.researchRunRecord
+                                    .adaptive_contract_version,
                             version_pack_status:
                                 registryState.researchRunRecord
                                     .version_pack_status,
@@ -384,6 +469,29 @@
             </p>
         </div>
     {/if}
+
+    <div class="surface">
+        <div class="surface-header">
+            <div>
+                <p class="eyebrow">Phase Gates</p>
+                <h3>P7-P11 Structural Gates</h3>
+            </div>
+        </div>
+        {#if gateState.gateError}
+            <p class="muted">{gateState.gateError}</p>
+        {:else if gateState.gates.length}
+            <div class="metadata-grid">
+                {#each gateState.gates as gate}
+                    <div>
+                        <p class="eyebrow">{gate.gate_id}</p>
+                        <pre>{serialize(gate)}</pre>
+                    </div>
+                {/each}
+            </div>
+        {:else}
+            <p class="muted">Gate summaries are not available yet.</p>
+        {/if}
+    </div>
 </div>
 
 <style>

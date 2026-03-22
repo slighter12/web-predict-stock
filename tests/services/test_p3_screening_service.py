@@ -213,7 +213,9 @@ def test_build_p3_summary_treats_deterministic_event_as_non_blocking(monkeypatch
         )
         session.commit()
 
-    weights = pd.DataFrame({"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:]))
+    weights = pd.DataFrame(
+        {"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:])
+    )
     volume_df = pd.DataFrame(
         {"2330": [1_000_000, 1_000_000, 1_000_000]},
         index=weights.index,
@@ -261,7 +263,9 @@ def test_build_p3_summary_marks_listing_status_change_without_lifecycle_as_unres
         )
         session.commit()
 
-    weights = pd.DataFrame({"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:]))
+    weights = pd.DataFrame(
+        {"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:])
+    )
     volume_df = pd.DataFrame(
         {"2330": [1_000_000, 1_000_000, 1_000_000]},
         index=weights.index,
@@ -316,7 +320,9 @@ def test_build_p3_summary_resolves_ticker_change_to_successor_symbol(monkeypatch
         )
         session.commit()
 
-    weights = pd.DataFrame({"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:]))
+    weights = pd.DataFrame(
+        {"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:])
+    )
     volume_df = pd.DataFrame(
         {"2330": [1_000_000, 1_000_000, 1_000_000]},
         index=weights.index,
@@ -375,7 +381,9 @@ def test_build_p3_summary_fails_closed_when_ticker_change_mapping_is_missing(
         )
         session.commit()
 
-    weights = pd.DataFrame({"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:]))
+    weights = pd.DataFrame(
+        {"2330": [1.0, 1.0, 1.0]}, index=pd.to_datetime(trading_dates[-3:])
+    )
     volume_df = pd.DataFrame(
         {"2330": [1_000_000, 1_000_000, 1_000_000]},
         index=weights.index,

@@ -3,6 +3,7 @@ import pytest
 
 from backend.backtest_service import (
     _build_execution_price,
+    compute_max_position_weight,
     compute_metrics,
     compute_turnover,
 )
@@ -119,3 +120,10 @@ def test_compute_turnover_boundary():
 def test_compute_metrics_empty_equity():
     metrics = compute_metrics(pd.Series(dtype=float))
     assert metrics == {"total_return": 0.0, "sharpe": 0.0, "max_drawdown": 0.0}
+
+
+def test_compute_max_position_weight():
+    idx = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    weights = pd.DataFrame({"A": [0.2, 0.7], "B": [0.8, 0.3]}, index=idx)
+
+    assert compute_max_position_weight(weights) == pytest.approx(0.8)

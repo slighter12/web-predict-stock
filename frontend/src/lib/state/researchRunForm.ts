@@ -56,6 +56,20 @@ export const createDefaultResearchRunFormState = (): ResearchRunFormState => ({
   validationSplits: 3,
   validationTestSize: 0.2,
   baselines: ["buy_and_hold", "naive_momentum"],
+  factorCatalogVersion: "",
+  scoringFactorIdsInput: "",
+  externalSignalPolicyVersion: "tw_company_event_layer_v1",
+  clusterSnapshotVersion: "",
+  peerPolicyVersion: "",
+  executionRoute: "research_only",
+  simulationProfileId: "",
+  liveControlProfileId: "",
+  manualConfirmed: false,
+  adaptiveMode: "off",
+  adaptiveProfileId: "",
+  rewardDefinitionVersion: "",
+  stateDefinitionVersion: "",
+  rolloutControlVersion: "",
 });
 
 export const parseOptionalNumber = (value: string): number | null => {
@@ -127,5 +141,23 @@ export const buildResearchRunPayload = (
         }
       : undefined,
     baselines: form.baselines,
+    factor_catalog_version: form.factorCatalogVersion || undefined,
+    scoring_factor_ids: form.scoringFactorIdsInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+    external_signal_policy_version:
+      form.externalSignalPolicyVersion || undefined,
+    cluster_snapshot_version: form.clusterSnapshotVersion || undefined,
+    peer_policy_version: form.peerPolicyVersion || undefined,
+    execution_route: form.executionRoute,
+    simulation_profile_id: form.simulationProfileId || undefined,
+    live_control_profile_id: form.liveControlProfileId || undefined,
+    manual_confirmed: form.manualConfirmed,
+    adaptive_mode: form.adaptiveMode,
+    adaptive_profile_id: form.adaptiveProfileId || undefined,
+    reward_definition_version: form.rewardDefinitionVersion || undefined,
+    state_definition_version: form.stateDefinitionVersion || undefined,
+    rollout_control_version: form.rolloutControlVersion || undefined,
   };
 };

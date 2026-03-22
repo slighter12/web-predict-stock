@@ -247,3 +247,17 @@ export interface TickOpsKpiResponse {
   binding_reason?: string | null;
   selection_policy?: Record<string, unknown>;
 }
+
+export interface ResearchGateArtifactResponse {
+  status: KpiStatus;
+  details: Record<string, unknown>;
+}
+
+export interface ResearchPhaseGateResponse {
+  gate_id: string;
+  verification_gate_id: string;
+  overall_status: KpiStatus;
+  metrics: Record<string, OpsKpiMetricResponse>;
+  artifacts: Record<string, ResearchGateArtifactResponse>;
+  missing_reasons: string[];
+}

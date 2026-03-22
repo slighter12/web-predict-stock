@@ -10,6 +10,9 @@ FeatureName = Literal["ma", "rsi"]
 ReturnTarget = Literal["open_to_open", "close_to_close", "open_to_close"]
 ModelType = Literal["xgboost", "random_forest", "extra_trees"]
 StrategyType = Literal["research_v1"]
+ExecutionRoute = Literal["research_only", "simulation_internal_v1", "live_stub_v1"]
+AdaptiveMode = Literal["off", "shadow", "candidate"]
+ExternalAvailabilityMode = Literal["exact", "fallback", "unresolved"]
 ValidationMethod = Literal[
     "holdout", "walk_forward", "rolling_window", "expanding_window"
 ]
@@ -40,7 +43,7 @@ CorporateEventState = Literal["clear", "unresolved_corporate_event"]
 MonitorObservationStatus = Literal["not_requested", "persisted", "skipped"]
 ResearchMonitorProfileId = Literal["p3_monitor_default_v1"]
 TradabilityContractVersion = Literal["p3_tradability_monitoring_v1"]
-RunStatus = Literal["succeeded", "rejected", "validation_failed", "failed"]
+RunStatus = Literal["running", "succeeded", "rejected", "validation_failed", "failed"]
 ReplayStatus = Literal["succeeded", "failed"]
 RecoveryDrillStatus = Literal["succeeded", "failed"]
 RecoveryDrillTriggerMode = Literal["manual", "scheduled"]
@@ -52,6 +55,24 @@ TickStorageBackend = Literal["local_filesystem"]
 TickCompressionCodec = Literal["gzip"]
 ArchiveBackupBackend = Literal["google_drive_mirror"]
 ArchiveBackupStatus = Literal["not_configured", "succeeded", "failed"]
+ExecutionOrderSide = Literal["buy", "sell"]
+ExecutionOrderStatus = Literal[
+    "submitted",
+    "acknowledged",
+    "filled",
+    "rejected",
+    "accepted_for_stub_dispatch",
+]
+ExecutionOrderEventType = Literal[
+    "submitted",
+    "acknowledged",
+    "filled",
+    "rejected",
+    "position_readback",
+]
+RiskCheckStatus = Literal["pass", "fail"]
+KillSwitchScope = Literal["global", "market"]
+AdaptiveTrainingStatus = Literal["queued", "validated", "failed"]
 KpiStatus = Literal["pass", "fail", "insufficient_sample"]
 LifecycleEventType = Literal["listing", "delisting", "ticker_change", "re_listing"]
 ImportantEventType = Literal[

@@ -1,6 +1,6 @@
 services:
   db:
-    image: timescale/timescaledb:latest-pg17
+    image: timescale/timescaledb:latest-pg17 # next step:latest-pg18
     restart: always
     environment:
       - POSTGRES_USER=user

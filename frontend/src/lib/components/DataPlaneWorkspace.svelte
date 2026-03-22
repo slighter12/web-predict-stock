@@ -1,8 +1,12 @@
 <script lang="ts">
+    import AdaptiveWorkflowPanel from "./data-plane/AdaptiveWorkflowPanel.svelte";
     import WorkspaceSection from "./layout/WorkspaceSection.svelte";
     import DataIngestionPanel from "./data-plane/DataIngestionPanel.svelte";
+    import ExecutionControlPanel from "./data-plane/ExecutionControlPanel.svelte";
+    import ExternalSignalPanel from "./data-plane/ExternalSignalPanel.svelte";
     import ImportantEventPanel from "./data-plane/ImportantEventPanel.svelte";
     import LifecyclePanel from "./data-plane/LifecyclePanel.svelte";
+    import PeerInferencePanel from "./data-plane/PeerInferencePanel.svelte";
     import RecoveryDrillPanel from "./data-plane/RecoveryDrillPanel.svelte";
     import ReplayPanel from "./data-plane/ReplayPanel.svelte";
     import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
@@ -16,6 +20,10 @@
         <LifecyclePanel />
         <ImportantEventPanel />
         <TickArchivePanel />
+        <ExternalSignalPanel />
+        <PeerInferencePanel />
+        <ExecutionControlPanel />
+        <AdaptiveWorkflowPanel />
     </div>
 </WorkspaceSection>
 

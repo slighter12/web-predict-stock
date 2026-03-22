@@ -11,6 +11,11 @@ export type ValidationMethod =
 export type BaselineName = "buy_and_hold" | "naive_momentum" | "ma_crossover";
 export type RuntimeMode = "runtime_compatibility_mode" | "vnext_spec_mode";
 export type DefaultBundleVersion = "research_spec_v1";
+export type ExecutionRoute =
+  | "research_only"
+  | "simulation_internal_v1"
+  | "live_stub_v1";
+export type AdaptiveMode = "off" | "shadow" | "candidate";
 export type ConfigValueSource = "request_override" | "spec_default";
 export type FallbackOutcome = "not_needed" | "accepted" | "rejected";
 export type ComparisonEligibility =
@@ -35,6 +40,7 @@ export type MonitorObservationStatus =
   | "skipped";
 export type ResearchMonitorProfileId = "p3_monitor_default_v1";
 export type RunStatus =
+  | "running"
   | "succeeded"
   | "rejected"
   | "validation_failed"
@@ -47,6 +53,7 @@ export type TickStorageBackend = "local_filesystem";
 export type TickCompressionCodec = "gzip";
 export type ArchiveBackupBackend = "google_drive_mirror";
 export type ArchiveBackupStatus = "not_configured" | "succeeded" | "failed";
+export type ExecutionOrderSide = "buy" | "sell";
 export type KpiStatus = "pass" | "fail" | "insufficient_sample";
 export type LifecycleEventType =
   | "listing"

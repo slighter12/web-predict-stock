@@ -26,14 +26,23 @@ from ..schemas.research_runs import (
     ValidationSummary,
 )
 from ..schemas.runtime import ConfigSources, EffectiveStrategyConfig, FallbackAudit
+from ..services.foundation_service import (
+    build_run_foundation_context,
+    build_run_peer_feature_map,
+    dispatch_run_execution_route,
+    materialize_run_factors,
+    persist_run_factor_observations,
+    persist_run_peer_outputs,
+    record_run_adaptive_exclusion,
+)
 from ..services.p3_screening_service import build_p3_summary
 from ..strategy_service import (
     ADOPTION_COMPARISON_POLICY_VERSION,
     BOOTSTRAP_POLICY_VERSION,
     COMPARISON_REVIEW_MATRIX_VERSION,
     IC_OVERLAP_POLICY_VERSION,
-    ResearchStrategyConfig,
     SCHEDULED_REVIEW_CADENCE,
+    ResearchStrategyConfig,
     build_comparison_eligibility,
     build_price_basis_version,
     build_split_policy_version,
@@ -87,11 +96,13 @@ def apply_feature_shifts(df: pd.DataFrame, shift_map: dict, symbol: str) -> None
 
 
 def load_symbol_data(
+    run_id: str,
     request: ResearchRunCreateRequest,
     symbol: str,
     feature_config: dict,
     shift_map: dict,
     test_size: float,
+    peer_feature_map: dict[str, dict[pd.Timestamp, dict[str, float]]] | None = None,
 ) -> dict:
     logger.info("Loading symbol=%s market=%s", symbol, request.market)
     df = data_service.get_data(
@@ -107,6 +118,17 @@ def load_symbol_data(
 
     df_features = feature_engine.add_features(df.copy(), feature_config)
     apply_feature_shifts(df_features, shift_map, symbol)
+    df_features, factor_materializations = materialize_run_factors(
+        request,
+        run_id=run_id,
+        symbol=symbol,
+        df_features=df_features,
+    )
+    df_features = attach_peer_features_to_frame(
+        df_features,
+        symbol=symbol,
+        peer_feature_map=peer_feature_map or {},
+    )
 
     df_model, X, y = model_service.prepare_training_data(
         df_features,
@@ -144,7 +166,30 @@ def load_symbol_data(
         "low": df_model.loc[X_test.index, "low"].rename(symbol),
         "close": df_model.loc[X_test.index, "close"].rename(symbol),
         "volume": df_model.loc[X_test.index, "volume"].rename(symbol),
+        "factor_materializations": factor_materializations,
     }
+
+
+def attach_peer_features_to_frame(
+    df_features: pd.DataFrame,
+    *,
+    symbol: str,
+    peer_feature_map: dict[str, dict[pd.Timestamp, dict[str, float]]],
+) -> pd.DataFrame:
+    timeline = peer_feature_map.get(symbol)
+    if not timeline:
+        return df_features
+    peer_frame = (
+        pd.DataFrame.from_dict(timeline, orient="index")
+        .sort_index()
+        .reindex(pd.to_datetime(df_features.index))
+        .ffill()
+        .fillna(0.0)
+    )
+    augmented = df_features.copy()
+    for column in peer_frame.columns:
+        augmented[column] = peer_frame[column].to_numpy()
+    return augmented
 
 
 def compute_validation_summary(
@@ -231,12 +276,22 @@ def execute_research_run(
         runtime_mode=request.runtime_mode,
         default_bundle_version=request.default_bundle_version,
     )
+    foundation_context, foundation_warnings = build_run_foundation_context(request)
     resolved_strategy = runtime_context["strategy"]
     feature_config, shift_map = build_feature_config(request)
     test_size = request.validation.test_size if request.validation else 0.2
+    peer_feature_map = build_run_peer_feature_map(request)
 
     symbol_data = [
-        load_symbol_data(request, symbol, feature_config, shift_map, test_size)
+        load_symbol_data(
+            run_id,
+            request,
+            symbol,
+            feature_config,
+            shift_map,
+            test_size,
+            peer_feature_map,
+        )
         for symbol in request.symbols
     ]
 
@@ -274,6 +329,7 @@ def execute_research_run(
         market=request.market,
         return_target=request.return_target,
     )
+    warnings = [*warnings, *foundation_warnings]
     p3_summary = build_p3_summary(
         request=request,
         strategy=resolved_strategy,
@@ -338,6 +394,34 @@ def execute_research_run(
             ),
             "bootstrap_policy_version": BOOTSTRAP_POLICY_VERSION,
             "ic_overlap_policy_version": IC_OVERLAP_POLICY_VERSION,
+            "factor_catalog_version": foundation_context["factor_catalog_version"],
+            "external_signal_policy_version": foundation_context[
+                "external_signal_policy_version"
+            ],
+            "external_lineage_version": foundation_context["external_lineage_version"],
+            "cluster_snapshot_version": foundation_context["cluster_snapshot_version"],
+            "peer_policy_version": foundation_context["peer_policy_version"],
+            "peer_comparison_policy_version": foundation_context[
+                "peer_comparison_policy_version"
+            ],
+            "execution_route": foundation_context["execution_route"],
+            "simulation_profile_id": foundation_context["simulation_profile_id"],
+            "simulation_adapter_version": foundation_context[
+                "simulation_adapter_version"
+            ],
+            "live_control_profile_id": foundation_context["live_control_profile_id"],
+            "live_control_version": foundation_context["live_control_version"],
+            "adaptive_mode": foundation_context["adaptive_mode"],
+            "adaptive_profile_id": foundation_context["adaptive_profile_id"],
+            "adaptive_contract_version": foundation_context[
+                "adaptive_contract_version"
+            ],
+            "reward_definition_version": foundation_context[
+                "reward_definition_version"
+            ],
+            "state_definition_version": foundation_context["state_definition_version"],
+            "rollout_control_version": foundation_context["rollout_control_version"],
+            "scoring_factor_ids": foundation_context["scoring_factor_ids"],
         }
     )
 
@@ -374,11 +458,40 @@ def execute_research_run(
         monitor_observation_status=p3_summary["monitor_observation_status"],
         **version_pack,
     )
+    factor_materializations = [
+        item
+        for symbol_item in symbol_data
+        for item in symbol_item.get("factor_materializations", [])
+    ]
+    if factor_materializations:
+        persist_run_factor_observations(
+            run_id=run_id,
+            catalog_id=foundation_context["factor_catalog_version"],
+            materializations=factor_materializations,
+        )
+    peer_run = persist_run_peer_outputs(run_id=run_id, request=request)
+    if peer_run and peer_run["warning_count"] > 0:
+        warnings.append(
+            f"Peer feature run emitted {peer_run['warning_count']} warning(s)."
+        )
+    execution_results = dispatch_run_execution_route(
+        run_id=run_id,
+        request=request,
+        signals=signals,
+    )
+    if execution_results:
+        warnings.append(
+            f"Execution route {request.execution_route} produced {len(execution_results)} order record(s)."
+        )
+    if request.adaptive_mode != "off":
+        record_run_adaptive_exclusion(run_id)
+    response.warnings = warnings
     return ResearchRunExecutionArtifacts(
         response=response,
         runtime_context={
             **runtime_context,
             "p3_summary": p3_summary,
+            "foundation_context": foundation_context,
         },
         validation_summary=validation_summary,
         warnings=warnings,

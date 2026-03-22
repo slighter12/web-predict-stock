@@ -494,5 +494,9 @@ def test_get_micro_kpi_summary_uses_worst_bucket_drift(monkeypatch):
     metric = result["metrics"]["KPI-MICRO-002"]
     assert metric["status"] == "fail"
     assert metric["value"] == pytest.approx(0.375)
-    assert metric["details"]["required_buckets"]["10m_to_50m"]["drift"] < metric["value"]
-    assert metric["details"]["required_buckets"]["50m_to_200m"]["drift"] == pytest.approx(metric["value"])
+    assert (
+        metric["details"]["required_buckets"]["10m_to_50m"]["drift"] < metric["value"]
+    )
+    assert metric["details"]["required_buckets"]["50m_to_200m"][
+        "drift"
+    ] == pytest.approx(metric["value"])
