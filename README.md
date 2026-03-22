@@ -6,49 +6,88 @@ workspaces:
 - `research runs`: model execution, validation, comparison metadata, and run
   registry
 - `data plane`: raw ingest preservation, replay, recovery drills, lifecycle
-  records, important events, and Stage 2 tick archive preservation
+  records, important events, and tick archive preservation
 
-This file is descriptive and navigational. Normative rules live in the
-governance documents under `docs/`.
+Use this file for orientation, current-project status, and document routing.
+Normative rules still live under `docs/`.
 
-## Purpose
-
-- orient new readers to the repository and documentation model
-- point each question to a single owning document
-- provide the shortest local startup path
-
-## Owns
+## What This Repository Owns
 
 - repository orientation
+- current implementation summary
 - document routing for common questions
-- the shortest quickstart path
+- the shortest local startup path
 
-## Does Not Own
+## What This Repository Does Not Own
 
-- research or execution rules
+- runtime or execution semantics
 - KPI formulas, thresholds, or gate truth conditions
 - phase sequencing or delivery policy
-- the authoritative description of the currently implemented API surface
+- local troubleshooting details
 
-## Consumes
+## Current Status At A Glance
 
-- `docs/project-goals.md`
-- `docs/research-spec.md`
-- `docs/plan.md`
-- `docs/validation-gates.md`
-- `docs/dev.md`
-- `docs/implementation-snapshot.md`
-- `docs/decision-register.md`
+| Area | Status | Notes |
+| --- | --- | --- |
+| `P0` research-run core | `implemented` | run creation, run registry, runtime bundle metadata, and research-run inspector exist |
+| `P1` TW daily data durability | `implemented` | ingestion, replay, recovery drills, schedules, lifecycle and important-event records, and ops KPI surfaces exist |
+| `P2` tick archive durability | `implemented with constraints` | archive dispatch, import, replay, KPI, and gate surfaces exist; storage baseline is still provisional |
+| `P3` tradability governance | `implemented` | tradability-state persistence, `GATE-P3-001`, and `GATE-P3-OPS-001` telemetry exist |
+| `P4` to `P6` governance and model foundations | `partial foundation implemented` | comparison/governance metadata and shared tabular model-contract support exist, but these phases are not fully closed |
+| `P7` to `P11` advanced foundations | `structural foundation implemented` | external signals, factor catalog, clustering, execution stubs, and adaptive lifecycle persistence exist |
+| Durable operational qualification | `pending` | long-window ops gates and open `TBD-*` decisions still separate structural completion from durable qualification |
 
-## Produces
+For the fuller status breakdown, including implemented, partial, and pending
+areas, use [`docs/implementation-snapshot.md`](docs/implementation-snapshot.md).
 
-- the repository entrypoint for human readers
-- the document map used to route review questions
+## Implemented Today
 
-## Decision Rule
+### Backend
 
-Use this file first for orientation, then move to the single document that owns
-the question you are trying to answer.
+- FastAPI backend with route groups for:
+  - system health
+  - research runs and phase gates
+  - daily data-plane workflows
+  - tick archive workflows
+  - execution simulation and live-stub controls
+- PostgreSQL plus TimescaleDB-backed persistence for research runs, replay and
+  recovery records, tick archive records, lifecycle and important-event data,
+  and P7 to P11 foundation records
+- scripts for scheduled recovery drills, scheduled ingestions, official event
+  crawlers, TW company crawling, and P2 acceptance support
+
+### Frontend
+
+- `Research Run Workspace`
+  - research-run submission
+  - run lookup and persisted inspector
+  - system-health visibility
+  - P7 to P11 gate visibility
+- `Data Plane Workspace`
+  - data ingestion
+  - replay
+  - recovery drills
+  - lifecycle records
+  - important events
+  - tick archive dispatch, import, replay, and KPI display
+  - external-signal and factor-catalog workflow
+  - peer inference workflow
+  - execution control workflow
+  - adaptive workflow
+
+## Still Partial Or Not Implemented Yet
+
+- durable ops qualification for `P1`, `P2`, `P3`, and `P7` to `P11` still
+  depends on observation windows, not just structural artifacts
+- tick archive storage is still local-first; remote object-store backends and
+  storage redundancy are not implemented
+- no dedicated frontend panels yet for several backend-only operational
+  endpoints, including benchmark profiles, ingestion watchlist and dispatch,
+  daily ops KPIs, crawler triggers, and TW company profile management
+- simulation-platform baseline policy is still open under `TBD-003`
+- live execution is still a guarded stub path, not a real broker adapter
+- adaptive workflow support persists contracts and training-run lifecycle, but
+  there is still no integrated RL backend
 
 ## Documentation Map
 
@@ -56,33 +95,36 @@ Use the document that owns the question you are trying to answer.
 
 | Question | Owner |
 | --- | --- |
-| Why does this project exist, what matters most, and what is out of scope? | `docs/project-goals.md` |
+| Why does this project exist and what is in or out of scope? | `docs/project-goals.md` |
 | What behavior, fields, and comparison rules must exist? | `docs/research-spec.md` |
 | What should be built next and in what order? | `docs/plan.md` |
 | How is success measured quantitatively and when does a gate pass? | `docs/validation-gates.md` |
 | How do I run the repository locally? | `docs/dev.md` |
-| What is currently implemented today? | `docs/implementation-snapshot.md` |
+| What is implemented today, what is partial, and what is still pending? | `docs/implementation-snapshot.md` |
 | Which open decisions still block durable policy? | `docs/decision-register.md` |
 
-## Reading Order
+## Suggested Reading Paths
 
-1. Read `README.md` for orientation.
-2. Read `docs/project-goals.md` for priority and scope.
-3. Read `docs/research-spec.md` for normative behavior.
-4. Read `docs/plan.md` for delivery order and dependencies.
-5. Read `docs/validation-gates.md` for formulas, thresholds, and gates.
-6. Read `docs/dev.md` for local operations only.
-7. Use `docs/implementation-snapshot.md` and `docs/decision-register.md` as
-   descriptive support files when needed.
+### New To The Repository
 
-## Repository Snapshot
+1. `README.md`
+2. `docs/project-goals.md`
+3. `docs/implementation-snapshot.md`
+4. `docs/dev.md`
 
-- Backend: FastAPI on Python 3.12+
-- Frontend: Svelte 5 + Vite + TanStack Svelte Query + ECharts
-- Database: PostgreSQL + TimescaleDB
-- Modeling: XGBoost and scikit-learn based research workflows
-- Data sources: TWSE plus yfinance bootstrap or backfill support
-- Research execution: VectorBT with fees and slippage support
+### Planning The Next Chunk Of Work
+
+1. `docs/project-goals.md`
+2. `docs/research-spec.md`
+3. `docs/plan.md`
+4. `docs/decision-register.md`
+5. `docs/implementation-snapshot.md`
+
+### Checking What Is Missing Before Building
+
+1. `docs/implementation-snapshot.md`
+2. `docs/plan.md`
+3. `docs/decision-register.md`
 
 ## Quickstart
 
@@ -100,14 +142,14 @@ set +a
 .venv/bin/python -m uvicorn backend.main:app --reload
 ```
 
-Frontend setup, data loading, optional developer dependencies, and smoke or
-test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
-
-If you need the Stage 2 data-plane schema locally, run migrations first:
+If you need the data-plane schema locally, run migrations first:
 
 ```bash
 .venv/bin/python -m alembic upgrade head
 ```
+
+Frontend setup, data loading, optional developer dependencies, and smoke or
+test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 
 ## Repository Structure
 
@@ -115,16 +157,8 @@ If you need the Stage 2 data-plane schema locally, run migrations first:
 .
 ├── backend/                # app, api, schemas, services, repositories, runtime, domain
 ├── frontend/               # Svelte workspaces for research runs and data plane
-├── scripts/                # ingestion and smoke utilities
+├── scripts/                # ingestion and operational utilities
 ├── docs/                   # goals, spec, plan, validation, dev, snapshots
 ├── tests/                  # repository tests
 └── docker-compose.yml      # PostgreSQL + TimescaleDB service
 ```
-
-## Descriptive Support Files
-
-- [`docs/implementation-snapshot.md`](docs/implementation-snapshot.md)
-  records the current implementation snapshot. It is descriptive only and is
-  never the source of truth for normative behavior.
-- [`docs/decision-register.md`](docs/decision-register.md)
-  records open `TBD-*` decisions, owners, blocking impact, and next actions.

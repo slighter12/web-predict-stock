@@ -1,67 +1,71 @@
 # Implementation Snapshot
 
 This document is descriptive only. It records the current implementation
-surface and must never be used as the source of truth for normative behavior.
+surface and should not be used as the source of truth for normative behavior.
+Use `docs/research-spec.md`, `docs/plan.md`, and `docs/validation-gates.md`
+for rules, sequencing, and gate truth conditions.
 
-## Current Repository Snapshot
+## Snapshot Scope
 
-- Backend: FastAPI on Python 3.12+
-- Frontend: Svelte 5 + Vite + TanStack Svelte Query + ECharts
-- Database: PostgreSQL + TimescaleDB
-- Modeling: XGBoost and scikit-learn based research workflows
-- Data sources: TWSE plus yfinance bootstrap or backfill support
-- Research execution: VectorBT with fees and slippage support
+- snapshot date: `2026-03-22`
+- verification evidence in this document is the latest recorded evidence, not a
+  fresh execution performed during this document-only update
+- status terms used below:
+  - `implemented`: usable backend surface exists and the phase area is no
+    longer just a placeholder
+  - `implemented structurally`: the structural API and persistence surface
+    exists, but durable operational qualification or external integration is
+    still pending
+  - `partial`: meaningful foundation exists, but the phase is not fully closed
+    or still lacks part of the intended operating surface
+  - `pending`: planned work, durable qualification, or production-hardening
+    still remains open
 
-## Current Backend Structure
+## Phase Status Summary
 
-- `backend/app.py`
-  - FastAPI app creation
-  - middleware registration
-  - exception-envelope wiring
-  - router include
-- `backend/api/`
-  - `system.py`
-  - `research_runs.py`
-  - `data_plane.py`
-  - `execution.py`
-- `backend/schemas/`
-  - `common.py`
-  - `runtime.py`
-  - `research_runs.py`
-  - `data_plane.py`
-  - `foundations.py`
-- `backend/services/`
-  - research-run orchestration
-  - backtest-engine execution
-  - data-plane operations
-  - foundation-phase orchestration
-  - foundation gate evaluation
-  - scheduled recovery-drill dispatch
-  - scheduled ingestion dispatch
-  - operational KPI calculation
-  - official lifecycle and important-event crawling
-  - TW company universe crawling
-- `backend/repositories/`
-  - research-run persistence
-  - foundation persistence
-  - replay / recovery persistence
-  - recovery-drill schedule persistence
-  - benchmark-profile persistence
-  - ingestion watchlist persistence
-  - scheduled ingestion persistence
-  - lifecycle / important-event upsert and list
-- `backend/runtime/`
-  - request-id and run-id handling
-  - error-envelope helpers
-- `backend/domain/`
-  - version-pack payload assembly
+| Phase | Status | Current reading |
+| --- | --- | --- |
+| `P0` | `implemented` | research runs, runtime metadata, config-source persistence, and run registry exist |
+| `P1` | `implemented` | daily ingest, replay, recovery drills, scheduled recovery, and ops KPI surfaces exist |
+| `P2` | `implemented` | tick archive dispatch, import, replay, KPI, and gate surfaces exist, but storage policy is still provisional |
+| `P3` | `implemented` | tradability-state persistence, `GATE-P3-001`, and micro KPI telemetry for `GATE-P3-OPS-001` exist |
+| `P4` | `partial` | comparison-governance metadata exists, but the roadmap phase is not fully closed |
+| `P5` | `partial` | execution and comparison-alignment foundations exist, but durable policy qualification is still pending |
+| `P6` | `partial` | shared tabular model-family contract exists for several tree-based families, but broader model expansion is still incomplete |
+| `P7` | `implemented structurally` | external signal, factor catalog, and gate foundations exist |
+| `P8` | `implemented structurally` | clustering, peer inference, and gate foundations exist |
+| `P9` | `implemented structurally` | simulation-order, readback, and gate foundations exist, but platform baseline remains open |
+| `P10` | `implemented structurally` | guarded live-stub controls and gate foundations exist, but no real broker adapter is implemented |
+| `P11` | `implemented structurally` | adaptive profile and training-run lifecycle exists, but no integrated RL backend exists |
 
-## Current API Surface
+## Implemented Today
 
+### Core Repository Surface
+
+- Backend stack:
+  - FastAPI on Python `3.12+`
+  - PostgreSQL plus TimescaleDB persistence
+- Frontend stack:
+  - Svelte `5`
+  - Vite
+  - TanStack Svelte Query
+  - ECharts
+- Research execution stack:
+  - VectorBT-based research execution
+  - XGBoost plus scikit-learn based workflows
+
+### Implemented Backend Areas
+
+#### System And Research Runs
+
+- `GET /api/v1/health`
 - `GET /api/v1/system/health`
+- `POST /api/v1/backtest`
 - `POST /api/v1/research/runs`
 - `GET /api/v1/research/runs/{run_id}`
 - `GET /api/v1/research/runs`
+- `GET /api/v1/research/gates/p3`
+- `GET /api/v1/research/micro-kpis`
 - `GET /api/v1/research/gates/p7`
 - `GET /api/v1/research/gates/p8`
 - `GET /api/v1/research/gates/p9`
@@ -71,19 +75,25 @@ surface and must never be used as the source of truth for normative behavior.
 - `GET /api/v1/research/adaptive-profiles`
 - `POST /api/v1/research/adaptive-training-runs`
 - `GET /api/v1/research/adaptive-training-runs`
+
+Implemented behavior:
+
+- research-run requests persist successful, rejected, validation-failed, and
+  failed attempts
+- runtime metadata, config sources, fallback audit, and version-pack fields are
+  persisted on runs
+- tradability summaries now persist on run records and are used by the `P3`
+  gate and micro KPI surfaces
+- research execution supports the shared tabular training-output contract for
+  `xgboost`, `random_forest`, and `extra_trees`
+
+#### Data Plane
+
+Daily ingestion and recovery:
+
 - `POST /api/v1/data/ingestions`
 - `POST /api/v1/data/replays`
 - `GET /api/v1/data/replays`
-- `POST /api/v1/data/tick-archive-dispatches`
-- `GET /api/v1/data/tick-archive-dispatches`
-- `POST /api/v1/data/tick-archive-imports`
-- `GET /api/v1/data/tick-archives`
-- `POST /api/v1/data/tw-company-crawls`
-- `GET /api/v1/data/tw-company-profiles`
-- `POST /api/v1/data/tick-replays`
-- `GET /api/v1/data/tick-replays`
-- `GET /api/v1/data/tick-ops/kpis`
-- `GET /api/v1/data/tick-gates/p2`
 - `POST /api/v1/data/recovery-drills`
 - `GET /api/v1/data/recovery-drills`
 - `POST /api/v1/data/recovery-drill-schedules`
@@ -100,6 +110,51 @@ surface and must never be used as the source of truth for normative behavior.
 - `GET /api/v1/data/lifecycle-records`
 - `POST /api/v1/data/important-events`
 - `GET /api/v1/data/important-events`
+
+Implemented behavior:
+
+- raw-ingest preservation exists through `raw_ingest_audit.payload_body`
+- normalized replay persistence exists through `/api/v1/data/replays`
+- recovery drills persist trigger metadata, including `trigger_mode`,
+  `schedule_id`, and `scheduled_for_date`
+- scheduled monthly recovery dispatch exists through
+  `backend.services.recovery_service.dispatch_due_recovery_drills` and
+  `scripts/run_scheduled_recovery_drills.py`
+- scheduled ingestion watchlist and dispatch exist through
+  `/api/v1/data/ingestion-watchlist`,
+  `/api/v1/data/ingestion-dispatches`, and
+  `scripts/run_scheduled_ingestion.py`
+- lifecycle and important-event records support both direct upsert and official
+  crawler ingestion
+
+Tick archive and market-universe support:
+
+- `POST /api/v1/data/tick-archive-dispatches`
+- `GET /api/v1/data/tick-archive-dispatches`
+- `POST /api/v1/data/tick-archive-imports`
+- `GET /api/v1/data/tick-archives`
+- `POST /api/v1/data/tw-company-crawls`
+- `GET /api/v1/data/tw-company-profiles`
+- `POST /api/v1/data/tick-replays`
+- `GET /api/v1/data/tick-replays`
+- `GET /api/v1/data/tick-ops/kpis`
+- `GET /api/v1/data/tick-gates/p2`
+
+Implemented behavior:
+
+- `tick_archive_runs`, `tick_archive_objects`, `tick_restore_runs`, and
+  `tick_observations` persist the P2 data plane
+- manual archive import validates embedded `market` and `trading_date` against
+  submitted metadata before persisting archive metadata
+- tick archive objects can persist optional Google Drive mirror metadata when
+  `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured
+- active TW company universe snapshots exist through TW company crawl and
+  profile-list surfaces
+- tick symbol resolution prefers `tw_company_profiles`, then lifecycle data,
+  then `daily_ohlcv`
+
+P7 and P8 foundation data-plane surfaces:
+
 - `POST /api/v1/data/external-signal-ingestions`
 - `GET /api/v1/data/external-signals`
 - `POST /api/v1/data/external-signal-audits`
@@ -111,6 +166,18 @@ surface and must never be used as the source of truth for normative behavior.
 - `GET /api/v1/data/cluster-snapshots`
 - `POST /api/v1/data/peer-feature-runs`
 - `GET /api/v1/data/peer-feature-runs`
+
+Implemented behavior:
+
+- external raw archives, signals, audits, factor catalogs, factor
+  materializations, factor usability observations, cluster snapshots, cluster
+  memberships, peer feature runs, and peer comparison overlays all persist
+- external-signal timing classification supports exact and fallback mappings
+- peer overlays are merged into the tabular training frame used by the baseline
+  backtest path
+
+#### Execution Foundations
+
 - `POST /api/v1/execution/simulation-orders`
 - `GET /api/v1/execution/simulation-readbacks`
 - `POST /api/v1/execution/live-orders`
@@ -118,405 +185,131 @@ surface and must never be used as the source of truth for normative behavior.
 - `POST /api/v1/execution/live-controls/kill-switch`
 - `GET /api/v1/execution/live-controls/kill-switch`
 
-## Current Frontend Surface
+Implemented behavior:
 
-- `Research Run Workspace`
-  - `ResearchRunForm`
-  - `ResearchRunInspector`
-  - metrics, validation, signals, and run-registry inspection
-  - optional P7-P11 foundation fields:
-    - factor catalog and scoring factors
-    - peer and cluster metadata
-    - execution route and route-specific profile IDs
-    - adaptive mode and adaptive contract metadata
-  - P7-P11 structural gate inspection
-- `Data Plane Workspace`
-  - `DataIngestionPanel`
-  - `ReplayPanel`
-  - `TickArchivePanel`
-    - post-close tick archive dispatch
-    - manual tick archive import
-    - tick archive replay
-    - `KPI-TICK-*` telemetry display
-  - `RecoveryDrillPanel`
-    - manual recovery drill execution
-    - monthly recovery drill schedule creation
-    - recovery trigger-mode and schedule-slot inspection
-  - `LifecyclePanel`
-  - `ImportantEventPanel`
-  - `ExternalSignalPanel`
-    - external archive build
-    - audit execution
-    - factor catalog seed
-  - `PeerInferencePanel`
-    - cluster snapshot creation
-    - peer-feature run creation
-  - `ExecutionControlPanel`
-    - simulation order submission
-    - live-stub order submission
-    - kill-switch control
-  - `AdaptiveWorkflowPanel`
-    - adaptive profile creation
-    - adaptive training-run creation
-- Backend-only data-plane endpoints with no dedicated frontend panel yet:
-  - `/api/v1/data/benchmark-profiles`
-  - `/api/v1/data/ingestion-watchlist`
-  - `/api/v1/data/ingestion-dispatches`
-  - `/api/v1/data/ops/kpis`
-  - `/api/v1/data/tick-gates/p2`
-  - `/api/v1/data/tw-company-crawls`
-  - `/api/v1/data/tw-company-profiles`
-  - `/api/v1/data/lifecycle-crawls`
-  - `/api/v1/data/important-event-crawls`
+- simulation foundations persist orders, order events, fill events, position
+  snapshots, and failure taxonomy records
+- `simulation_internal_v1` writes a complete synthetic order ledger
+- `live_stub_v1` writes accepted-path synthetic completion ledgers and
+  rejection-only ledgers on blocked paths
+- research-run-triggered live-stub orders require explicit
+  `manual_confirmed=true`
+- unknown execution `run_id` values return `404 RESOURCE_NOT_FOUND`
 
-## Current Phase Coverage
+### Implemented Frontend Areas
 
-### P0
+#### Research Run Workspace
 
-Status: `implemented`
+- `ResearchRunForm`
+- `ResearchRunInspector`
+- `ResearchRunMetrics`
+- `ResearchRunSignals`
+- `ResearchRunValidation`
 
-- research-run requests persist successful, rejected, validation-failed, and failed attempts
-- research-run responses expose:
-  - runtime mode
-  - default bundle version
-  - effective strategy
-  - config sources
-  - fallback audit
-  - version pack fields
-- run-registry lookup exists through:
-  - `GET /api/v1/research/runs/{run_id}`
-  - `GET /api/v1/research/runs`
-- frontend includes a persisted research-run inspector
+Current coverage:
 
-### P1
+- research-run submission
+- persisted run lookup
+- system-health display
+- P7 to P11 gate inspection
+- metrics, validation, and signal rendering for persisted run data
 
-Status: `exit-gate implemented; ops instrumentation implemented`
+#### Data Plane Workspace
 
-- raw-ingest preservation exists through `raw_ingest_audit.payload_body`
-- normalized replay persistence exists through `/api/v1/data/replays`
-- recovery-drill persistence exists through `/api/v1/data/recovery-drills`
-- recovery-drill schedules exist through `/api/v1/data/recovery-drill-schedules`
-- recovery drills persist trigger metadata through:
-  - `trigger_mode`
-  - `schedule_id`
-  - `scheduled_for_date`
-- scheduled monthly recovery dispatch exists through:
-  - `backend.services.recovery_service.dispatch_due_recovery_drills`
-  - `scripts/run_scheduled_recovery_drills.py`
-- benchmark-profile registry exists through `/api/v1/data/benchmark-profiles`
-- scheduled ingestion watchlist and dispatch exist through:
-  - `/api/v1/data/ingestion-watchlist`
-  - `/api/v1/data/ingestion-dispatches`
-  - `scripts/run_scheduled_ingestion.py`
-- lifecycle-record upsert and listing exist through `/api/v1/data/lifecycle-records`
-- important-event upsert and listing exist through `/api/v1/data/important-events`
-- official lifecycle and important-event crawlers exist through:
-  - `/api/v1/data/lifecycle-crawls`
-  - `/api/v1/data/important-event-crawls`
-  - `scripts/run_lifecycle_crawler.py`
-  - `scripts/run_important_event_crawler.py`
-- operational KPI reporting exists through `/api/v1/data/ops/kpis`
-- `GATE-P1-OPS-001` evaluation currently requires `KPI-DATA-001` to
-  `KPI-DATA-005`, `KPI-DATA-007`, and the conditional `KPI-DATA-006/008`
-  sample rule defined in `docs/validation-gates.md`
-- recovery trading-day delta uses persisted market trading dates from `daily_ohlcv`
-- frontend includes a data-plane workspace for manual and scheduled recovery operations
-- frontend does not yet expose dedicated panels or API clients for benchmark
-  profiles, ingestion watchlist or dispatch management, or official crawler
-  triggers
+- `DataIngestionPanel`
+- `ReplayPanel`
+- `RecoveryDrillPanel`
+- `LifecyclePanel`
+- `ImportantEventPanel`
+- `TickArchivePanel`
+- `ExternalSignalPanel`
+- `PeerInferencePanel`
+- `ExecutionControlPanel`
+- `AdaptiveWorkflowPanel`
 
-### P2
+Current coverage:
 
-Status: `exit-gate implemented; ops telemetry implemented`
+- manual data ingestion and replay
+- manual and scheduled recovery operations
+- lifecycle and important-event data management
+- tick archive dispatch, import, replay, and KPI display
+- external-signal ingestion and audit workflow
+- factor catalog creation and materialization inspection through the external
+  signal workflow
+- cluster snapshot and peer-feature workflow
+- simulation/live-stub control workflow
+- adaptive profile and adaptive training-run workflow
 
-- `tick_archive_runs`, `tick_archive_objects`, `tick_restore_runs`, and
-  `tick_observations` persist the P2 data plane
-- tick archive dispatch, manual import, and replay exist through:
-  - `/api/v1/data/tick-archive-dispatches`
-  - `/api/v1/data/tick-archive-imports`
-  - `/api/v1/data/tick-replays`
-- tick archive storage currently uses local filesystem `jsonl.gz` objects under
-  `var/tick_archives/`
-- tick archive objects now persist optional Google Drive mirror metadata when
-  `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured
-- active TW company universe snapshots exist through:
-  - `/api/v1/data/tw-company-crawls`
-  - `/api/v1/data/tw-company-profiles`
-  - `scripts/run_tw_company_crawler.py`
-- tick symbol resolution now prefers persisted `tw_company_profiles` before
-  lifecycle or `daily_ohlcv` fallbacks
-- `GET /api/v1/data/tick-gates/p2` exposes the phase-scoped `GATE-P2-001`
-  artifact report
-- `GET /api/v1/data/tick-ops/kpis` exposes `KPI-TICK-001` to `KPI-TICK-003`
-  with succeeded-run filtering, the current benchmark window policy, and an
-  explicit exploratory binding status while `TBD-002` remains open
-- benchmark telemetry currently uses only succeeded archive runs, succeeded
-  restore runs, persisted `benchmark_profile_id`, and full-day benchmark
-  windows capped at `5` compressed GB for the latest succeeded archive run per
-  `(trading_date, benchmark_profile_id)`; restore timing uses benchmark-window
-  wall-clock duration instead of summed per-object elapsed seconds
-- `GET /api/v1/data/tick-gates/p2` evaluates retention policy against the
-  latest succeeded archive object's actual `retention_class` and
-  `archive_layout_version`, while still exposing the expected baseline values
-- manual archive import validates the embedded observation `market` and
-  `trading_date` against the submitted metadata before persisting archive
-  object metadata
-- frontend includes a `TickArchivePanel` in the data-plane workspace
+## Partial Or Constrained Areas
 
-Still not complete for durable `P2-OPS`:
+### Cross-Phase Constraints
 
-- `TBD-002` remains open, so `KPI-TICK-*` values are still exploratory
-  telemetry rather than binding durable qualification
-- TWSE TLS verification may still require local CA configuration depending on
-  the runtime environment
-- full-market dispatch quality depends on the current coverage of
-  `symbol_lifecycle_records` or the `daily_ohlcv` fallback, evaluated against
-  the requested `trading_date`
+- durable operational qualification is still separate from structural
+  completion for `P1`, `P2`, `P3`, and `P7` to `P11`
+- open decisions still block durable policy in key areas:
+  - `TBD-001`: TW calibrated minimum traded-value floor
+  - `TBD-002`: tick archive storage baseline
+  - `TBD-003`: simulation platform baseline
+  - `TBD-004`: cross-model missing-feature default policy
 
-Current accepted `P2` constraints and follow-ups:
+### `P1` Constraints
 
-- archive retention policy is still provisional:
-  `TICK_ARCHIVE_RETENTION_CLASS` remains
-  `provisional_until_tbd_002_resolved`, so retention evidence is useful for
-  telemetry and gate inspection but not yet a durable production baseline
-- archive storage is limited to `local_filesystem`; `TickArchiveObject` already
-  persists `storage_backend`, but there is no S3/GCS-backed implementation,
-  cross-instance sharing, or storage redundancy yet
-- symbol resolution falls back to `daily_ohlcv` when lifecycle coverage is
-  incomplete; this is acceptable for `P2`, but it can include stale symbols if
-  lifecycle events are missing and must not be treated as a formally governed
-  investability universe
-- list endpoints use fixed `limit` values without cursor or offset pagination;
-  current panel scope is recent operational inspection only
-- manual upload validates archive content after write/read/parse, not by MIME
-  type alone; invalid or mismatched payloads are rejected during import, but
-  upload preflight does not enforce a browser-supplied content type contract
-- frontend trading-date defaults come from the browser local date input; this
-  is acceptable for now because `trading_date` is a user-editable field, but
-  operators should treat `Asia/Taipei` as the authoritative market calendar
-- `TICK_KPI_TRADING_DAY_WINDOW` is intentionally fixed at `20` trading days so
-  KPI history is comparable across runs; changing it currently requires a code
-  change
-- replay samples with effectively zero benchmark-window wall-clock duration are
-  excluded from throughput telemetry rather than coerced into extreme values;
-  this is a telemetry hygiene choice, not a replay failure signal
-- snapshot parsing does not pre-deduplicate duplicated symbols inside one raw
-  payload; current protection relies on replay replacement semantics and the
-  normalized storage path rather than parser-side duplicate rejection
+- `P1` operational maturity still depends on the longer observation windows
+  required by `GATE-P1-OPS-001`
+- official feed URLs still need runtime configuration for crawler automation
 
-### P4-P6 Foundations
+### `P2` Constraints
 
-Status: `partial foundation implemented`
+- `KPI-TICK-*` values remain exploratory telemetry until `TBD-002` is closed
+- archive storage is limited to `local_filesystem` under `var/tick_archives/`
+  with optional Google Drive mirroring
+- there is no S3, GCS, cross-instance archive sharing, or storage redundancy
+- some operational list endpoints are still optimized for recent inspection
+  rather than large-scale browsing
+- browser-facing date defaults are still local-input driven even though market
+  authority is `Asia/Taipei`
 
-- research runs now persist:
-  - `comparison_review_matrix_version`
-  - `scheduled_review_cadence`
-  - `model_family`
-  - `training_output_contract_version`
-  - `adoption_comparison_policy_version`
-- `split_policy_version`, `bootstrap_policy_version`, and
-  `ic_overlap_policy_version` are now populated instead of remaining placeholders
-- `comparison_eligibility` can now promote to `sample_window_pending` when the
-  run has the final metadata contract but the required sample windows are not
-  yet satisfied
-- research execution now supports the shared tabular training-output contract
-  across `xgboost`, `random_forest`, and `extra_trees`
+### `P3` Constraints
 
-Still not complete for `P1-OPS`:
+- the structural gate and ops telemetry exist, but durable operational
+  qualification still depends on longer observation windows
+- investability claims remain intentionally locked until `TBD-001` is resolved
 
-- live observation-window qualification is still required before claiming gate pass
-- official feed URLs must still be configured at runtime for automated crawlers
+### `P4` To `P6` Constraints
 
-### P7-P11 Foundations
+- these phases have important metadata and model-family foundations, but the
+  repository does not yet represent them as fully closed roadmap milestones
+- current model-family expansion is limited to the implemented tree-based
+  contract paths rather than a broader ML and DL surface
 
-Status: `structural foundation implemented`
+### `P7` To `P11` Constraints
 
-- research-run requests and persisted run records now include optional
-  foundation fields for:
-  - factor catalog and scoring-factor selection
-  - external signal policy
-  - cluster snapshot and peer policy
-  - execution route plus simulation/live control profile IDs
-  - adaptive mode plus reward/state/rollout contract versions
-- version-pack and governance payloads now include:
-  - `factor_catalog_version`
-  - `external_lineage_version`
-  - `cluster_snapshot_version`
-  - `peer_comparison_policy_version`
-  - `simulation_adapter_version`
-  - `live_control_version`
-  - `adaptive_contract_version`
-- P7 external-signal and factor-catalog persistence exists through:
-  - `external_raw_archives`
-  - `external_signal_records`
-  - `external_signal_audits`
-  - `factor_catalogs`
-  - `factor_catalog_entries`
-  - `factor_materializations`
-  - `factor_usability_observations`
-- P7 data-plane and gate APIs exist through:
-  - `/api/v1/data/external-signal-ingestions`
-  - `/api/v1/data/external-signals`
-  - `/api/v1/data/external-signal-audits`
-  - `/api/v1/data/factor-catalogs`
-  - `/api/v1/data/factor-materializations`
-  - `/api/v1/research/gates/p7`
-- research-run execution now materializes factor records point-in-time and
-  persists timing classification including exact and fallback mappings
-- important-event rows with a direct `event_publication_ts`, including
-  `vendor_published` timestamps, are treated as exact-availability records
-- external-signal audit sampling now reads the full source-family review window
-  and deterministically guarantees the documented fallback-record minimum when
-  fallback timestamps exist
-- `GATE-P7-001` now requires persisted timing-mapping evidence from the latest
-  audit result instead of treating archive and catalog presence as sufficient
-- P8 clustering and peer inference persistence exists through:
-  - `cluster_snapshots`
-  - `cluster_memberships`
-  - `peer_feature_runs`
-  - `peer_comparison_overlays`
-- P8 data-plane and gate APIs exist through:
-  - `/api/v1/data/cluster-snapshots`
-  - `/api/v1/data/peer-feature-runs`
-  - `/api/v1/research/gates/p8`
-- cluster snapshots now build their universe from `daily_ohlcv` on the requested
-  `trading_date`, then filter it with point-in-time lifecycle state instead of
-  current `tw_company_profiles.trading_status`
-- peer-enabled research runs now scope cluster snapshot lookup by both
-  `market` and `cluster_snapshot_version`, so same-version snapshots from other
-  markets do not leak into TW/US overlays
-- peer overlay output is now merged into the tabular training frame used by the
-  backtest-engine baseline path
-- `GATE-P8-001` no longer treats snapshot existence as a proxy for
-  `KPI-RESEARCH-002` or `KPI-RESEARCH-003`; those KPI checks now evaluate
-  peer-enabled research-run metadata and reporting evidence directly
-- baseline backtest metrics now persist `max_position_weight` so the research
-  reporting contract can satisfy the documented concentration requirement
-- P9 and P10 execution foundations persist through:
-  - `simulation_profiles`
-  - `execution_orders`
-  - `execution_order_events`
-  - `execution_fill_events`
-  - `execution_position_snapshots`
-  - `execution_failure_taxonomies`
-  - `live_risk_checks`
-  - `kill_switch_events`
-- execution APIs and gates now exist through:
-  - `/api/v1/execution/simulation-orders`
-  - `/api/v1/execution/simulation-readbacks`
-  - `/api/v1/execution/live-orders`
-  - `/api/v1/execution/live-controls/kill-switch`
-  - `/api/v1/research/gates/p9`
-  - `/api/v1/research/gates/p10`
-- `simulation_internal_v1` writes a complete order ledger including submitted,
-  acknowledged, filled, and position-readback artifacts
-- `GATE-P9-001` now checks all documented structural artifacts, including
-  order-history persistence and readback-telemetry emission, instead of only a
-  partial subset
-- `live_stub_v1` now also writes a complete synthetic completion ledger on the
-  accepted path and a rejection-only ledger on blocked paths
-- research-run-triggered `live_stub_v1` orders require an explicit
-  `manual_confirmed` request flag; `live_control_profile_id` no longer implies
-  human confirmation
-- `GATE-P10-001` now requires `kill_switch` and `broker_order_logging`
-  artifacts in addition to the live KPI checks before returning `pass`
-- `broker_order_logging` for accepted live-stub orders now requires the full
-  synthetic ledger (`submitted`, `acknowledged`, `filled`, `position_readback`)
-  rather than only a `submitted` event
-- execution API requests with an unknown `run_id` now return `404
-  RESOURCE_NOT_FOUND` instead of surfacing a persistence-layer `500`
-- P11 adaptive isolation persists through:
-  - `adaptive_profiles`
-  - `adaptive_training_runs`
-  - `adaptive_rollout_controls`
-  - `adaptive_surface_exclusions`
-- P11 APIs and gate now exist through:
-  - `/api/v1/research/adaptive-profiles`
-  - `/api/v1/research/adaptive-training-runs`
-  - `/api/v1/research/gates/p11`
-- adaptive research runs now require explicit opt-in contract metadata when
-  `adaptive_mode` is not `off`
-- adaptive training-run creation now validates that reward/state/rollout
-  versions exactly match the selected adaptive profile contract, and the
-  frontend training form syncs those fields after profile creation
-- `KPI-ADAPT-002` contamination now uses persisted comparison-eligibility and
-  tradability-state exposure semantics together with adaptive-surface
-  exclusions, rather than treating a missing exclusion row as contamination by
-  itself
-- `GATE-P11-001` now treats `isolated_adaptive_workflow` as a required
-  artifact for `overall_status`, not just a reported detail
+- the current repository snapshot reflects structural-complete foundation work,
+  not mature operational qualification
+- `P9` simulation telemetry remains exploratory until `TBD-003` is resolved
+- adaptive workflow support currently stops at contract management, lifecycle
+  persistence, and training-run orchestration
 
-Still not complete for durable `P7-OPS` to `P11` qualification:
+## Not Implemented Yet
 
-- this snapshot only reflects structural-complete foundation work, not the
-  longer observation windows required for:
-  - `GATE-P7-OPS-001`
-  - `GATE-P8-OPS-001`
-  - `GATE-P9-OPS-001`
-  - `GATE-LIVEQ-001`
-- `TBD-003` remains open, so P9 simulation telemetry is still exploratory for
-  durable operational qualification
-- adaptive workflow support is limited to trainer interface and lifecycle
-  persistence; there is still no integrated RL backend
+- dedicated frontend panels for backend-only operational endpoints:
+  - benchmark profiles
+  - ingestion watchlist and dispatch management
+  - daily ops KPI view
+  - `P2` gate readout
+  - TW company crawl and profile management
+  - lifecycle and important-event crawler triggers
+  - `P3` gate and micro KPI inspection
+- remote object-store archive backends beyond local filesystem plus optional
+  Google Drive mirroring
+- a fixed external simulation-platform baseline that closes `TBD-003`
+- a real broker integration path beyond `live_stub_v1`
+- an integrated RL backend behind the adaptive surfaces
 
-## Current Verification Snapshot
+## Version-Pack Status
 
-- last updated: `2026-03-21`
-- targeted backend tests:
-  - `.venv/bin/python -m pytest tests/services/test_research_run_service.py tests/services/test_research_run_registry_service.py tests/services/test_foundation_service.py tests/services/test_backtest_engine_service.py tests/services/test_foundation_repository.py -q`
-  - result: `15 passed`
-- targeted foundation follow-up tests:
-  - `.venv/bin/python -m pytest tests/services/test_foundation_repository.py tests/services/test_foundation_service.py -q`
-  - result: `6 passed`
-- frontend typecheck:
-  - `bun x tsc -p frontend/tsconfig.json --noEmit`
-  - result: `passed`
-- migration acceptance:
-  - strict reset via `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-  - `alembic upgrade head`
-  - `alembic downgrade base`
-  - `alembic upgrade head`
-  - result: `passed`
-- fresh acceptance verification:
-  - clean database reseed plus manual API checks
-  - result: `P7`, `P8`, `P9`, `P10`, and `P11` gates all returned `pass`
-- frontend browser verification:
-  - `agent-browser` against `http://127.0.0.1:5173`
-  - result:
-    - page load and both workspaces rendered
-    - P7-P11 data-plane panels issued live API requests
-    - research-run submit path issued `/api/v1/research/runs` when invoked in-page
-    - default research-run and snapshot form dates do not align with the current
-      acceptance dataset, so untouched defaults can still trigger expected
-      `RESOURCE_NOT_FOUND` responses
-
-## Version Pack Status
-
-Currently implemented fields:
-
-- `threshold_policy_version`
-- `price_basis_version`
-- `benchmark_comparability_gate`
-- `comparison_eligibility`
-- `investability_screening_active`
-- `capacity_screening_version`
-- `adv_basis_version`
-- `missing_feature_policy_version`
-- `execution_cost_model_version`
-- `split_policy_version`
-- `bootstrap_policy_version`
-- `ic_overlap_policy_version`
-- `factor_catalog_version`
-- `external_lineage_version`
-- `cluster_snapshot_version`
-- `peer_comparison_policy_version`
-- `simulation_adapter_version`
-- `live_control_version`
-- `adaptive_contract_version`
-
-Currently placeholder fields:
-
-- none within the normative version-pack subset defined in `SPEC-RUNTIME-005`
+All normative version-pack fields in `SPEC-RUNTIME-005` are implemented. There
+are currently no placeholder fields left inside that documented subset.
 
 ## Current Error Envelope
 
@@ -535,3 +328,34 @@ Currently placeholder fields:
   }
 }
 ```
+
+## Latest Recorded Verification Snapshot
+
+- last recorded verification date: `2026-03-21`
+- targeted backend tests:
+  - `.venv/bin/python -m pytest tests/services/test_research_run_service.py tests/services/test_research_run_registry_service.py tests/services/test_foundation_service.py tests/services/test_backtest_engine_service.py tests/services/test_foundation_repository.py -q`
+  - result: `15 passed`
+- targeted foundation follow-up tests:
+  - `.venv/bin/python -m pytest tests/services/test_foundation_repository.py tests/services/test_foundation_service.py -q`
+  - result: `6 passed`
+- frontend typecheck:
+  - `bun x tsc -p frontend/tsconfig.json --noEmit`
+  - result: `passed`
+- migration acceptance:
+  - strict reset via `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
+  - `alembic upgrade head`
+  - `alembic downgrade base`
+  - `alembic upgrade head`
+  - result: `passed`
+- fresh acceptance verification:
+  - clean database reseed plus manual API checks
+  - result: `P7`, `P8`, `P9`, `P10`, and `P11` gates returned `pass`
+- frontend browser verification:
+  - `agent-browser` against `http://127.0.0.1:5173`
+  - result:
+    - page load and both workspaces rendered
+    - P7 to P11 data-plane panels issued live API requests
+    - research-run submit path issued `/api/v1/research/runs` when invoked
+    - default research-run and snapshot form dates do not align with the
+      recorded acceptance dataset, so untouched defaults can still trigger
+      expected `RESOURCE_NOT_FOUND` responses
