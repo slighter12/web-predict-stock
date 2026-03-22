@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 
-def test_run_lifecycle_crawler_main_returns_zero(capsys, monkeypatch, load_script):
-    module = load_script("run_lifecycle_crawler.py", "run_lifecycle_crawler_script")
+def test_crawl_lifecycle_records_main_returns_zero(capsys, monkeypatch, load_script):
+    module = load_script("crawl_lifecycle_records.py", "crawl_lifecycle_records_script")
     monkeypatch.setattr(
         module,
         "crawl_lifecycle_records",
@@ -22,12 +22,12 @@ def test_run_lifecycle_crawler_main_returns_zero(capsys, monkeypatch, load_scrip
     assert '"upserted_count": 1' in captured.out
 
 
-def test_run_important_event_crawler_main_returns_one_on_error(
+def test_crawl_important_events_main_returns_one_on_error(
     capsys, monkeypatch, load_script
 ):
     module = load_script(
-        "run_important_event_crawler.py",
-        "run_important_event_crawler_script",
+        "crawl_important_events.py",
+        "crawl_important_events_script",
     )
     monkeypatch.setattr(
         module,

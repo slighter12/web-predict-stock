@@ -38,7 +38,7 @@ Normative rules still live under `docs/`.
 | Durable operational qualification | `pending` | long-window ops gates and open `TBD-*` decisions still separate structural completion from durable qualification |
 
 For the fuller status breakdown, including implemented, partial, and pending
-areas, use [`docs/implementation-snapshot.md`](docs/implementation-snapshot.md).
+areas, use [`docs/implementation-status.md`](docs/implementation-status.md).
 
 ## Implemented Today
 
@@ -53,8 +53,8 @@ areas, use [`docs/implementation-snapshot.md`](docs/implementation-snapshot.md).
 - PostgreSQL plus TimescaleDB-backed persistence for research runs, replay and
   recovery records, tick archive records, lifecycle and important-event data,
   and P7 to P11 foundation records
-- scripts for scheduled recovery drills, scheduled ingestions, official event
-  crawlers, TW company crawling, and P2 acceptance support
+- scripts for scheduled recovery dispatch, scheduled ingestions, official
+  record crawlers, TW company crawling, and tick-archive fixture support
 
 ### Frontend
 
@@ -100,7 +100,7 @@ Use the document that owns the question you are trying to answer.
 | What should be built next and in what order? | `docs/plan.md` |
 | How is success measured quantitatively and when does a gate pass? | `docs/validation-gates.md` |
 | How do I run the repository locally? | `docs/dev.md` |
-| What is implemented today, what is partial, and what is still pending? | `docs/implementation-snapshot.md` |
+| What is implemented today, what is partial, and what is still pending? | `docs/implementation-status.md` |
 | Which open decisions still block durable policy? | `docs/decision-register.md` |
 
 ## Suggested Reading Paths
@@ -109,7 +109,7 @@ Use the document that owns the question you are trying to answer.
 
 1. `README.md`
 2. `docs/project-goals.md`
-3. `docs/implementation-snapshot.md`
+3. `docs/implementation-status.md`
 4. `docs/dev.md`
 
 ### Planning The Next Chunk Of Work
@@ -118,11 +118,11 @@ Use the document that owns the question you are trying to answer.
 2. `docs/research-spec.md`
 3. `docs/plan.md`
 4. `docs/decision-register.md`
-5. `docs/implementation-snapshot.md`
+5. `docs/implementation-status.md`
 
 ### Checking What Is Missing Before Building
 
-1. `docs/implementation-snapshot.md`
+1. `docs/implementation-status.md`
 2. `docs/plan.md`
 3. `docs/decision-register.md`
 
@@ -157,8 +157,8 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 .
 ├── backend/                # app, platform, shared, system, research, market_data, signals, execution
 ├── frontend/               # Svelte workspaces for research runs and data plane
-├── scripts/                # ingestion and operational utilities
-├── docs/                   # goals, spec, plan, validation, dev, snapshots
-├── tests/                  # repository tests
+├── scripts/                # local operational entrypoints and utilities
+├── docs/                   # goals, spec, plan, validation, dev, status
+├── tests/                  # domain tests plus script entrypoint coverage
 └── docker-compose.yml      # PostgreSQL + TimescaleDB service
 ```

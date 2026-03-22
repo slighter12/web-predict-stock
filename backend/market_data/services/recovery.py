@@ -32,7 +32,7 @@ from backend.platform.errors import (
     UnsupportedConfigurationError,
 )
 from backend.platform.time import utc_now
-from scripts import scraper
+from scripts import market_data_ingestion as scraper
 
 logger = logging.getLogger(__name__)
 DEFAULT_SCHEDULE_TIMEZONE = "Asia/Taipei"

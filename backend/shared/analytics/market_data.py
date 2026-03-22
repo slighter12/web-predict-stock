@@ -104,7 +104,7 @@ def get_data(
 if __name__ == "__main__":
     # --- Example Usage ---
     # This example assumes you have the database running and have loaded some data,
-    # for example, by running `scripts/scraper.py`.
+    # for example, by running `python -m scripts.market_data_ingestion`.
 
     test_symbol = "2330"
 

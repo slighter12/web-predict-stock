@@ -12,17 +12,15 @@ import requests
 import yfinance as yf
 from sqlalchemy import text
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 try:
     from backend.database import DailyOHLCV, RawIngestAudit, engine
     from backend.market_data.services.tick_archive_provider import (
-        _SSLContextAdapter,
         _build_ssl_context,
         _ca_auto_download_enabled,
         _download_ca_bundle,
         _insecure_tls_fallback_enabled,
         _resolve_tls_verify,
+        _SSLContextAdapter,
     )
     from backend.platform.time import utc_now
 except ImportError:
@@ -349,7 +347,9 @@ def scrape_twse_data(
 
     raw_payload_id = None
     try:
-        response = _request_twse_daily_report(url=url, headers=headers, timeout_seconds=30)
+        response = _request_twse_daily_report(
+            url=url, headers=headers, timeout_seconds=30
+        )
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException:
@@ -433,12 +433,16 @@ def _request_twse_daily_report(
                     verify=downloaded_verify,
                 )
             except requests.RequestException:
-                logger.exception("Failed TWSE daily report fetch after CA download url=%s", url)
+                logger.exception(
+                    "Failed TWSE daily report fetch after CA download url=%s", url
+                )
             except Exception:
                 logger.exception("Failed to download TWSE CA bundle for url=%s", url)
 
         if response is None and _insecure_tls_fallback_enabled():
-            logger.warning("Retrying TWSE daily report without TLS verification url=%s", url)
+            logger.warning(
+                "Retrying TWSE daily report without TLS verification url=%s", url
+            )
             response = _perform_tls_request(
                 url=url,
                 headers=headers,

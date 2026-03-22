@@ -12,7 +12,7 @@ from backend.market_data.services.benchmark_profiles import (
 )
 from backend.platform.errors import DataAccessError, UnsupportedConfigurationError
 from backend.platform.time import utc_now
-from scripts import scraper
+from scripts import market_data_ingestion as scraper
 
 logger = logging.getLogger(__name__)
 

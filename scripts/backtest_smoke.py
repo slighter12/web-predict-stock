@@ -1,11 +1,8 @@
 import os
-import sys
 from pathlib import Path
 
 from backend.research.contracts.runs import ResearchRunCreateRequest
 from backend.research.services.execution import execute_research_run
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
 def load_env(path: Path) -> None:

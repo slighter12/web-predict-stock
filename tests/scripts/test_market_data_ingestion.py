@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 import requests
 
-from scripts import scraper
+from scripts import market_data_ingestion as scraper
 
 
 def test_validate_ohlcv_with_report_tracks_removed_rows():
