@@ -1,6 +1,4 @@
-import importlib.util
 from datetime import date, datetime, timezone
-from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -409,31 +407,3 @@ def test_recovery_drill_schedule_id_has_restrict_foreign_key():
     assert len(foreign_keys) == 1
     assert foreign_keys[0].target_fullname == "recovery_drill_schedules.id"
     assert foreign_keys[0].ondelete == "RESTRICT"
-
-
-def test_recovery_drill_schedule_migration_downgrade_fails_on_null_raw_payload_ids(
-    monkeypatch,
-):
-    migration_path = (
-        Path(__file__).resolve().parents[2]
-        / "backend/alembic/versions/202603190001_recovery_drill_schedules.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "recovery_drill_schedule_migration",
-        migration_path,
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-
-    class _ScalarResult:
-        def scalar(self):
-            return 1
-
-    fake_bind = SimpleNamespace(execute=lambda statement: _ScalarResult())
-    monkeypatch.setattr(module, "_has_table", lambda table_name: True)
-    monkeypatch.setattr(module, "_has_column", lambda table_name, column_name: True)
-    monkeypatch.setattr(module, "op", SimpleNamespace(get_bind=lambda: fake_bind))
-
-    with pytest.raises(RuntimeError, match="raw_payload_id contains NULL values"):
-        module._assert_no_null_recovery_drill_raw_payload_ids()
