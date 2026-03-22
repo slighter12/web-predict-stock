@@ -46,7 +46,7 @@
     </div>
 </div>
 
-<style>
+<style lang="scss">
     .validation-grid {
         display: grid;
         gap: 1rem;

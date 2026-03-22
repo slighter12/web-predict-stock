@@ -138,7 +138,7 @@
     </div>
 </div>
 
-<style>
+<style lang="scss">
     .surface,
     .form-grid,
     .list {

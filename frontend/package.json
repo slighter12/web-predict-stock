@@ -9,13 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@tanstack/svelte-query": "^5.0.0",
-    "echarts": "^5.0.0",
-    "svelte": "^5.0.0"
+    "@tanstack/svelte-query": "^6.1.7",
+    "echarts": "^6.0.0",
+    "svelte": "^5.54.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
-    "typescript": "^5.0.0",
+    "sass": "^1.98.0",
+    "typescript": "^5.9.3",
     "vite": "^8.0.1"
   }
 }

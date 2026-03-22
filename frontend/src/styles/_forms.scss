@@ -1,0 +1,80 @@
+label {
+    display: grid;
+    gap: 0.45rem;
+}
+
+label > span,
+.muted,
+span.muted {
+    color: var(--muted);
+}
+
+input,
+select,
+textarea,
+button {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: var(--radius-sm);
+    padding: 0.82rem 0.95rem;
+    background: rgba(4, 14, 24, 0.88);
+    color: var(--text);
+    transition:
+        border-color var(--motion-fast),
+        background var(--motion-fast),
+        transform var(--motion-fast),
+        box-shadow var(--motion-fast);
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: rgba(127, 150, 172, 0.72);
+}
+
+input:hover,
+select:hover,
+textarea:hover,
+button:hover:not(:disabled) {
+    border-color: rgba(125, 211, 252, 0.34);
+}
+
+button {
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: rgba(10, 25, 40, 0.98);
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+    transform: none;
+}
+
+.secondary {
+    background: rgba(15, 35, 54, 0.92);
+}
+
+.danger {
+    background: rgba(91, 18, 36, 0.78);
+    color: #ffd7df;
+}
+
+.submit {
+    background: linear-gradient(135deg, #38bdf8, #14b8a6);
+    color: #02111d;
+    font-weight: 700;
+}
+
+.checkbox,
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.checkbox input,
+.toggle input {
+    width: auto;
+}

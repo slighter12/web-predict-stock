@@ -2,7 +2,7 @@ import { mount } from "svelte";
 import { QueryClient } from "@tanstack/svelte-query";
 
 import App from "./App.svelte";
-import "./app.css";
+import "./app.scss";
 
 const queryClient = new QueryClient();
 

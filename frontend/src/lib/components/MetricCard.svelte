@@ -5,6 +5,7 @@
 </script>
 
 <article
+    class="metric-card"
     class:tone-positive={tone === "positive"}
     class:tone-negative={tone === "negative"}
 >
@@ -12,31 +13,41 @@
     <strong>{value}</strong>
 </article>
 
-<style>
-    article {
-        border: 1px solid rgba(148, 163, 184, 0.24);
-        border-radius: 18px;
+<style lang="scss">
+    .metric-card {
+        position: relative;
         padding: 1rem;
-        background:
-            linear-gradient(
-                180deg,
-                rgba(15, 23, 42, 0.96),
-                rgba(3, 7, 18, 0.92)
-            ),
-            var(--panel);
-        min-height: 112px;
+        min-height: 128px;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+    }
+
+    .metric-card::after {
+        content: "";
+        position: absolute;
+        inset: auto 1rem 1rem auto;
+        width: 3.25rem;
+        height: 3.25rem;
+        border-radius: 50%;
+        background: radial-gradient(
+            circle,
+            rgba(56, 189, 248, 0.16),
+            transparent 72%
+        );
+        pointer-events: none;
     }
 
     p {
         margin: 0 0 0.65rem;
         color: var(--muted);
-        font-size: 0.8rem;
+        font-size: 0.76rem;
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.12em;
     }
 
     strong {
-        font-size: clamp(1.4rem, 2vw, 2rem);
+        font-size: clamp(1.55rem, 2vw, 2.2rem);
         line-height: 1.1;
     }
 

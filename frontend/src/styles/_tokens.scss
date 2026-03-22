@@ -1,0 +1,44 @@
+:root {
+    --bg-canvas: #04111f;
+    --bg-canvas-alt: #0a1727;
+    --bg-grid: rgba(96, 165, 250, 0.06);
+    --surface-1: rgba(10, 24, 39, 0.9);
+    --surface-2: rgba(13, 31, 49, 0.82);
+    --surface-3: rgba(17, 41, 64, 0.7);
+    --surface-strong: rgba(19, 45, 70, 0.96);
+    --surface-raised: rgba(8, 21, 35, 0.96);
+    --border-subtle: rgba(148, 163, 184, 0.14);
+    --border-strong: rgba(125, 211, 252, 0.28);
+    --border-interactive: rgba(96, 165, 250, 0.42);
+    --text: #e6eef8;
+    --text-secondary: #bfd1e2;
+    --muted: #7f96ac;
+    --accent-primary: #7dd3fc;
+    --accent-primary-strong: #38bdf8;
+    --accent-secondary: #22c55e;
+    --accent-warning: #f59e0b;
+    --accent-danger: #fb7185;
+    --accent-positive: #34d399;
+    --accent-negative: #fb7185;
+    --accent-info: #60a5fa;
+    --shadow-panel: 0 24px 80px rgba(2, 8, 23, 0.45);
+    --shadow-soft: 0 18px 60px rgba(2, 8, 23, 0.28);
+    --radius-sm: 12px;
+    --radius-md: 18px;
+    --radius-lg: 24px;
+    --radius-xl: 32px;
+    --space-1: 0.35rem;
+    --space-2: 0.6rem;
+    --space-3: 0.9rem;
+    --space-4: 1.2rem;
+    --space-5: 1.6rem;
+    --space-6: 2rem;
+    --space-7: 2.8rem;
+    --space-8: 4rem;
+    --max-shell: 1540px;
+    --motion-fast: 140ms ease;
+    --motion-base: 220ms ease;
+    --sans:
+        "IBM Plex Sans", "Inter Tight", "Segoe UI", "Helvetica Neue", sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", "Menlo", monospace;
+}

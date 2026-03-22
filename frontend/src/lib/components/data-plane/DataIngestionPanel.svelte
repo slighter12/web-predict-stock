@@ -71,7 +71,7 @@
     {#if result}<pre>{JSON.stringify(result, null, 2)}</pre>{/if}
 </div>
 
-<style>
+<style lang="scss">
     .surface,
     .form-grid {
         display: grid;

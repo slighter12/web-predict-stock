@@ -23,8 +23,22 @@
 
     let form: ResearchRunFormState = createDefaultResearchRunFormState();
     let errors: Record<string, string> = {};
+    const optionLabels: Record<string, string> = {
+        research_only: "Research Only",
+        simulation_internal_v1: "Internal Simulation",
+        live_stub_v1: "Live Stub",
+        runtime_compatibility_mode: "Manual Threshold Mode",
+        vnext_spec_mode: "Standard Research Mode",
+        open_to_open: "Open to Open",
+        close_to_close: "Close to Close",
+        open_to_close: "Open to Close",
+        off: "Off",
+        shadow: "Shadow",
+        candidate: "Candidate",
+    };
 
     const runtimeUsesDefaults = () => form.runtimeMode === VNEXT_SPEC_MODE;
+    const getOptionLabel = (value: string) => optionLabels[value] ?? value;
 
     const addFeature = () => {
         form.features = [
@@ -105,7 +119,7 @@
         if (runtimeUsesDefaults()) {
             if (!form.defaultBundleVersion) {
                 nextErrors.runtime =
-                    "Default bundle is required in vnext spec mode.";
+                    "Default bundle is required in standard research mode.";
             }
             if (form.threshold !== null && form.threshold < 0) {
                 nextErrors.threshold = "Threshold cannot be negative.";
@@ -116,12 +130,12 @@
         } else {
             if (form.threshold === null) {
                 nextErrors.threshold =
-                    "Threshold is required in compatibility mode.";
+                    "Threshold is required in manual threshold mode.";
             } else if (form.threshold < 0) {
                 nextErrors.threshold = "Threshold cannot be negative.";
             }
             if (form.topN === null) {
-                nextErrors.topN = "Top N is required in compatibility mode.";
+                nextErrors.topN = "Top N is required in manual threshold mode.";
             } else if (form.topN < 1) {
                 nextErrors.topN = "Top N must be at least 1.";
             }
@@ -227,8 +241,8 @@
 
     <div class="section-header compact">
         <div>
-            <p class="eyebrow">P7-P11 Foundations</p>
-            <h4>Optional Foundations</h4>
+            <p class="eyebrow">Data and Execution Setup</p>
+            <h4>Optional Setup</h4>
         </div>
     </div>
 
@@ -237,7 +251,7 @@
             <span>Factor Catalog</span>
             <input
                 bind:value={form.factorCatalogVersion}
-                placeholder="p7_factor_catalog_v1"
+                placeholder="factor_catalog_v1"
             />
         </label>
         <label class="wide">
@@ -272,13 +286,17 @@
             />
         </label>
         <label>
-            <span>Execution Route</span>
+            <span>Execution Mode</span>
             <select bind:value={form.executionRoute}>
-                <option value="research_only">research_only</option>
-                <option value="simulation_internal_v1"
-                    >simulation_internal_v1</option
+                <option value="research_only"
+                    >{getOptionLabel("research_only")}</option
                 >
-                <option value="live_stub_v1">live_stub_v1</option>
+                <option value="simulation_internal_v1"
+                    >{getOptionLabel("simulation_internal_v1")}</option
+                >
+                <option value="live_stub_v1"
+                    >{getOptionLabel("live_stub_v1")}</option
+                >
             </select>
         </label>
     </div>
@@ -299,7 +317,7 @@
             />
         </label>
         <label class="checkbox">
-            <span>Manual Confirmed</span>
+            <span>Manual Approval Confirmed</span>
             <input type="checkbox" bind:checked={form.manualConfirmed} />
         </label>
     </div>
@@ -308,9 +326,9 @@
         <label>
             <span>Adaptive Mode</span>
             <select bind:value={form.adaptiveMode}>
-                <option value="off">off</option>
-                <option value="shadow">shadow</option>
-                <option value="candidate">candidate</option>
+                <option value="off">{getOptionLabel("off")}</option>
+                <option value="shadow">{getOptionLabel("shadow")}</option>
+                <option value="candidate">{getOptionLabel("candidate")}</option>
             </select>
             {#if errors.adaptiveMode}<small>{errors.adaptiveMode}</small>{/if}
         </label>
@@ -349,7 +367,7 @@
 
     <div class="group three">
         <label>
-            <span>Runtime Mode</span>
+            <span>Selection Mode</span>
             <select
                 value={form.runtimeMode}
                 onchange={(event) =>
@@ -359,9 +377,11 @@
                     )}
             >
                 <option value={DEFAULT_RUNTIME_MODE}
-                    >runtime_compatibility_mode</option
+                    >{getOptionLabel(DEFAULT_RUNTIME_MODE)}</option
                 >
-                <option value={VNEXT_SPEC_MODE}>vnext_spec_mode</option>
+                <option value={VNEXT_SPEC_MODE}
+                    >{getOptionLabel(VNEXT_SPEC_MODE)}</option
+                >
             </select>
             {#if errors.runtime}<small>{errors.runtime}</small>{/if}
         </label>
@@ -376,15 +396,23 @@
                     ).value || null) as typeof form.defaultBundleVersion)}
             >
                 <option value="">None</option>
-                <option value={DEFAULT_BUNDLE_VERSION}>research_spec_v1</option>
+                <option value={DEFAULT_BUNDLE_VERSION}
+                    >Default Research Spec</option
+                >
             </select>
         </label>
         <label>
             <span>Return Target</span>
             <select bind:value={form.returnTarget}>
-                <option value="open_to_open">open_to_open</option>
-                <option value="close_to_close">close_to_close</option>
-                <option value="open_to_close">open_to_close</option>
+                <option value="open_to_open"
+                    >{getOptionLabel("open_to_open")}</option
+                >
+                <option value="close_to_close"
+                    >{getOptionLabel("close_to_close")}</option
+                >
+                <option value="open_to_close"
+                    >{getOptionLabel("open_to_close")}</option
+                >
             </select>
         </label>
     </div>
@@ -563,7 +591,7 @@
 
     <div class="group two">
         <label class="toggle">
-            <span>Record As P3 Monitor Run</span>
+            <span>Save as monitoring run</span>
             <input type="checkbox" bind:checked={form.recordAsMonitorRun} />
         </label>
         <label>
@@ -632,7 +660,7 @@
     </button>
 </div>
 
-<style>
+<style lang="scss">
     .panel,
     .surface,
     .feature-list,

@@ -12,31 +12,74 @@
     import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
 </script>
 
-<WorkspaceSection eyebrow="Data Plane" title="Data Plane Workspace">
+<WorkspaceSection
+    id="data-plane-workspace"
+    eyebrow="Data Plane"
+    title="Operational Control Grid"
+    description="Event ingestion, replay, lifecycle, execution, and recovery controls grouped by operating rhythm instead of raw endpoint order."
+>
     <div class="data-grid">
-        <DataIngestionPanel />
-        <ReplayPanel />
-        <RecoveryDrillPanel />
-        <LifecyclePanel />
-        <ImportantEventPanel />
-        <TickArchivePanel />
-        <ExternalSignalPanel />
-        <PeerInferencePanel />
-        <ExecutionControlPanel />
-        <AdaptiveWorkflowPanel />
+        <div class="data-grid__item data-grid__wide">
+            <RecoveryDrillPanel />
+        </div>
+        <div class="data-grid__item">
+            <DataIngestionPanel />
+        </div>
+        <div class="data-grid__item">
+            <ReplayPanel />
+        </div>
+        <div class="data-grid__item">
+            <LifecyclePanel />
+        </div>
+        <div class="data-grid__item">
+            <ImportantEventPanel />
+        </div>
+        <div class="data-grid__item data-grid__wide">
+            <TickArchivePanel />
+        </div>
+        <div class="data-grid__item">
+            <ExternalSignalPanel />
+        </div>
+        <div class="data-grid__item">
+            <PeerInferencePanel />
+        </div>
+        <div class="data-grid__item">
+            <ExecutionControlPanel />
+        </div>
+        <div class="data-grid__item data-grid__wide">
+            <AdaptiveWorkflowPanel />
+        </div>
     </div>
 </WorkspaceSection>
 
-<style>
+<style lang="scss">
     .data-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(12, minmax(0, 1fr));
         gap: 1rem;
+    }
+
+    .data-grid__item {
+        min-width: 0;
+        grid-column: span 6;
+    }
+
+    .data-grid__item :global(.surface) {
+        height: 100%;
+    }
+
+    .data-grid__wide {
+        grid-column: span 12;
     }
 
     @media (max-width: 1100px) {
         .data-grid {
             grid-template-columns: 1fr;
+        }
+
+        .data-grid__item,
+        .data-grid__wide {
+            grid-column: auto;
         }
     }
 </style>

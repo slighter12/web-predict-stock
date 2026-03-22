@@ -43,7 +43,7 @@
     {/if}
 </div>
 
-<style>
+<style lang="scss">
     .surface {
         padding: 1.1rem;
         border-radius: 22px;
