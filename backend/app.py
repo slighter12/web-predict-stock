@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .api.data_plane import router as data_plane_router
+from .api.execution import router as execution_router
 from .api.research_runs import router as research_runs_router
 from .api.system import router as system_router
 from .errors import BacktestError, DataAccessError
@@ -68,6 +69,7 @@ app.add_middleware(
 app.include_router(system_router)
 app.include_router(research_runs_router)
 app.include_router(data_plane_router)
+app.include_router(execution_router)
 
 
 @app.get("/", tags=["Root"])

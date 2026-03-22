@@ -58,6 +58,24 @@ def build_research_run_payload(
     split_policy_version: str | None = None,
     bootstrap_policy_version: str | None = None,
     ic_overlap_policy_version: str | None = None,
+    factor_catalog_version: str | None = None,
+    scoring_factor_ids: list[str] | None = None,
+    external_signal_policy_version: str | None = None,
+    external_lineage_version: str | None = None,
+    cluster_snapshot_version: str | None = None,
+    peer_policy_version: str | None = None,
+    peer_comparison_policy_version: str | None = None,
+    execution_route: str | None = None,
+    simulation_profile_id: str | None = None,
+    simulation_adapter_version: str | None = None,
+    live_control_profile_id: str | None = None,
+    live_control_version: str | None = None,
+    adaptive_mode: str | None = None,
+    adaptive_profile_id: str | None = None,
+    adaptive_contract_version: str | None = None,
+    reward_definition_version: str | None = None,
+    state_definition_version: str | None = None,
+    rollout_control_version: str | None = None,
 ) -> dict[str, Any]:
     runtime_context = runtime_context or {}
     strategy_context = runtime_context.get("strategy")
@@ -107,6 +125,7 @@ def build_research_run_payload(
         "monitor_profile_id": monitor_profile_id,
         "monitor_observation_status": monitor_observation_status,
         "microstructure_observations": microstructure_observations or [],
+        "scoring_factor_ids": scoring_factor_ids or [],
     }
     payload.update(
         build_version_pack_payload(
@@ -128,6 +147,24 @@ def build_research_run_payload(
                 "split_policy_version": split_policy_version,
                 "bootstrap_policy_version": bootstrap_policy_version,
                 "ic_overlap_policy_version": ic_overlap_policy_version,
+                "factor_catalog_version": factor_catalog_version,
+                "external_signal_policy_version": external_signal_policy_version,
+                "external_lineage_version": external_lineage_version,
+                "cluster_snapshot_version": cluster_snapshot_version,
+                "peer_policy_version": peer_policy_version,
+                "peer_comparison_policy_version": peer_comparison_policy_version,
+                "execution_route": execution_route,
+                "simulation_profile_id": simulation_profile_id,
+                "simulation_adapter_version": simulation_adapter_version,
+                "live_control_profile_id": live_control_profile_id,
+                "live_control_version": live_control_version,
+                "adaptive_mode": adaptive_mode,
+                "adaptive_profile_id": adaptive_profile_id,
+                "adaptive_contract_version": adaptive_contract_version,
+                "reward_definition_version": reward_definition_version,
+                "state_definition_version": state_definition_version,
+                "rollout_control_version": rollout_control_version,
+                "scoring_factor_ids": scoring_factor_ids or [],
             }
         )
     )

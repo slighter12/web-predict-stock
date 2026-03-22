@@ -4,12 +4,14 @@
     import {
         ApiError,
         createResearchRun,
+        fetchResearchGate,
         fetchResearchRun,
         fetchSystemHealth,
     } from "../api";
     import type {
         AppError,
         HealthResponse,
+        ResearchPhaseGateResponse,
         ResearchRunCreateRequest,
         ResearchRunRecord,
         ResearchRunResponse,
@@ -41,6 +43,10 @@
         isHealthLoading: boolean;
         healthError: string | null;
     };
+    let inspectorGateState: {
+        gates: ResearchPhaseGateResponse[];
+        gateError: string | null;
+    };
 
     const loadResearchRun = async (runId: string) => {
         if (!runId.trim()) {
@@ -68,6 +74,41 @@
     const healthQuery = createQuery({
         queryKey: ["system", "health"],
         queryFn: fetchSystemHealth,
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
+
+    const p7GateQuery = createQuery({
+        queryKey: ["research", "gate", "p7"],
+        queryFn: () => fetchResearchGate("p7"),
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
+
+    const p8GateQuery = createQuery({
+        queryKey: ["research", "gate", "p8"],
+        queryFn: () => fetchResearchGate("p8"),
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
+
+    const p9GateQuery = createQuery({
+        queryKey: ["research", "gate", "p9"],
+        queryFn: () => fetchResearchGate("p9"),
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
+
+    const p10GateQuery = createQuery({
+        queryKey: ["research", "gate", "p10"],
+        queryFn: () => fetchResearchGate("p10"),
+        retry: false,
+        refetchOnWindowFocus: false,
+    });
+
+    const p11GateQuery = createQuery({
+        queryKey: ["research", "gate", "p11"],
+        queryFn: () => fetchResearchGate("p11"),
         retry: false,
         refetchOnWindowFocus: false,
     });
@@ -129,6 +170,34 @@
                 ? $healthQuery.error.message
                 : null,
     };
+
+    $: inspectorGateState = {
+        gates: [
+            $p7GateQuery.data,
+            $p8GateQuery.data,
+            $p9GateQuery.data,
+            $p10GateQuery.data,
+            $p11GateQuery.data,
+        ].filter(Boolean) as ResearchPhaseGateResponse[],
+        gateError:
+            [
+                $p7GateQuery.error,
+                $p8GateQuery.error,
+                $p9GateQuery.error,
+                $p10GateQuery.error,
+                $p11GateQuery.error,
+            ].find((item) => item instanceof Error) instanceof Error
+                ? (
+                      [
+                          $p7GateQuery.error,
+                          $p8GateQuery.error,
+                          $p9GateQuery.error,
+                          $p10GateQuery.error,
+                          $p11GateQuery.error,
+                      ].find((item) => item instanceof Error) as Error
+                  ).message
+                : null,
+    };
 </script>
 
 <WorkspaceSection eyebrow="Research Runs" title="Research Run Workspace">
@@ -141,6 +210,7 @@
             runState={inspectorRunState}
             registryState={inspectorRegistryState}
             healthState={inspectorHealthState}
+            gateState={inspectorGateState}
         />
     </div>
 </WorkspaceSection>

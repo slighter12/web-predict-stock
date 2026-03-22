@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
 from sqlalchemy import delete, select
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from backend.database import SessionLocal, TickArchiveObject, TickArchiveRun, TickObservation, TickRestoreRun
+from backend.database import (
+    SessionLocal,
+    TickArchiveObject,
+    TickArchiveRun,
+    TickObservation,
+    TickRestoreRun,
+)
 from backend.repositories.benchmark_profile_repository import persist_benchmark_profile
 from backend.repositories.tick_archive_repository import (
     list_recent_tick_archive_trading_dates,
@@ -22,7 +23,10 @@ from backend.repositories.tick_archive_repository import (
     persist_tick_archive_object,
     persist_tick_archive_run,
 )
-from backend.services.tick_archive_provider import TWSE_PUBLIC_SNAPSHOT_SOURCE, parse_archive_entry
+from backend.services.tick_archive_provider import (
+    TWSE_PUBLIC_SNAPSHOT_SOURCE,
+    parse_archive_entry,
+)
 from backend.services.tick_archive_service import (
     TICK_ARCHIVE_LAYOUT_VERSION,
     TICK_ARCHIVE_RETENTION_CLASS,
@@ -34,6 +38,10 @@ from backend.services.tick_gate_service import get_tick_phase_gate_summary
 from backend.services.tick_ops_kpi_service import get_tick_ops_kpi_summary
 from backend.services.tick_replay_service import create_tick_replay
 from backend.time_utils import utc_now
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 FIXTURE_NOTES_PREFIX = "[tick-p2-acceptance-fixture]"
 FIXTURE_PROFILE_ID = "tick_p2_acceptance_v1"
@@ -137,8 +145,12 @@ def _archive_object_payload(
         "uncompressed_bytes": file_metadata["uncompressed_bytes"],
         "compression_ratio": file_metadata["compression_ratio"],
         "record_count": len(observations),
-        "first_observation_ts": min(observation_ts_values) if observation_ts_values else None,
-        "last_observation_ts": max(observation_ts_values) if observation_ts_values else None,
+        "first_observation_ts": min(observation_ts_values)
+        if observation_ts_values
+        else None,
+        "last_observation_ts": max(observation_ts_values)
+        if observation_ts_values
+        else None,
         "checksum": file_metadata["checksum"],
         "retention_class": TICK_ARCHIVE_RETENTION_CLASS,
     }
@@ -198,9 +210,13 @@ def _cleanup_fixture_data() -> dict:
                 )
             )
         if object_ids:
-            session.execute(delete(TickArchiveObject).where(TickArchiveObject.id.in_(object_ids)))
+            session.execute(
+                delete(TickArchiveObject).where(TickArchiveObject.id.in_(object_ids))
+            )
         if run_ids:
-            session.execute(delete(TickArchiveRun).where(TickArchiveRun.id.in_(run_ids)))
+            session.execute(
+                delete(TickArchiveRun).where(TickArchiveRun.id.in_(run_ids))
+            )
         session.commit()
 
     for path in object_paths:
@@ -214,7 +230,11 @@ def _cleanup_fixture_data() -> dict:
                 except OSError:
                     break
                 directory = directory.parent
-    return {"removed_run_count": len(run_ids), "removed_object_count": len(object_rows), "removed_paths": removed_paths}
+    return {
+        "removed_run_count": len(run_ids),
+        "removed_object_count": len(object_rows),
+        "removed_paths": removed_paths,
+    }
 
 
 def _create_fixture_run(
@@ -335,7 +355,10 @@ def _assertions(summary: dict) -> list[dict]:
         },
         {
             "name": "partial_day_excluded_from_benchmark_window",
-            "passed": kpis["metrics"]["KPI-TICK-002"]["details"]["eligible_window_count"] == 1,
+            "passed": kpis["metrics"]["KPI-TICK-002"]["details"][
+                "eligible_window_count"
+            ]
+            == 1,
             "details": kpis["metrics"]["KPI-TICK-002"]["details"],
         },
         {
@@ -345,7 +368,8 @@ def _assertions(summary: dict) -> list[dict]:
         },
         {
             "name": "selection_policy_persists_5gb_rule",
-            "passed": kpis["selection_policy"]["max_compressed_gb_per_trading_day"] == 5.0,
+            "passed": kpis["selection_policy"]["max_compressed_gb_per_trading_day"]
+            == 5.0,
             "details": kpis["selection_policy"],
         },
         {

@@ -1,6 +1,8 @@
 import type {
+  AdaptiveMode,
   BaselineName,
   DefaultBundleVersion,
+  ExecutionRoute,
   FeatureName,
   MarketCode,
   ModelType,
@@ -15,6 +17,7 @@ import type {
   ConfigSources,
   EffectiveStrategy,
   FallbackAudit,
+  FoundationMetadata,
   GovernanceMetadata,
   P3Summary,
   VersionPack,
@@ -63,6 +66,20 @@ export interface ResearchRunCreateRequest {
   baselines: BaselineName[];
   portfolio_aum?: number;
   monitor_profile_id?: ResearchMonitorProfileId | null;
+  factor_catalog_version?: string;
+  scoring_factor_ids?: string[];
+  external_signal_policy_version?: string;
+  cluster_snapshot_version?: string;
+  peer_policy_version?: string;
+  execution_route?: ExecutionRoute;
+  simulation_profile_id?: string;
+  live_control_profile_id?: string;
+  manual_confirmed?: boolean;
+  adaptive_mode?: AdaptiveMode;
+  adaptive_profile_id?: string;
+  reward_definition_version?: string;
+  state_definition_version?: string;
+  rollout_control_version?: string;
 }
 
 export interface Metrics {
@@ -90,9 +107,7 @@ export interface ValidationSummary {
 }
 
 export interface ResearchRunResponse
-  extends VersionPack,
-    P3Summary,
-    GovernanceMetadata {
+  extends VersionPack, P3Summary, GovernanceMetadata, FoundationMetadata {
   run_id: string;
   metrics: Metrics;
   equity_curve: EquityPoint[];
@@ -108,9 +123,7 @@ export interface ResearchRunResponse
 }
 
 export interface ResearchRunRecord
-  extends VersionPack,
-    P3Summary,
-    GovernanceMetadata {
+  extends VersionPack, P3Summary, GovernanceMetadata, FoundationMetadata {
   run_id: string;
   request_id: string | null;
   status: RunStatus;

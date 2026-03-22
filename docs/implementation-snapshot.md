@@ -23,15 +23,19 @@ surface and must never be used as the source of truth for normative behavior.
   - `system.py`
   - `research_runs.py`
   - `data_plane.py`
+  - `execution.py`
 - `backend/schemas/`
   - `common.py`
   - `runtime.py`
   - `research_runs.py`
   - `data_plane.py`
+  - `foundations.py`
 - `backend/services/`
   - research-run orchestration
   - backtest-engine execution
   - data-plane operations
+  - foundation-phase orchestration
+  - foundation gate evaluation
   - scheduled recovery-drill dispatch
   - scheduled ingestion dispatch
   - operational KPI calculation
@@ -39,6 +43,7 @@ surface and must never be used as the source of truth for normative behavior.
   - TW company universe crawling
 - `backend/repositories/`
   - research-run persistence
+  - foundation persistence
   - replay / recovery persistence
   - recovery-drill schedule persistence
   - benchmark-profile persistence
@@ -57,6 +62,15 @@ surface and must never be used as the source of truth for normative behavior.
 - `POST /api/v1/research/runs`
 - `GET /api/v1/research/runs/{run_id}`
 - `GET /api/v1/research/runs`
+- `GET /api/v1/research/gates/p7`
+- `GET /api/v1/research/gates/p8`
+- `GET /api/v1/research/gates/p9`
+- `GET /api/v1/research/gates/p10`
+- `GET /api/v1/research/gates/p11`
+- `POST /api/v1/research/adaptive-profiles`
+- `GET /api/v1/research/adaptive-profiles`
+- `POST /api/v1/research/adaptive-training-runs`
+- `GET /api/v1/research/adaptive-training-runs`
 - `POST /api/v1/data/ingestions`
 - `POST /api/v1/data/replays`
 - `GET /api/v1/data/replays`
@@ -86,6 +100,23 @@ surface and must never be used as the source of truth for normative behavior.
 - `GET /api/v1/data/lifecycle-records`
 - `POST /api/v1/data/important-events`
 - `GET /api/v1/data/important-events`
+- `POST /api/v1/data/external-signal-ingestions`
+- `GET /api/v1/data/external-signals`
+- `POST /api/v1/data/external-signal-audits`
+- `GET /api/v1/data/external-signal-audits`
+- `POST /api/v1/data/factor-catalogs`
+- `GET /api/v1/data/factor-catalogs`
+- `GET /api/v1/data/factor-materializations`
+- `POST /api/v1/data/cluster-snapshots`
+- `GET /api/v1/data/cluster-snapshots`
+- `POST /api/v1/data/peer-feature-runs`
+- `GET /api/v1/data/peer-feature-runs`
+- `POST /api/v1/execution/simulation-orders`
+- `GET /api/v1/execution/simulation-readbacks`
+- `POST /api/v1/execution/live-orders`
+- `GET /api/v1/execution/live-orders`
+- `POST /api/v1/execution/live-controls/kill-switch`
+- `GET /api/v1/execution/live-controls/kill-switch`
 
 ## Current Frontend Surface
 
@@ -93,6 +124,12 @@ surface and must never be used as the source of truth for normative behavior.
   - `ResearchRunForm`
   - `ResearchRunInspector`
   - metrics, validation, signals, and run-registry inspection
+  - optional P7-P11 foundation fields:
+    - factor catalog and scoring factors
+    - peer and cluster metadata
+    - execution route and route-specific profile IDs
+    - adaptive mode and adaptive contract metadata
+  - P7-P11 structural gate inspection
 - `Data Plane Workspace`
   - `DataIngestionPanel`
   - `ReplayPanel`
@@ -107,6 +144,20 @@ surface and must never be used as the source of truth for normative behavior.
     - recovery trigger-mode and schedule-slot inspection
   - `LifecyclePanel`
   - `ImportantEventPanel`
+  - `ExternalSignalPanel`
+    - external archive build
+    - audit execution
+    - factor catalog seed
+  - `PeerInferencePanel`
+    - cluster snapshot creation
+    - peer-feature run creation
+  - `ExecutionControlPanel`
+    - simulation order submission
+    - live-stub order submission
+    - kill-switch control
+  - `AdaptiveWorkflowPanel`
+    - adaptive profile creation
+    - adaptive training-run creation
 - Backend-only data-plane endpoints with no dedicated frontend panel yet:
   - `/api/v1/data/benchmark-profiles`
   - `/api/v1/data/ingestion-watchlist`
@@ -276,18 +327,168 @@ Still not complete for `P1-OPS`:
 - live observation-window qualification is still required before claiming gate pass
 - official feed URLs must still be configured at runtime for automated crawlers
 
+### P7-P11 Foundations
+
+Status: `structural foundation implemented`
+
+- research-run requests and persisted run records now include optional
+  foundation fields for:
+  - factor catalog and scoring-factor selection
+  - external signal policy
+  - cluster snapshot and peer policy
+  - execution route plus simulation/live control profile IDs
+  - adaptive mode plus reward/state/rollout contract versions
+- version-pack and governance payloads now include:
+  - `factor_catalog_version`
+  - `external_lineage_version`
+  - `cluster_snapshot_version`
+  - `peer_comparison_policy_version`
+  - `simulation_adapter_version`
+  - `live_control_version`
+  - `adaptive_contract_version`
+- P7 external-signal and factor-catalog persistence exists through:
+  - `external_raw_archives`
+  - `external_signal_records`
+  - `external_signal_audits`
+  - `factor_catalogs`
+  - `factor_catalog_entries`
+  - `factor_materializations`
+  - `factor_usability_observations`
+- P7 data-plane and gate APIs exist through:
+  - `/api/v1/data/external-signal-ingestions`
+  - `/api/v1/data/external-signals`
+  - `/api/v1/data/external-signal-audits`
+  - `/api/v1/data/factor-catalogs`
+  - `/api/v1/data/factor-materializations`
+  - `/api/v1/research/gates/p7`
+- research-run execution now materializes factor records point-in-time and
+  persists timing classification including exact and fallback mappings
+- important-event rows with a direct `event_publication_ts`, including
+  `vendor_published` timestamps, are treated as exact-availability records
+- external-signal audit sampling now reads the full source-family review window
+  and deterministically guarantees the documented fallback-record minimum when
+  fallback timestamps exist
+- `GATE-P7-001` now requires persisted timing-mapping evidence from the latest
+  audit result instead of treating archive and catalog presence as sufficient
+- P8 clustering and peer inference persistence exists through:
+  - `cluster_snapshots`
+  - `cluster_memberships`
+  - `peer_feature_runs`
+  - `peer_comparison_overlays`
+- P8 data-plane and gate APIs exist through:
+  - `/api/v1/data/cluster-snapshots`
+  - `/api/v1/data/peer-feature-runs`
+  - `/api/v1/research/gates/p8`
+- cluster snapshots now build their universe from `daily_ohlcv` on the requested
+  `trading_date`, then filter it with point-in-time lifecycle state instead of
+  current `tw_company_profiles.trading_status`
+- peer-enabled research runs now scope cluster snapshot lookup by both
+  `market` and `cluster_snapshot_version`, so same-version snapshots from other
+  markets do not leak into TW/US overlays
+- peer overlay output is now merged into the tabular training frame used by the
+  backtest-engine baseline path
+- `GATE-P8-001` no longer treats snapshot existence as a proxy for
+  `KPI-RESEARCH-002` or `KPI-RESEARCH-003`; those KPI checks now evaluate
+  peer-enabled research-run metadata and reporting evidence directly
+- baseline backtest metrics now persist `max_position_weight` so the research
+  reporting contract can satisfy the documented concentration requirement
+- P9 and P10 execution foundations persist through:
+  - `simulation_profiles`
+  - `execution_orders`
+  - `execution_order_events`
+  - `execution_fill_events`
+  - `execution_position_snapshots`
+  - `execution_failure_taxonomies`
+  - `live_risk_checks`
+  - `kill_switch_events`
+- execution APIs and gates now exist through:
+  - `/api/v1/execution/simulation-orders`
+  - `/api/v1/execution/simulation-readbacks`
+  - `/api/v1/execution/live-orders`
+  - `/api/v1/execution/live-controls/kill-switch`
+  - `/api/v1/research/gates/p9`
+  - `/api/v1/research/gates/p10`
+- `simulation_internal_v1` writes a complete order ledger including submitted,
+  acknowledged, filled, and position-readback artifacts
+- `GATE-P9-001` now checks all documented structural artifacts, including
+  order-history persistence and readback-telemetry emission, instead of only a
+  partial subset
+- `live_stub_v1` now also writes a complete synthetic completion ledger on the
+  accepted path and a rejection-only ledger on blocked paths
+- research-run-triggered `live_stub_v1` orders require an explicit
+  `manual_confirmed` request flag; `live_control_profile_id` no longer implies
+  human confirmation
+- `GATE-P10-001` now requires `kill_switch` and `broker_order_logging`
+  artifacts in addition to the live KPI checks before returning `pass`
+- `broker_order_logging` for accepted live-stub orders now requires the full
+  synthetic ledger (`submitted`, `acknowledged`, `filled`, `position_readback`)
+  rather than only a `submitted` event
+- execution API requests with an unknown `run_id` now return `404
+  RESOURCE_NOT_FOUND` instead of surfacing a persistence-layer `500`
+- P11 adaptive isolation persists through:
+  - `adaptive_profiles`
+  - `adaptive_training_runs`
+  - `adaptive_rollout_controls`
+  - `adaptive_surface_exclusions`
+- P11 APIs and gate now exist through:
+  - `/api/v1/research/adaptive-profiles`
+  - `/api/v1/research/adaptive-training-runs`
+  - `/api/v1/research/gates/p11`
+- adaptive research runs now require explicit opt-in contract metadata when
+  `adaptive_mode` is not `off`
+- adaptive training-run creation now validates that reward/state/rollout
+  versions exactly match the selected adaptive profile contract, and the
+  frontend training form syncs those fields after profile creation
+- `KPI-ADAPT-002` contamination now uses persisted comparison-eligibility and
+  tradability-state exposure semantics together with adaptive-surface
+  exclusions, rather than treating a missing exclusion row as contamination by
+  itself
+- `GATE-P11-001` now treats `isolated_adaptive_workflow` as a required
+  artifact for `overall_status`, not just a reported detail
+
+Still not complete for durable `P7-OPS` to `P11` qualification:
+
+- this snapshot only reflects structural-complete foundation work, not the
+  longer observation windows required for:
+  - `GATE-P7-OPS-001`
+  - `GATE-P8-OPS-001`
+  - `GATE-P9-OPS-001`
+  - `GATE-LIVEQ-001`
+- `TBD-003` remains open, so P9 simulation telemetry is still exploratory for
+  durable operational qualification
+- adaptive workflow support is limited to trainer interface and lifecycle
+  persistence; there is still no integrated RL backend
+
 ## Current Verification Snapshot
 
 - last updated: `2026-03-21`
-- backend test suite:
-  - `.venv/bin/python -m pytest -q`
-  - result: `133 passed`
-- frontend production build:
-  - `cd frontend && bun run build`
-  - result: `passed (Vite chunk-size warning only)`
-- frontend browser smoke test:
+- targeted backend tests:
+  - `.venv/bin/python -m pytest tests/services/test_research_run_service.py tests/services/test_research_run_registry_service.py tests/services/test_foundation_service.py tests/services/test_backtest_engine_service.py tests/services/test_foundation_repository.py -q`
+  - result: `15 passed`
+- targeted foundation follow-up tests:
+  - `.venv/bin/python -m pytest tests/services/test_foundation_repository.py tests/services/test_foundation_service.py -q`
+  - result: `6 passed`
+- frontend typecheck:
+  - `bun x tsc -p frontend/tsconfig.json --noEmit`
+  - result: `passed`
+- migration acceptance:
+  - strict reset via `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
+  - `alembic upgrade head`
+  - `alembic downgrade base`
+  - `alembic upgrade head`
+  - result: `passed`
+- fresh acceptance verification:
+  - clean database reseed plus manual API checks
+  - result: `P7`, `P8`, `P9`, `P10`, and `P11` gates all returned `pass`
+- frontend browser verification:
   - `agent-browser` against `http://127.0.0.1:5173`
-  - result: `passed` for page load, API health rendering, and recovery-drill form validation messages
+  - result:
+    - page load and both workspaces rendered
+    - P7-P11 data-plane panels issued live API requests
+    - research-run submit path issued `/api/v1/research/runs` when invoked in-page
+    - default research-run and snapshot form dates do not align with the current
+      acceptance dataset, so untouched defaults can still trigger expected
+      `RESOURCE_NOT_FOUND` responses
 
 ## Version Pack Status
 
@@ -305,6 +506,13 @@ Currently implemented fields:
 - `split_policy_version`
 - `bootstrap_policy_version`
 - `ic_overlap_policy_version`
+- `factor_catalog_version`
+- `external_lineage_version`
+- `cluster_snapshot_version`
+- `peer_comparison_policy_version`
+- `simulation_adapter_version`
+- `live_control_version`
+- `adaptive_contract_version`
 
 Currently placeholder fields:
 

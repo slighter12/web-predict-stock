@@ -158,6 +158,27 @@
             }
         }
 
+        const scoringFactorIds = form.scoringFactorIdsInput
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
+        if (scoringFactorIds.length !== new Set(scoringFactorIds).size) {
+            nextErrors.scoringFactorIdsInput =
+                "Scoring factor IDs must be unique.";
+        }
+
+        if (form.adaptiveMode !== "off") {
+            if (
+                !form.adaptiveProfileId ||
+                !form.rewardDefinitionVersion ||
+                !form.stateDefinitionVersion ||
+                !form.rolloutControlVersion
+            ) {
+                nextErrors.adaptiveMode =
+                    "Adaptive runs require profile, reward, state, and rollout control versions.";
+            }
+        }
+
         errors = nextErrors;
         return Object.keys(nextErrors).length === 0;
     };
@@ -201,6 +222,128 @@
                 placeholder="2330, 2317, AAPL"
             />
             {#if errors.symbolsInput}<small>{errors.symbolsInput}</small>{/if}
+        </label>
+    </div>
+
+    <div class="section-header compact">
+        <div>
+            <p class="eyebrow">P7-P11 Foundations</p>
+            <h4>Optional Foundations</h4>
+        </div>
+    </div>
+
+    <div class="group three">
+        <label>
+            <span>Factor Catalog</span>
+            <input
+                bind:value={form.factorCatalogVersion}
+                placeholder="p7_factor_catalog_v1"
+            />
+        </label>
+        <label class="wide">
+            <span>Scoring Factor IDs</span>
+            <input
+                bind:value={form.scoringFactorIdsInput}
+                placeholder="company_listing_age_days_v1, important_event_count_30d_v1"
+            />
+            {#if errors.scoringFactorIdsInput}<small
+                    >{errors.scoringFactorIdsInput}</small
+                >{/if}
+        </label>
+        <label>
+            <span>External Policy</span>
+            <input bind:value={form.externalSignalPolicyVersion} />
+        </label>
+    </div>
+
+    <div class="group three">
+        <label>
+            <span>Cluster Snapshot</span>
+            <input
+                bind:value={form.clusterSnapshotVersion}
+                placeholder="peer_cluster_kmeans_v1"
+            />
+        </label>
+        <label>
+            <span>Peer Policy</span>
+            <input
+                bind:value={form.peerPolicyVersion}
+                placeholder="cluster_nearest_neighbors_v1"
+            />
+        </label>
+        <label>
+            <span>Execution Route</span>
+            <select bind:value={form.executionRoute}>
+                <option value="research_only">research_only</option>
+                <option value="simulation_internal_v1"
+                    >simulation_internal_v1</option
+                >
+                <option value="live_stub_v1">live_stub_v1</option>
+            </select>
+        </label>
+    </div>
+
+    <div class="group three">
+        <label>
+            <span>Simulation Profile</span>
+            <input
+                bind:value={form.simulationProfileId}
+                placeholder="simulation_internal_default_v1"
+            />
+        </label>
+        <label>
+            <span>Live Control Profile</span>
+            <input
+                bind:value={form.liveControlProfileId}
+                placeholder="live_stub_default_v1"
+            />
+        </label>
+        <label class="checkbox">
+            <span>Manual Confirmed</span>
+            <input type="checkbox" bind:checked={form.manualConfirmed} />
+        </label>
+    </div>
+
+    <div class="group three">
+        <label>
+            <span>Adaptive Mode</span>
+            <select bind:value={form.adaptiveMode}>
+                <option value="off">off</option>
+                <option value="shadow">shadow</option>
+                <option value="candidate">candidate</option>
+            </select>
+            {#if errors.adaptiveMode}<small>{errors.adaptiveMode}</small>{/if}
+        </label>
+    </div>
+
+    <div class="group four">
+        <label>
+            <span>Adaptive Profile</span>
+            <input
+                bind:value={form.adaptiveProfileId}
+                placeholder="adaptive_shadow_v1"
+            />
+        </label>
+        <label>
+            <span>Reward Version</span>
+            <input
+                bind:value={form.rewardDefinitionVersion}
+                placeholder="reward_daily_active_return_v1"
+            />
+        </label>
+        <label>
+            <span>State Version</span>
+            <input
+                bind:value={form.stateDefinitionVersion}
+                placeholder="state_market_context_v1"
+            />
+        </label>
+        <label>
+            <span>Rollout Control</span>
+            <input
+                bind:value={form.rolloutControlVersion}
+                placeholder="rollout_shadow_only_v1"
+            />
         </label>
     </div>
 

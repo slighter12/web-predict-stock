@@ -15,6 +15,13 @@ VERSION_PACK_FIELDS = [
     "split_policy_version",
     "bootstrap_policy_version",
     "ic_overlap_policy_version",
+    "factor_catalog_version",
+    "external_lineage_version",
+    "cluster_snapshot_version",
+    "peer_comparison_policy_version",
+    "simulation_adapter_version",
+    "live_control_version",
+    "adaptive_contract_version",
 ]
 
 GOVERNANCE_FIELDS = [
@@ -23,6 +30,17 @@ GOVERNANCE_FIELDS = [
     "model_family",
     "training_output_contract_version",
     "adoption_comparison_policy_version",
+    "external_signal_policy_version",
+    "peer_policy_version",
+    "execution_route",
+    "simulation_profile_id",
+    "live_control_profile_id",
+    "adaptive_mode",
+    "adaptive_profile_id",
+    "reward_definition_version",
+    "state_definition_version",
+    "rollout_control_version",
+    "scoring_factor_ids",
 ]
 
 IMPLEMENTED_VERSION_FIELDS = {
@@ -38,6 +56,13 @@ IMPLEMENTED_VERSION_FIELDS = {
     "split_policy_version",
     "bootstrap_policy_version",
     "ic_overlap_policy_version",
+    "factor_catalog_version",
+    "external_lineage_version",
+    "cluster_snapshot_version",
+    "peer_comparison_policy_version",
+    "simulation_adapter_version",
+    "live_control_version",
+    "adaptive_contract_version",
 }
 
 

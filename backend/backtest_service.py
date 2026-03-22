@@ -77,6 +77,15 @@ def compute_turnover(weights: pd.DataFrame) -> float:
     return float(turnover)
 
 
+def compute_max_position_weight(weights: pd.DataFrame) -> float:
+    if weights.empty:
+        return 0.0
+    absolute_weights = weights.abs()
+    if absolute_weights.empty:
+        return 0.0
+    return float(absolute_weights.max(axis=1).max())
+
+
 def build_target_weights(
     scores: pd.DataFrame,
     strategy: StrategyConfig | ResearchStrategyConfig,
@@ -224,6 +233,7 @@ def run_backtest_from_weights(
             "sharpe": 0.0,
             "max_drawdown": 0.0,
             "turnover": 0.0,
+            "max_position_weight": 0.0,
         }, []
 
     close = _select_close(
@@ -258,6 +268,7 @@ def run_backtest_from_weights(
         equity = equity.sum(axis=1)
     metrics = compute_metrics(equity)
     metrics["turnover"] = compute_turnover(weights)
+    metrics["max_position_weight"] = compute_max_position_weight(weights)
     return metrics, build_equity_curve(equity)
 
 

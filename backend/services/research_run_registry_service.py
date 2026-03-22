@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from .. import model_service
 from ..domain.research_run_payload import build_research_run_payload
 from ..errors import BacktestError
 from ..repositories.research_run_repository import persist_research_run_record
@@ -23,7 +24,6 @@ from ..strategy_service import (
     build_split_policy_version,
     build_threshold_policy_version,
 )
-from .. import model_service
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +159,24 @@ def _build_registry_payload(
     split_policy_version: str | None = None,
     bootstrap_policy_version: str | None = None,
     ic_overlap_policy_version: str | None = None,
+    factor_catalog_version: str | None = None,
+    scoring_factor_ids: list[str] | None = None,
+    external_signal_policy_version: str | None = None,
+    external_lineage_version: str | None = None,
+    cluster_snapshot_version: str | None = None,
+    peer_policy_version: str | None = None,
+    peer_comparison_policy_version: str | None = None,
+    execution_route: str | None = None,
+    simulation_profile_id: str | None = None,
+    simulation_adapter_version: str | None = None,
+    live_control_profile_id: str | None = None,
+    live_control_version: str | None = None,
+    adaptive_mode: str | None = None,
+    adaptive_profile_id: str | None = None,
+    adaptive_contract_version: str | None = None,
+    reward_definition_version: str | None = None,
+    state_definition_version: str | None = None,
+    rollout_control_version: str | None = None,
 ) -> dict[str, Any]:
     serialized_request = (
         _request_payload_from_model(request) if request is not None else request_payload
@@ -221,23 +239,80 @@ def _build_registry_payload(
         comparison_review_matrix_version=(
             comparison_review_matrix_version or COMPARISON_REVIEW_MATRIX_VERSION
         ),
-        scheduled_review_cadence=scheduled_review_cadence
-        or SCHEDULED_REVIEW_CADENCE,
+        scheduled_review_cadence=scheduled_review_cadence or SCHEDULED_REVIEW_CADENCE,
         model_family=model_family or _safe_model_family(model_type),
         training_output_contract_version=(
             training_output_contract_version
             or model_service.TRAINING_OUTPUT_CONTRACT_VERSION
         ),
         adoption_comparison_policy_version=(
-            adoption_comparison_policy_version
-            or ADOPTION_COMPARISON_POLICY_VERSION
+            adoption_comparison_policy_version or ADOPTION_COMPARISON_POLICY_VERSION
         ),
         split_policy_version=split_policy_version
         or build_split_policy_version(validation_method),
-        bootstrap_policy_version=bootstrap_policy_version
-        or BOOTSTRAP_POLICY_VERSION,
+        bootstrap_policy_version=bootstrap_policy_version or BOOTSTRAP_POLICY_VERSION,
         ic_overlap_policy_version=ic_overlap_policy_version
         or IC_OVERLAP_POLICY_VERSION,
+        factor_catalog_version=factor_catalog_version
+        if factor_catalog_version is not None
+        else _request_payload_value(
+            request, serialized_request, "factor_catalog_version"
+        ),
+        scoring_factor_ids=scoring_factor_ids
+        if scoring_factor_ids is not None
+        else _request_payload_value(request, serialized_request, "scoring_factor_ids"),
+        external_signal_policy_version=external_signal_policy_version
+        if external_signal_policy_version is not None
+        else _request_payload_value(
+            request, serialized_request, "external_signal_policy_version"
+        ),
+        external_lineage_version=external_lineage_version,
+        cluster_snapshot_version=cluster_snapshot_version
+        if cluster_snapshot_version is not None
+        else _request_payload_value(
+            request, serialized_request, "cluster_snapshot_version"
+        ),
+        peer_policy_version=peer_policy_version
+        if peer_policy_version is not None
+        else _request_payload_value(request, serialized_request, "peer_policy_version"),
+        peer_comparison_policy_version=peer_comparison_policy_version,
+        execution_route=execution_route
+        if execution_route is not None
+        else _request_payload_value(request, serialized_request, "execution_route"),
+        simulation_profile_id=simulation_profile_id
+        if simulation_profile_id is not None
+        else _request_payload_value(
+            request, serialized_request, "simulation_profile_id"
+        ),
+        simulation_adapter_version=simulation_adapter_version,
+        live_control_profile_id=live_control_profile_id
+        if live_control_profile_id is not None
+        else _request_payload_value(
+            request, serialized_request, "live_control_profile_id"
+        ),
+        live_control_version=live_control_version,
+        adaptive_mode=adaptive_mode
+        if adaptive_mode is not None
+        else _request_payload_value(request, serialized_request, "adaptive_mode"),
+        adaptive_profile_id=adaptive_profile_id
+        if adaptive_profile_id is not None
+        else _request_payload_value(request, serialized_request, "adaptive_profile_id"),
+        adaptive_contract_version=adaptive_contract_version,
+        reward_definition_version=reward_definition_version
+        if reward_definition_version is not None
+        else _request_payload_value(
+            request, serialized_request, "reward_definition_version"
+        ),
+        state_definition_version=state_definition_version
+        if state_definition_version is not None
+        else _request_payload_value(
+            request, serialized_request, "state_definition_version"
+        ),
+        rollout_control_version=rollout_control_version
+        if rollout_control_version is not None
+        else _request_payload_value(
+            request, serialized_request, "rollout_control_version"
+        ),
     )
 
 
@@ -306,6 +381,43 @@ def record_success(
             split_policy_version=response.split_policy_version,
             bootstrap_policy_version=response.bootstrap_policy_version,
             ic_overlap_policy_version=response.ic_overlap_policy_version,
+            factor_catalog_version=response.factor_catalog_version,
+            scoring_factor_ids=response.scoring_factor_ids,
+            external_signal_policy_version=response.external_signal_policy_version,
+            external_lineage_version=response.external_lineage_version,
+            cluster_snapshot_version=response.cluster_snapshot_version,
+            peer_policy_version=response.peer_policy_version,
+            peer_comparison_policy_version=response.peer_comparison_policy_version,
+            execution_route=response.execution_route,
+            simulation_profile_id=response.simulation_profile_id,
+            simulation_adapter_version=response.simulation_adapter_version,
+            live_control_profile_id=response.live_control_profile_id,
+            live_control_version=response.live_control_version,
+            adaptive_mode=response.adaptive_mode,
+            adaptive_profile_id=response.adaptive_profile_id,
+            adaptive_contract_version=response.adaptive_contract_version,
+            reward_definition_version=response.reward_definition_version,
+            state_definition_version=response.state_definition_version,
+            rollout_control_version=response.rollout_control_version,
+        )
+    )
+
+
+def record_started(
+    *,
+    run_id: str,
+    request_id: str,
+    request: ResearchRunCreateRequest,
+) -> dict[str, Any]:
+    logger.info("Recording started research run run_id=%s", run_id)
+    return persist_research_run_record(
+        _build_registry_payload(
+            run_id=run_id,
+            request_id=request_id,
+            status="running",
+            request=request,
+            benchmark_comparability_gate=False,
+            comparison_eligibility=COMPARISON_ELIGIBILITY,
         )
     )
 

@@ -1,7 +1,9 @@
 import type {
+  AdaptiveMode,
   ComparisonEligibility,
   ConfigValueSource,
   CorporateEventState,
+  ExecutionRoute,
   FallbackOutcome,
   MissingFeaturePolicyState,
   MonitorObservationStatus,
@@ -47,6 +49,13 @@ export interface VersionPack {
   split_policy_version: string | null;
   bootstrap_policy_version: string | null;
   ic_overlap_policy_version: string | null;
+  factor_catalog_version: string | null;
+  external_lineage_version: string | null;
+  cluster_snapshot_version: string | null;
+  peer_comparison_policy_version: string | null;
+  simulation_adapter_version: string | null;
+  live_control_version: string | null;
+  adaptive_contract_version: string | null;
   version_pack_status: Record<string, VersionFieldStatus>;
 }
 
@@ -56,6 +65,20 @@ export interface GovernanceMetadata {
   model_family: string | null;
   training_output_contract_version: string | null;
   adoption_comparison_policy_version: string | null;
+}
+
+export interface FoundationMetadata {
+  scoring_factor_ids: string[];
+  external_signal_policy_version: string | null;
+  peer_policy_version: string | null;
+  execution_route: ExecutionRoute | null;
+  simulation_profile_id: string | null;
+  live_control_profile_id: string | null;
+  adaptive_mode: AdaptiveMode | null;
+  adaptive_profile_id: string | null;
+  reward_definition_version: string | null;
+  state_definition_version: string | null;
+  rollout_control_version: string | null;
 }
 
 export interface LiquidityBucketCoverage {

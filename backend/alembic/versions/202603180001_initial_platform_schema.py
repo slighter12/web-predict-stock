@@ -428,3 +428,14 @@ def downgrade() -> None:
     _drop_index_if_exists("ix_research_runs_request_id", "research_runs")
     _drop_index_if_exists("ix_research_runs_created_at", "research_runs")
     _drop_table_if_exists("research_runs")
+
+    _drop_index_if_exists("ix_raw_ingest_audit_symbol", "raw_ingest_audit")
+    _drop_index_if_exists("ix_raw_ingest_audit_source_name", "raw_ingest_audit")
+    _drop_index_if_exists("ix_raw_ingest_audit_market", "raw_ingest_audit")
+    _drop_table_if_exists("raw_ingest_audit")
+
+    _drop_index_if_exists("ix_daily_ohlcv_source", "daily_ohlcv")
+    _drop_index_if_exists("ix_daily_ohlcv_raw_payload_id", "daily_ohlcv")
+    _drop_index_if_exists("ix_daily_ohlcv_market", "daily_ohlcv")
+    _drop_index_if_exists("idx_daily_ohlcv_symbol_date", "daily_ohlcv")
+    _drop_table_if_exists("daily_ohlcv")

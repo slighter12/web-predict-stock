@@ -116,6 +116,24 @@ class ResearchRun(Base):
     model_family = Column(String, nullable=True, index=True)
     training_output_contract_version = Column(String, nullable=True)
     adoption_comparison_policy_version = Column(String, nullable=True)
+    factor_catalog_version = Column(String, nullable=True, index=True)
+    scoring_factor_ids_json = Column(Text, nullable=True)
+    external_signal_policy_version = Column(String, nullable=True)
+    external_lineage_version = Column(String, nullable=True)
+    cluster_snapshot_version = Column(String, nullable=True)
+    peer_policy_version = Column(String, nullable=True)
+    peer_comparison_policy_version = Column(String, nullable=True)
+    execution_route = Column(String, nullable=True, index=True)
+    simulation_profile_id = Column(String, nullable=True, index=True)
+    simulation_adapter_version = Column(String, nullable=True)
+    live_control_profile_id = Column(String, nullable=True, index=True)
+    live_control_version = Column(String, nullable=True)
+    adaptive_mode = Column(String, nullable=True, index=True)
+    adaptive_profile_id = Column(String, nullable=True, index=True)
+    adaptive_contract_version = Column(String, nullable=True)
+    reward_definition_version = Column(String, nullable=True)
+    state_definition_version = Column(String, nullable=True)
+    rollout_control_version = Column(String, nullable=True)
     tradability_state = Column(String, nullable=True)
     tradability_contract_version = Column(String, nullable=True)
     missing_feature_policy_state = Column(String, nullable=True)
@@ -525,6 +543,476 @@ class TickObservation(Base):
     source_name = Column(String, nullable=False)
     archive_object_reference = Column(String, nullable=False, index=True)
     parser_version = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExternalRawArchive(Base):
+    __tablename__ = "external_raw_archives"
+
+    id = Column(Integer, primary_key=True)
+    source_family = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    coverage_start = Column(Date, nullable=False, index=True)
+    coverage_end = Column(Date, nullable=False, index=True)
+    record_count = Column(Integer, nullable=False, default=0)
+    payload_body = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExternalSignalRecord(Base):
+    __tablename__ = "external_signal_records"
+    __table_args__ = (
+        Index(
+            "idx_external_signal_records_symbol_date",
+            "symbol",
+            "effective_date",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    archive_id = Column(
+        Integer,
+        ForeignKey("external_raw_archives.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_family = Column(String, nullable=False, index=True)
+    source_record_type = Column(String, nullable=False)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    effective_date = Column(Date, nullable=False, index=True)
+    available_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    availability_mode = Column(String, nullable=False)
+    lineage_version = Column(String, nullable=False)
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExternalSignalAudit(Base):
+    __tablename__ = "external_signal_audits"
+
+    id = Column(Integer, primary_key=True)
+    source_family = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    audit_window_start = Column(Date, nullable=False)
+    audit_window_end = Column(Date, nullable=False)
+    sample_size = Column(Integer, nullable=False, default=0)
+    fallback_sample_size = Column(Integer, nullable=False, default=0)
+    undocumented_count = Column(Integer, nullable=False, default=0)
+    draw_rule_version = Column(String, nullable=False)
+    result_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class FactorCatalog(Base):
+    __tablename__ = "factor_catalogs"
+
+    id = Column(String, primary_key=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    source_family = Column(String, nullable=False)
+    lineage_version = Column(String, nullable=False)
+    minimum_coverage_ratio = Column(Float, nullable=False, default=0.8)
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class FactorCatalogEntry(Base):
+    __tablename__ = "factor_catalog_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "catalog_id",
+            "factor_id",
+            name="uq_factor_catalog_entries_catalog_factor",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    catalog_id = Column(
+        String,
+        ForeignKey("factor_catalogs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    factor_id = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    formula_definition = Column(Text, nullable=False)
+    lineage = Column(String, nullable=False)
+    timing_semantics = Column(String, nullable=False)
+    missing_value_policy = Column(String, nullable=False)
+    scoring_eligible = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class FactorMaterialization(Base):
+    __tablename__ = "factor_materializations"
+    __table_args__ = (
+        Index(
+            "idx_factor_materializations_run_symbol_date",
+            "run_id",
+            "symbol",
+            "trading_date",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    catalog_id = Column(
+        String,
+        ForeignKey("factor_catalogs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    factor_id = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    trading_date = Column(Date, nullable=False, index=True)
+    value = Column(Float, nullable=True)
+    source_available_at = Column(DateTime(timezone=True), nullable=True)
+    factor_available_ts = Column(DateTime(timezone=True), nullable=True)
+    availability_mode = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class FactorUsabilityObservation(Base):
+    __tablename__ = "factor_usability_observations"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    catalog_id = Column(
+        String,
+        ForeignKey("factor_catalogs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    trading_date = Column(Date, nullable=False, index=True)
+    factor_id = Column(String, nullable=False, index=True)
+    coverage_ratio = Column(Float, nullable=False, default=0.0)
+    materialization_latency_hours = Column(Float, nullable=True)
+    status = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ClusterSnapshot(Base):
+    __tablename__ = "cluster_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    snapshot_version = Column(String, nullable=False, index=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    factor_catalog_version = Column(String, nullable=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    trading_date = Column(Date, nullable=False, index=True)
+    cluster_count = Column(Integer, nullable=False, default=0)
+    symbol_count = Column(Integer, nullable=False, default=0)
+    status = Column(String, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ClusterMembership(Base):
+    __tablename__ = "cluster_memberships"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id",
+            "symbol",
+            name="uq_cluster_membership_snapshot_symbol",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    snapshot_id = Column(
+        Integer,
+        ForeignKey("cluster_snapshots.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    symbol = Column(String, nullable=False, index=True)
+    cluster_label = Column(String, nullable=False)
+    distance_to_centroid = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PeerFeatureRun(Base):
+    __tablename__ = "peer_feature_runs"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    snapshot_id = Column(
+        Integer,
+        ForeignKey("cluster_snapshots.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    peer_policy_version = Column(String, nullable=False)
+    market = Column(String, nullable=False, index=True, default="TW")
+    trading_date = Column(Date, nullable=False, index=True)
+    status = Column(String, nullable=False)
+    produced_feature_count = Column(Integer, nullable=False, default=0)
+    warning_count = Column(Integer, nullable=False, default=0)
+    warning_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PeerComparisonOverlay(Base):
+    __tablename__ = "peer_comparison_overlays"
+
+    id = Column(Integer, primary_key=True)
+    peer_feature_run_id = Column(
+        Integer,
+        ForeignKey("peer_feature_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    symbol = Column(String, nullable=False, index=True)
+    peer_symbol_count = Column(Integer, nullable=False, default=0)
+    peer_feature_value = Column(Float, nullable=True)
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class SimulationProfile(Base):
+    __tablename__ = "simulation_profiles"
+
+    id = Column(String, primary_key=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    ack_latency_seconds = Column(Float, nullable=False, default=5.0)
+    fill_latency_seconds = Column(Float, nullable=False, default=30.0)
+    slippage_bps = Column(Float, nullable=False, default=5.0)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class LiveControlProfile(Base):
+    __tablename__ = "live_control_profiles"
+
+    id = Column(String, primary_key=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    live_control_version = Column(String, nullable=False)
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExecutionFailureTaxonomy(Base):
+    __tablename__ = "execution_failure_taxonomies"
+
+    code = Column(String, primary_key=True)
+    route = Column(String, nullable=False, index=True)
+    category = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExecutionOrder(Base):
+    __tablename__ = "execution_orders"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    route = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    side = Column(String, nullable=False)
+    quantity = Column(Float, nullable=False)
+    requested_price = Column(Float, nullable=True)
+    status = Column(String, nullable=False, index=True)
+    simulation_profile_id = Column(
+        String,
+        ForeignKey("simulation_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    live_control_profile_id = Column(
+        String,
+        ForeignKey("live_control_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    failure_code = Column(String, nullable=True, index=True)
+    manual_confirmation = Column(Boolean, nullable=False, default=False)
+    rejection_reason = Column(Text, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExecutionOrderEvent(Base):
+    __tablename__ = "execution_order_events"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("execution_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    event_type = Column(String, nullable=False, index=True)
+    event_ts = Column(DateTime(timezone=True), nullable=False, index=True)
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExecutionFillEvent(Base):
+    __tablename__ = "execution_fill_events"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("execution_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    fill_ts = Column(DateTime(timezone=True), nullable=False, index=True)
+    fill_price = Column(Float, nullable=False)
+    quantity = Column(Float, nullable=False)
+    slippage_bps = Column(Float, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ExecutionPositionSnapshot(Base):
+    __tablename__ = "execution_position_snapshots"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("execution_orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    route = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=False, index=True)
+    symbol = Column(String, nullable=False, index=True)
+    quantity = Column(Float, nullable=False)
+    avg_price = Column(Float, nullable=False)
+    snapshot_ts = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class LiveRiskCheck(Base):
+    __tablename__ = "live_risk_checks"
+
+    id = Column(Integer, primary_key=True)
+    order_id = Column(
+        Integer,
+        ForeignKey("execution_orders.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(String, nullable=False, index=True)
+    detail_json = Column(Text, nullable=False, default="{}")
+    checked_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class KillSwitchEvent(Base):
+    __tablename__ = "kill_switch_events"
+
+    id = Column(Integer, primary_key=True)
+    scope_type = Column(String, nullable=False, index=True)
+    market = Column(String, nullable=True, index=True)
+    is_enabled = Column(Boolean, nullable=False, default=False)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AdaptiveProfile(Base):
+    __tablename__ = "adaptive_profiles"
+
+    id = Column(String, primary_key=True)
+    market = Column(String, nullable=False, index=True, default="TW")
+    reward_definition_version = Column(String, nullable=False)
+    state_definition_version = Column(String, nullable=False)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AdaptiveRolloutControl(Base):
+    __tablename__ = "adaptive_rollout_controls"
+
+    id = Column(String, primary_key=True)
+    profile_id = Column(
+        String,
+        ForeignKey("adaptive_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    rollout_control_version = Column(String, nullable=False)
+    mode = Column(String, nullable=False)
+    detail_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AdaptiveTrainingRun(Base):
+    __tablename__ = "adaptive_training_runs"
+
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(
+        String,
+        ForeignKey("adaptive_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    market = Column(String, nullable=False, index=True, default="TW")
+    adaptive_mode = Column(String, nullable=False, index=True)
+    reward_definition_version = Column(String, nullable=False)
+    state_definition_version = Column(String, nullable=False)
+    rollout_control_version = Column(String, nullable=False)
+    status = Column(String, nullable=False, index=True)
+    dataset_summary_json = Column(Text, nullable=False, default="{}")
+    artifact_registry_json = Column(Text, nullable=False, default="{}")
+    validation_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AdaptiveSurfaceExclusion(Base):
+    __tablename__ = "adaptive_surface_exclusions"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("research_runs.run_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+        unique=True,
+    )
+    exclusion_surface = Column(String, nullable=False)
+    reason = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 

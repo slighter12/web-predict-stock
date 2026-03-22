@@ -11,11 +11,14 @@ from pydantic import (
     conint,
     conlist,
     field_validator,
+    model_validator,
 )
 
 from .common import (
+    AdaptiveMode,
     BaselineName,
     DefaultBundleVersion,
+    ExecutionRoute,
     FeatureName,
     MarketCode,
     ModelType,
@@ -32,6 +35,7 @@ from .runtime import (
     ConfigSources,
     EffectiveStrategyConfig,
     FallbackAudit,
+    FoundationMetadataMixin,
     GovernanceMetadataMixin,
     P3SummaryMixin,
     VersionPackMixin,
@@ -99,6 +103,20 @@ class ResearchRunCreateRequest(RequestModel):
     baselines: List[BaselineName] = Field(default_factory=list)
     portfolio_aum: Optional[confloat(gt=0)] = None  # type: ignore[valid-type]
     monitor_profile_id: Optional[ResearchMonitorProfileId] = None
+    factor_catalog_version: Optional[str] = None
+    scoring_factor_ids: List[str] = Field(default_factory=list)
+    external_signal_policy_version: Optional[str] = None
+    cluster_snapshot_version: Optional[str] = None
+    peer_policy_version: Optional[str] = None
+    execution_route: ExecutionRoute = "research_only"
+    simulation_profile_id: Optional[str] = None
+    live_control_profile_id: Optional[str] = None
+    manual_confirmed: bool = False
+    adaptive_mode: AdaptiveMode = "off"
+    adaptive_profile_id: Optional[str] = None
+    reward_definition_version: Optional[str] = None
+    state_definition_version: Optional[str] = None
+    rollout_control_version: Optional[str] = None
 
     @field_validator("symbols")
     @classmethod
@@ -128,12 +146,59 @@ class ResearchRunCreateRequest(RequestModel):
             raise ValueError("baselines must not contain duplicates")
         return value
 
+    @field_validator("scoring_factor_ids")
+    @classmethod
+    def scoring_factor_ids_must_be_unique(cls, value: List[str]) -> List[str]:
+        normalized = [item.strip() for item in value if item.strip()]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("scoring_factor_ids must not contain duplicates")
+        return normalized
+
+    @field_validator("adaptive_profile_id", "reward_definition_version")
+    @classmethod
+    def adaptive_text_fields_must_not_be_blank(
+        cls, value: Optional[str]
+    ) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("state_definition_version", "rollout_control_version")
+    @classmethod
+    def optional_text_fields_must_not_be_blank(
+        cls, value: Optional[str]
+    ) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip()
+        return cleaned or None
+
+    @model_validator(mode="after")
+    def validate_adaptive_fields(self) -> "ResearchRunCreateRequest":
+        if self.adaptive_mode == "off":
+            return self
+        required_fields = {
+            "adaptive_profile_id": self.adaptive_profile_id,
+            "reward_definition_version": self.reward_definition_version,
+            "state_definition_version": self.state_definition_version,
+            "rollout_control_version": self.rollout_control_version,
+        }
+        missing = [field for field, value in required_fields.items() if not value]
+        if missing:
+            raise ValueError(
+                "adaptive runs require adaptive_profile_id, reward_definition_version, "
+                "state_definition_version, and rollout_control_version"
+            )
+        return self
+
 
 class Metrics(BaseModel):
     total_return: Optional[float] = None
     sharpe: Optional[float] = None
     max_drawdown: Optional[float] = None
     turnover: Optional[float] = None
+    max_position_weight: Optional[float] = None
 
 
 class EquityPoint(BaseModel):
@@ -153,7 +218,12 @@ class ValidationSummary(BaseModel):
     metrics: Dict[str, float]
 
 
-class ResearchRunResponse(VersionPackMixin, P3SummaryMixin, GovernanceMetadataMixin):
+class ResearchRunResponse(
+    VersionPackMixin,
+    P3SummaryMixin,
+    GovernanceMetadataMixin,
+    FoundationMetadataMixin,
+):
     run_id: str
     metrics: Metrics
     equity_curve: List[EquityPoint] = Field(default_factory=list)
@@ -169,7 +239,10 @@ class ResearchRunResponse(VersionPackMixin, P3SummaryMixin, GovernanceMetadataMi
 
 
 class ResearchRunRecordResponse(
-    VersionPackMixin, P3SummaryMixin, GovernanceMetadataMixin
+    VersionPackMixin,
+    P3SummaryMixin,
+    GovernanceMetadataMixin,
+    FoundationMetadataMixin,
 ):
     run_id: str
     request_id: Optional[str] = None

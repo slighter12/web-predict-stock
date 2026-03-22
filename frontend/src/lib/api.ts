@@ -2,19 +2,34 @@ export { ApiError } from "./api/client";
 export { fetchSystemHealth } from "./api/system";
 export {
   createResearchRun,
+  createAdaptiveProfile,
+  createAdaptiveTrainingRun,
   fetchResearchRun,
   fetchResearchRuns,
+  fetchResearchGate,
+  fetchAdaptiveProfiles,
+  fetchAdaptiveTrainingRuns,
 } from "./api/researchRuns";
 export {
+  createClusterSnapshot,
   createDataIngestion,
+  createExternalSignalAudit,
+  createExternalSignalIngestion,
+  createFactorCatalog,
   createImportantEvent,
   createLifecycleRecord,
+  createPeerFeatureRun,
   createRecoveryDrill,
   createRecoveryDrillSchedule,
   createTickArchiveDispatch,
   createTickArchiveImport,
   createTickReplay,
   createReplay,
+  fetchClusterSnapshots,
+  fetchExternalSignalAudits,
+  fetchExternalSignals,
+  fetchFactorCatalogs,
+  fetchFactorMaterializations,
   fetchTickArchiveDispatches,
   fetchTickArchives,
   fetchTickOpsKpis,
@@ -24,4 +39,13 @@ export {
   fetchRecoveryDrills,
   fetchRecoveryDrillSchedules,
   fetchReplays,
+  fetchPeerFeatureRuns,
 } from "./api/dataPlane";
+export {
+  createKillSwitch,
+  createLiveOrder,
+  createSimulationOrder,
+  fetchKillSwitchEvents,
+  fetchLiveOrders,
+  fetchSimulationReadbacks,
+} from "./api/execution";

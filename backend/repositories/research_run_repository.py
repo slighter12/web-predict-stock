@@ -63,6 +63,24 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
         "request_payload": json_loads(row.request_payload_json, None),
         "metrics": json_loads(row.metrics_json, None),
         "warnings": json_loads(row.warnings_json, []),
+        "factor_catalog_version": row.factor_catalog_version,
+        "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
+        "external_signal_policy_version": row.external_signal_policy_version,
+        "external_lineage_version": row.external_lineage_version,
+        "cluster_snapshot_version": row.cluster_snapshot_version,
+        "peer_policy_version": row.peer_policy_version,
+        "peer_comparison_policy_version": row.peer_comparison_policy_version,
+        "execution_route": row.execution_route,
+        "simulation_profile_id": row.simulation_profile_id,
+        "simulation_adapter_version": row.simulation_adapter_version,
+        "live_control_profile_id": row.live_control_profile_id,
+        "live_control_version": row.live_control_version,
+        "adaptive_mode": row.adaptive_mode,
+        "adaptive_profile_id": row.adaptive_profile_id,
+        "adaptive_contract_version": row.adaptive_contract_version,
+        "reward_definition_version": row.reward_definition_version,
+        "state_definition_version": row.state_definition_version,
+        "rollout_control_version": row.rollout_control_version,
         "tradability_state": row.tradability_state,
         "tradability_contract_version": row.tradability_contract_version,
         "capacity_screening_active": row.capacity_screening_active,
@@ -104,6 +122,24 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
                 "adoption_comparison_policy_version": (
                     row.adoption_comparison_policy_version
                 ),
+                "factor_catalog_version": row.factor_catalog_version,
+                "external_signal_policy_version": row.external_signal_policy_version,
+                "external_lineage_version": row.external_lineage_version,
+                "cluster_snapshot_version": row.cluster_snapshot_version,
+                "peer_policy_version": row.peer_policy_version,
+                "peer_comparison_policy_version": row.peer_comparison_policy_version,
+                "execution_route": row.execution_route,
+                "simulation_profile_id": row.simulation_profile_id,
+                "simulation_adapter_version": row.simulation_adapter_version,
+                "live_control_profile_id": row.live_control_profile_id,
+                "live_control_version": row.live_control_version,
+                "adaptive_mode": row.adaptive_mode,
+                "adaptive_profile_id": row.adaptive_profile_id,
+                "adaptive_contract_version": row.adaptive_contract_version,
+                "reward_definition_version": row.reward_definition_version,
+                "state_definition_version": row.state_definition_version,
+                "rollout_control_version": row.rollout_control_version,
+                "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
             }
         )
     )
@@ -162,6 +198,30 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             row.request_payload_json = json_dumps(record.get("request_payload"))
             row.metrics_json = json_dumps(record.get("metrics"))
             row.warnings_json = json_dumps(record.get("warnings", []))
+            row.factor_catalog_version = record.get("factor_catalog_version")
+            row.scoring_factor_ids_json = json_dumps(
+                record.get("scoring_factor_ids", [])
+            )
+            row.external_signal_policy_version = record.get(
+                "external_signal_policy_version"
+            )
+            row.external_lineage_version = record.get("external_lineage_version")
+            row.cluster_snapshot_version = record.get("cluster_snapshot_version")
+            row.peer_policy_version = record.get("peer_policy_version")
+            row.peer_comparison_policy_version = record.get(
+                "peer_comparison_policy_version"
+            )
+            row.execution_route = record.get("execution_route")
+            row.simulation_profile_id = record.get("simulation_profile_id")
+            row.simulation_adapter_version = record.get("simulation_adapter_version")
+            row.live_control_profile_id = record.get("live_control_profile_id")
+            row.live_control_version = record.get("live_control_version")
+            row.adaptive_mode = record.get("adaptive_mode")
+            row.adaptive_profile_id = record.get("adaptive_profile_id")
+            row.adaptive_contract_version = record.get("adaptive_contract_version")
+            row.reward_definition_version = record.get("reward_definition_version")
+            row.state_definition_version = record.get("state_definition_version")
+            row.rollout_control_version = record.get("rollout_control_version")
             row.threshold_policy_version = record.get("threshold_policy_version")
             row.price_basis_version = record.get("price_basis_version")
             row.benchmark_comparability_gate = record.get(
@@ -182,9 +242,7 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             )
             row.split_policy_version = record.get("split_policy_version")
             row.bootstrap_policy_version = record.get("bootstrap_policy_version")
-            row.ic_overlap_policy_version = record.get(
-                "ic_overlap_policy_version"
-            )
+            row.ic_overlap_policy_version = record.get("ic_overlap_policy_version")
             row.comparison_review_matrix_version = record.get(
                 "comparison_review_matrix_version"
             )

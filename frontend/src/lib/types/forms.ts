@@ -1,6 +1,8 @@
 import type {
+  AdaptiveMode,
   BaselineName,
   DefaultBundleVersion,
+  ExecutionRoute,
   FeatureName,
   MarketCode,
   PriceSource,
@@ -39,4 +41,18 @@ export interface ResearchRunFormState {
   validationSplits: number;
   validationTestSize: number;
   baselines: BaselineName[];
+  factorCatalogVersion: string;
+  scoringFactorIdsInput: string;
+  externalSignalPolicyVersion: string;
+  clusterSnapshotVersion: string;
+  peerPolicyVersion: string;
+  executionRoute: ExecutionRoute;
+  simulationProfileId: string;
+  liveControlProfileId: string;
+  manualConfirmed: boolean;
+  adaptiveMode: AdaptiveMode;
+  adaptiveProfileId: string;
+  rewardDefinitionVersion: string;
+  stateDefinitionVersion: string;
+  rolloutControlVersion: string;
 }

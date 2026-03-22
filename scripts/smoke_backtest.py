@@ -2,6 +2,9 @@ import os
 import sys
 from pathlib import Path
 
+from backend.schemas.research_runs import ResearchRunCreateRequest
+from backend.services.backtest_engine_service import execute_research_run
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 
@@ -18,9 +21,6 @@ def load_env(path: Path) -> None:
 
 
 load_env(Path(".env"))
-
-from backend.schemas.research_runs import ResearchRunCreateRequest
-from backend.services.backtest_engine_service import execute_research_run
 
 
 def main() -> None:

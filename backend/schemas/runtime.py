@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .common import (
+    AdaptiveMode,
     ComparisonEligibility,
     ConfigValueSource,
     CorporateEventState,
+    ExecutionRoute,
     FallbackOutcome,
     MissingFeaturePolicyState,
     MonitorObservationStatus,
@@ -58,6 +60,13 @@ class VersionPackMixin(BaseModel):
     split_policy_version: Optional[str] = None
     bootstrap_policy_version: Optional[str] = None
     ic_overlap_policy_version: Optional[str] = None
+    factor_catalog_version: Optional[str] = None
+    external_lineage_version: Optional[str] = None
+    cluster_snapshot_version: Optional[str] = None
+    peer_comparison_policy_version: Optional[str] = None
+    simulation_adapter_version: Optional[str] = None
+    live_control_version: Optional[str] = None
+    adaptive_contract_version: Optional[str] = None
     version_pack_status: Dict[str, VersionFieldStatus]
 
 
@@ -67,6 +76,25 @@ class GovernanceMetadataMixin(BaseModel):
     model_family: Optional[str] = None
     training_output_contract_version: Optional[str] = None
     adoption_comparison_policy_version: Optional[str] = None
+
+
+class FoundationMetadataMixin(BaseModel):
+    scoring_factor_ids: list[str] = Field(default_factory=list)
+    external_signal_policy_version: Optional[str] = None
+    peer_policy_version: Optional[str] = None
+    execution_route: Optional[ExecutionRoute] = None
+    simulation_profile_id: Optional[str] = None
+    live_control_profile_id: Optional[str] = None
+    adaptive_mode: Optional[AdaptiveMode] = None
+    adaptive_profile_id: Optional[str] = None
+    reward_definition_version: Optional[str] = None
+    state_definition_version: Optional[str] = None
+    rollout_control_version: Optional[str] = None
+
+    @field_validator("scoring_factor_ids", mode="before")
+    @classmethod
+    def scoring_factor_ids_defaults_to_empty_list(cls, value: object) -> object:
+        return [] if value is None else value
 
 
 class LiquidityBucketCoverage(BaseModel):
