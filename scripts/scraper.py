@@ -16,7 +16,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 try:
     from backend.database import DailyOHLCV, RawIngestAudit, engine
-    from backend.time_utils import utc_now
+    from backend.market_data.services.tick_archive_provider import (
+        _SSLContextAdapter,
+        _build_ssl_context,
+        _ca_auto_download_enabled,
+        _download_ca_bundle,
+        _insecure_tls_fallback_enabled,
+        _resolve_tls_verify,
+    )
+    from backend.platform.time import utc_now
 except ImportError:
     print(
         "Error: Could not import from backend.database. Make sure the backend directory is in the Python path."
@@ -341,7 +349,7 @@ def scrape_twse_data(
 
     raw_payload_id = None
     try:
-        response = requests.get(url, headers=headers, timeout=30)
+        response = _request_twse_daily_report(url=url, headers=headers, timeout_seconds=30)
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException:
@@ -400,6 +408,62 @@ def scrape_twse_data(
             context_label=f"TWSE parse failure {symbol}",
         )
         return pd.DataFrame(), None
+
+
+def _request_twse_daily_report(
+    *, url: str, headers: dict[str, str], timeout_seconds: int
+) -> requests.Response:
+    verify = _resolve_tls_verify()
+    try:
+        return _perform_tls_request(
+            url=url,
+            headers=headers,
+            timeout_seconds=timeout_seconds,
+            verify=verify,
+        )
+    except requests.exceptions.SSLError:
+        response = None
+        if _ca_auto_download_enabled():
+            try:
+                downloaded_verify = _download_ca_bundle()
+                response = _perform_tls_request(
+                    url=url,
+                    headers=headers,
+                    timeout_seconds=timeout_seconds,
+                    verify=downloaded_verify,
+                )
+            except requests.RequestException:
+                logger.exception("Failed TWSE daily report fetch after CA download url=%s", url)
+            except Exception:
+                logger.exception("Failed to download TWSE CA bundle for url=%s", url)
+
+        if response is None and _insecure_tls_fallback_enabled():
+            logger.warning("Retrying TWSE daily report without TLS verification url=%s", url)
+            response = _perform_tls_request(
+                url=url,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+                verify=False,
+            )
+
+        if response is None:
+            raise
+        return response
+
+
+def _perform_tls_request(
+    *,
+    url: str,
+    headers: dict[str, str],
+    timeout_seconds: int,
+    verify: bool | str,
+) -> requests.Response:
+    if verify is False:
+        return requests.get(url, headers=headers, timeout=timeout_seconds, verify=False)
+
+    session = requests.Session()
+    session.mount("https://", _SSLContextAdapter(_build_ssl_context(verify)))
+    return session.get(url, headers=headers, timeout=timeout_seconds)
 
 
 def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> dict:

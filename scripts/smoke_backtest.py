@@ -2,8 +2,8 @@ import os
 import sys
 from pathlib import Path
 
-from backend.schemas.research_runs import ResearchRunCreateRequest
-from backend.services.backtest_engine_service import execute_research_run
+from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.services.execution import execute_research_run
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 

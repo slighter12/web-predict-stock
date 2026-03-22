@@ -155,7 +155,7 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 
 ```bash
 .
-├── backend/                # app, api, schemas, services, repositories, runtime, domain
+├── backend/                # app, platform, shared, system, research, market_data, signals, execution
 ├── frontend/               # Svelte workspaces for research runs and data plane
 ├── scripts/                # ingestion and operational utilities
 ├── docs/                   # goals, spec, plan, validation, dev, snapshots

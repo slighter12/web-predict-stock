@@ -118,7 +118,7 @@ Implemented behavior:
 - recovery drills persist trigger metadata, including `trigger_mode`,
   `schedule_id`, and `scheduled_for_date`
 - scheduled monthly recovery dispatch exists through
-  `backend.services.recovery_service.dispatch_due_recovery_drills` and
+  `backend.market_data.services.recovery.dispatch_due_recovery_drills` and
   `scripts/run_scheduled_recovery_drills.py`
 - scheduled ingestion watchlist and dispatch exist through
   `/api/v1/data/ingestion-watchlist`,

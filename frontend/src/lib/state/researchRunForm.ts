@@ -16,6 +16,26 @@ export const SPEC_BUNDLE_THRESHOLD = 0.01;
 export const SPEC_BUNDLE_TOP_N = 10;
 export const DEFAULT_MONITOR_PROFILE_ID = "p3_monitor_default_v1" as const;
 
+const formatLocalDate = (date: Date) =>
+  new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 10);
+
+const createRecentDateRange = () => {
+  const end = new Date();
+  do {
+    end.setDate(end.getDate() - 1);
+  } while (end.getDay() === 0 || end.getDay() === 6);
+
+  const start = new Date(end);
+  start.setFullYear(start.getFullYear() - 1);
+
+  return {
+    start: formatLocalDate(start),
+    end: formatLocalDate(end),
+  };
+};
+
 const defaultFeature = (
   index = 0,
   name: ResearchFeatureRow["name"] = "ma",
@@ -34,13 +54,16 @@ export const availableBaselines: BaselineName[] = [
   "ma_crossover",
 ];
 
-export const createDefaultResearchRunFormState = (): ResearchRunFormState => ({
+export const createDefaultResearchRunFormState = (): ResearchRunFormState => {
+  const dateRange = createRecentDateRange();
+
+  return {
   runtimeMode: DEFAULT_RUNTIME_MODE,
   defaultBundleVersion: null,
   market: "TW",
   symbolsInput: "2330",
-  startDate: "2019-01-01",
-  endDate: "2024-01-01",
+  startDate: dateRange.start,
+  endDate: dateRange.end,
   returnTarget: "open_to_open",
   horizonDays: 1,
   features: [defaultFeature(0, "ma"), defaultFeature(1, "rsi")],
@@ -70,7 +93,8 @@ export const createDefaultResearchRunFormState = (): ResearchRunFormState => ({
   rewardDefinitionVersion: "",
   stateDefinitionVersion: "",
   rolloutControlVersion: "",
-});
+  };
+};
 
 export const parseOptionalNumber = (value: string): number | null => {
   if (value.trim() === "") {

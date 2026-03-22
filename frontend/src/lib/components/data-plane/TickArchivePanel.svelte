@@ -19,10 +19,15 @@
         TickReplayRecord,
     } from "../../types";
 
-    const toLocalDateValue = () =>
-        new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
+    const toLocalDateValue = () => {
+        const date = new Date();
+        do {
+            date.setDate(date.getDate() - 1);
+        } while (date.getDay() === 0 || date.getDay() === 6);
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
             .toISOString()
             .slice(0, 10);
+    };
 
     let dispatchForm = {
         market: "TW",

@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from backend.services.official_event_crawler_service import crawl_lifecycle_records
+from backend.market_data.services.official_crawlers import crawl_lifecycle_records
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:

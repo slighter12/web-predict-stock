@@ -199,7 +199,9 @@ def test_scrape_twse_data_records_success(monkeypatch):
             }
 
     records = []
-    monkeypatch.setattr(scraper.requests, "get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        scraper, "_request_twse_daily_report", lambda *args, **kwargs: FakeResponse()
+    )
     monkeypatch.setattr(
         scraper,
         "persist_raw_ingest_record",
@@ -244,7 +246,7 @@ def test_scrape_twse_data_records_failure(monkeypatch):
         raise requests.exceptions.RequestException("twse down")
 
     records = []
-    monkeypatch.setattr(scraper.requests, "get", raise_exc)
+    monkeypatch.setattr(scraper, "_request_twse_daily_report", raise_exc)
     monkeypatch.setattr(
         scraper, "persist_raw_ingest_record", lambda **kwargs: records.append(kwargs)
     )
@@ -340,7 +342,9 @@ def test_scrape_twse_data_audit_failure_blocks_scrape(monkeypatch):
                 ],
             }
 
-    monkeypatch.setattr(scraper.requests, "get", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr(
+        scraper, "_request_twse_daily_report", lambda *args, **kwargs: FakeResponse()
+    )
 
     def failing_persist(**kwargs):
         raise RuntimeError("db unavailable")

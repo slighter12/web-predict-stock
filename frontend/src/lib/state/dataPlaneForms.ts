@@ -41,7 +41,7 @@ export const createDefaultRecoveryDrillScheduleForm =
     cadence: "monthly",
     day_of_month: 1,
     timezone: "Asia/Taipei",
-    benchmark_profile_id: "monthly_recovery_v1",
+    benchmark_profile_id: "local_manual_v1",
     notes: "",
   });
 

@@ -13,9 +13,19 @@
         PeerFeatureRunRecord,
     } from "../../types";
 
+    const createDefaultTradingDate = () => {
+        const date = new Date();
+        do {
+            date.setDate(date.getDate() - 1);
+        } while (date.getDay() === 0 || date.getDay() === 6);
+        return new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+            .toISOString()
+            .slice(0, 10);
+    };
+
     let snapshotForm = {
         market: "TW",
-        trading_date: "2024-12-31",
+        trading_date: createDefaultTradingDate(),
         snapshot_version: "peer_cluster_kmeans_v1",
         cluster_count: 3,
     };
