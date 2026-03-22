@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 
-def test_run_scheduled_ingestion_main_returns_zero(capsys, monkeypatch, load_script):
-    module = load_script("run_scheduled_ingestion.py", "run_scheduled_ingestion_script")
+def test_dispatch_scheduled_ingestions_main_returns_zero(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "dispatch_scheduled_ingestions.py",
+        "dispatch_scheduled_ingestions_script",
+    )
     monkeypatch.setattr(
         module,
         "dispatch_due_scheduled_ingestions",
@@ -23,10 +28,13 @@ def test_run_scheduled_ingestion_main_returns_zero(capsys, monkeypatch, load_scr
     assert '"succeeded_count": 1' in captured.out
 
 
-def test_run_scheduled_ingestion_main_returns_one_on_failure(
+def test_dispatch_scheduled_ingestions_main_returns_one_on_failure(
     capsys, monkeypatch, load_script
 ):
-    module = load_script("run_scheduled_ingestion.py", "run_scheduled_ingestion_script")
+    module = load_script(
+        "dispatch_scheduled_ingestions.py",
+        "dispatch_scheduled_ingestions_script",
+    )
     monkeypatch.setattr(
         module,
         "dispatch_due_scheduled_ingestions",

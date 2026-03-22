@@ -15,7 +15,7 @@ test:
 	.venv/bin/python -m pytest -q
 
 smoke:
-	.venv/bin/python scripts/smoke_backtest.py
+	.venv/bin/python -m scripts.backtest_smoke
 
 db-up:
 	docker-compose up -d

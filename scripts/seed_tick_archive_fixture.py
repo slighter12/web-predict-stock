@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
@@ -44,12 +43,9 @@ from backend.market_data.services.tick_ops import get_tick_ops_kpi_summary
 from backend.market_data.services.tick_replay import create_tick_replay
 from backend.platform.time import utc_now
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 FIXTURE_NOTES_PREFIX = "[tick-p2-acceptance-fixture]"
 FIXTURE_PROFILE_ID = "tick_p2_acceptance_v1"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PARTIAL_DAY = date(2099, 1, 2)
 FULL_DAY = date(2099, 1, 3)
 FAILED_DAY = date(2099, 1, 4)

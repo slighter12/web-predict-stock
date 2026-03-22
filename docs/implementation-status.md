@@ -1,35 +1,35 @@
-# Implementation Snapshot
+# Implementation Status
 
 This document is descriptive only. It records the current implementation
 surface and should not be used as the source of truth for normative behavior.
 Use `docs/research-spec.md`, `docs/plan.md`, and `docs/validation-gates.md`
 for rules, sequencing, and gate truth conditions.
 
-## Snapshot Scope
+## Status Scope
 
-- snapshot date: `2026-03-22`
+- status date: `2026-03-22`
 - verification evidence in this document is the latest recorded evidence, not a
-  fresh execution performed during this document-only update
+  fresh execution performed during this status-only update
 - status terms used below:
-  - `implemented`: usable backend surface exists and the phase area is no
+  - `implemented`: usable backend surface exists and the roadmap area is no
     longer just a placeholder
   - `implemented structurally`: the structural API and persistence surface
     exists, but durable operational qualification or external integration is
     still pending
-  - `partial`: meaningful foundation exists, but the phase is not fully closed
+  - `partial`: meaningful foundation exists, but the roadmap area is not fully closed
     or still lacks part of the intended operating surface
   - `pending`: planned work, durable qualification, or production-hardening
     still remains open
 
-## Phase Status Summary
+## Roadmap Status Summary
 
-| Phase | Status | Current reading |
+| Area | Status | Current reading |
 | --- | --- | --- |
 | `P0` | `implemented` | research runs, runtime metadata, config-source persistence, and run registry exist |
 | `P1` | `implemented` | daily ingest, replay, recovery drills, scheduled recovery, and ops KPI surfaces exist |
 | `P2` | `implemented` | tick archive dispatch, import, replay, KPI, and gate surfaces exist, but storage policy is still provisional |
 | `P3` | `implemented` | tradability-state persistence, `GATE-P3-001`, and micro KPI telemetry for `GATE-P3-OPS-001` exist |
-| `P4` | `partial` | comparison-governance metadata exists, but the roadmap phase is not fully closed |
+| `P4` | `partial` | comparison-governance metadata exists, but the roadmap area is not fully closed |
 | `P5` | `partial` | execution and comparison-alignment foundations exist, but durable policy qualification is still pending |
 | `P6` | `partial` | shared tabular model-family contract exists for several tree-based families, but broader model expansion is still incomplete |
 | `P7` | `implemented structurally` | external signal, factor catalog, and gate foundations exist |
@@ -119,11 +119,11 @@ Implemented behavior:
   `schedule_id`, and `scheduled_for_date`
 - scheduled monthly recovery dispatch exists through
   `backend.market_data.services.recovery.dispatch_due_recovery_drills` and
-  `scripts/run_scheduled_recovery_drills.py`
+  `scripts/dispatch_scheduled_recovery_drills.py`
 - scheduled ingestion watchlist and dispatch exist through
   `/api/v1/data/ingestion-watchlist`,
   `/api/v1/data/ingestion-dispatches`, and
-  `scripts/run_scheduled_ingestion.py`
+  `scripts/dispatch_scheduled_ingestions.py`
 - lifecycle and important-event records support both direct upsert and official
   crawler ingestion
 
@@ -242,7 +242,7 @@ Current coverage:
 
 ## Partial Or Constrained Areas
 
-### Cross-Phase Constraints
+### Cross-Area Constraints
 
 - durable operational qualification is still separate from structural
   completion for `P1`, `P2`, `P3`, and `P7` to `P11`

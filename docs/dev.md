@@ -117,7 +117,7 @@ Current backend ownership is:
 Populate market data into the configured database:
 
 ```bash
-.venv/bin/python scripts/scraper.py
+.venv/bin/python -m scripts.market_data_ingestion
 ```
 
 Default ingestion environment values:
@@ -129,25 +129,31 @@ Default ingestion environment values:
 Run due scheduled recovery drills manually:
 
 ```bash
-.venv/bin/python scripts/run_scheduled_recovery_drills.py
+.venv/bin/python -m scripts.dispatch_scheduled_recovery_drills
 ```
 
 Run due scheduled ingestions manually:
 
 ```bash
-.venv/bin/python scripts/run_scheduled_ingestion.py
+.venv/bin/python -m scripts.dispatch_scheduled_ingestions
 ```
 
 Run lifecycle record crawler:
 
 ```bash
-.venv/bin/python scripts/run_lifecycle_crawler.py
+.venv/bin/python -m scripts.crawl_lifecycle_records
 ```
 
 Run important event crawler:
 
 ```bash
-.venv/bin/python scripts/run_important_event_crawler.py
+.venv/bin/python -m scripts.crawl_important_events
+```
+
+Run TW company profile crawler:
+
+```bash
+.venv/bin/python -m scripts.crawl_tw_company_profiles
 ```
 
 Run a local TWSE tick snapshot smoke test:
@@ -157,10 +163,10 @@ export TWSE_MIS_SKIP_TLS_VERIFY=true
 .venv/bin/python -c "from backend.market_data.services.tick_archive_provider import fetch_twse_public_snapshot; result = fetch_twse_public_snapshot(['2330','2317']); print(len(result['observations']))"
 ```
 
-Run the deterministic P2 acceptance fixture for failed-run and partial-replay gating:
+Run the deterministic tick-archive fixture for failed-run and partial-replay validation:
 
 ```bash
-.venv/bin/python scripts/run_tick_p2_acceptance.py
+.venv/bin/python -m scripts.seed_tick_archive_fixture
 ```
 
 Manual import note:
@@ -169,7 +175,7 @@ Manual import note:
   observations match the submitted `market` and `trading_date`; mismatched
   payloads are rejected before archive metadata is persisted.
 - upload validation is content-based after archive write/read/parse; the
-  current `P2` implementation does not treat browser MIME type as a trusted
+  current tick-archive implementation does not treat browser MIME type as a trusted
   acceptance signal for JSONL.GZ payloads.
 - operator-facing `trading_date` should be interpreted against the `Asia/Taipei`
   market calendar even though the browser date input defaults from the local
@@ -244,6 +250,12 @@ Equivalent direct commands:
 
 ```bash
 .venv/bin/python -m pytest -q
+```
+
+Run only the script entrypoint tests:
+
+```bash
+.venv/bin/python -m pytest tests/scripts -q
 ```
 
 ## Environment Variables
