@@ -1,12 +1,13 @@
 # Personal Quant Research Platform
 
-This repository is a docs-first quantitative research platform for two
-workspaces:
+This repository is a docs-first quantitative research platform centered on two
+surfaces:
 
-- `research runs`: model execution, validation, comparison metadata, and run
-  registry
-- `data plane`: raw ingest preservation, replay, recovery drills, lifecycle
-  records, important events, and tick archive preservation
+- `Prediction Studio`: a staged prediction workflow for data context, feature
+  selection, model choice, validation, and results
+- `Maintenance`: operational repair and verification tools for replay,
+  recovery, lifecycle correction, important events, tick archives, and control
+  checks
 
 Use this file for orientation, current-project status, and document routing.
 Normative rules still live under `docs/`.
@@ -58,22 +59,15 @@ areas, use [`docs/implementation-status.md`](docs/implementation-status.md).
 
 ### Frontend
 
-- `Research Run Workspace`
-  - research-run submission
-  - run lookup and persisted inspector
-  - system-health visibility
-  - P7 to P11 gate visibility
-- `Data Plane Workspace`
-  - data ingestion
-  - replay
-  - recovery drills
-  - lifecycle records
-  - important events
-  - tick archive dispatch, import, replay, and KPI display
-  - external-signal and factor-catalog workflow
-  - peer inference workflow
-  - execution control workflow
-  - adaptive workflow
+- `Prediction Studio`
+  - staged flow for `data -> feature -> model -> validation -> results`
+  - same-page result review after submission
+  - advanced details surface for saved-run lookup, health, and readiness gates
+- `Maintenance`
+  - manual data repair and recovery drills
+  - replay and tick-archive verification
+  - lifecycle and important-event correction
+  - factor, peer, execution, and adaptive diagnostics
 
 ## Still Partial Or Not Implemented Yet
 
@@ -81,7 +75,7 @@ areas, use [`docs/implementation-status.md`](docs/implementation-status.md).
   depends on observation windows, not just structural artifacts
 - tick archive storage is still local-first; remote object-store backends and
   storage redundancy are not implemented
-- no dedicated frontend panels yet for several backend-only operational
+- no dedicated frontend surfaces yet for several backend-only operational
   endpoints, including benchmark profiles, ingestion watchlist and dispatch,
   daily ops KPIs, crawler triggers, and TW company profile management
 - simulation-platform baseline policy is still open under `TBD-003`
@@ -156,7 +150,7 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 ```bash
 .
 ├── backend/                # app, platform, shared, system, research, market_data, signals, execution
-├── frontend/               # Svelte workspaces for research runs and data plane
+├── frontend/               # Svelte surfaces for prediction workflow and maintenance
 ├── scripts/                # local operational entrypoints and utilities
 ├── docs/                   # goals, spec, plan, validation, dev, status
 ├── tests/                  # domain tests plus script entrypoint coverage

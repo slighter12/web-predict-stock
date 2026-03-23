@@ -8,10 +8,10 @@
 </script>
 
 <svelte:head>
-    <title>Quant Research Workspace</title>
+    <title>Prediction Studio</title>
     <meta
         name="description"
-        content="Workspace for research runs, results review, and data operations."
+        content="Visual prediction workflows with maintenance tools for replay and repair."
     />
 </svelte:head>
 
@@ -19,21 +19,35 @@
     <main class="app-shell">
         <section class="hero">
             <div class="hero__copy">
-                <p class="hero__eyebrow">Quant Research Platform</p>
+                <p class="hero__eyebrow">Prediction Workflow Platform</p>
                 <h1>
-                    Research workflows and data operations in one workspace.
+                    Build the prediction flow first. Repair data only when it
+                    needs intervention.
                 </h1>
                 <p class="hero__summary">
-                    Configure runs, review results, and manage operational data
-                    updates without switching between separate tools.
+                    Prediction Studio turns feature selection, model choice,
+                    validation, and result review into one continuous workflow.
+                    Maintenance keeps replay and repair tools available without
+                    becoming the main entry point.
                 </p>
             </div>
 
             <div class="hero__meta">
                 <div class="hero-card">
-                    <span class="hero-card__label">Workspaces</span>
-                    <strong>Research and Operations</strong>
-                    <p>Setup on the left, results and controls on the right.</p>
+                    <span class="hero-card__label">Primary Flow</span>
+                    <strong>Prediction Studio</strong>
+                    <p>
+                        Data, feature, model, validation, and results on one
+                        surface.
+                    </p>
+                </div>
+                <div class="hero-card hero-card--muted">
+                    <span class="hero-card__label">Secondary Flow</span>
+                    <strong>Maintenance</strong>
+                    <p>
+                        Replay, repair, event correction, and execution
+                        diagnostics.
+                    </p>
                 </div>
             </div>
         </section>
@@ -56,7 +70,7 @@
     .hero {
         position: relative;
         display: grid;
-        grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+        grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.95fr);
         gap: 1.2rem;
         padding: 1.45rem;
         border-radius: var(--radius-xl);
@@ -80,7 +94,7 @@
         border-radius: 999px;
         background: radial-gradient(
             circle,
-            rgba(34, 197, 94, 0.16),
+            rgba(245, 158, 11, 0.18),
             transparent 70%
         );
         filter: blur(30px);
@@ -111,7 +125,7 @@
 
     h1 {
         margin: 0;
-        max-width: 11ch;
+        max-width: 14ch;
         font-size: clamp(2.7rem, 5vw, 5.2rem);
         line-height: 0.92;
         letter-spacing: -0.05em;
@@ -135,12 +149,21 @@
         gap: 0.55rem;
         align-content: start;
         padding: 1.1rem 1.15rem;
-        min-height: 10rem;
+        min-height: 9rem;
         border-radius: var(--radius-lg);
         border: 1px solid rgba(125, 211, 252, 0.12);
         background: linear-gradient(
             180deg,
             rgba(12, 28, 44, 0.96),
+            rgba(5, 13, 22, 0.88)
+        );
+    }
+
+    .hero-card--muted {
+        border-color: rgba(148, 163, 184, 0.16);
+        background: linear-gradient(
+            180deg,
+            rgba(12, 18, 30, 0.96),
             rgba(5, 13, 22, 0.88)
         );
     }
