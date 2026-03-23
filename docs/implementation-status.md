@@ -5,6 +5,11 @@ surface and should not be used as the source of truth for normative behavior.
 Use `docs/research-spec.md`, `docs/plan.md`, and `docs/validation-gates.md`
 for rules, sequencing, and gate truth conditions.
 
+The frontend section below describes implementation surfaces, not the intended
+product information architecture. A listed panel or component should not be
+read as a requirement that the product navigation expose it as a first-class
+entry point.
+
 ## Status Scope
 
 - status date: `2026-03-22`
@@ -198,34 +203,29 @@ Implemented behavior:
 
 ### Implemented Frontend Areas
 
-#### Research Run Workspace
+#### Prediction Studio Surface
 
-- `ResearchRunForm`
-- `ResearchRunInspector`
-- `ResearchRunMetrics`
-- `ResearchRunSignals`
-- `ResearchRunValidation`
+- `PredictionStudio`
+- staged draft and mapper for the existing research-run request contract
+- result review in the same surface through:
+  - `ResearchRunMetrics`
+  - `ResearchRunSignals`
+  - `ResearchRunValidation`
 
 Current coverage:
 
-- research-run submission
-- persisted run lookup
-- system-health display
-- P7 to P11 gate inspection
-- metrics, validation, and signal rendering for persisted run data
+- staged prediction workflow for `data -> feature -> model -> validation`
+- same-page result review after research-run submission
+- advanced details for persisted run lookup, system health, and P7 to P11
+  readiness checks
 
-#### Data Plane Workspace
+#### Maintenance Surface
 
-- `DataIngestionPanel`
-- `ReplayPanel`
-- `RecoveryDrillPanel`
-- `LifecyclePanel`
-- `ImportantEventPanel`
-- `TickArchivePanel`
-- `ExternalSignalPanel`
-- `PeerInferencePanel`
-- `ExecutionControlPanel`
-- `AdaptiveWorkflowPanel`
+- grouped operational panels for:
+  - manual data ingestion and recovery
+  - replay and tick-archive verification
+  - lifecycle and important-event correction
+  - factor, peer, execution, and adaptive diagnostics
 
 Current coverage:
 
