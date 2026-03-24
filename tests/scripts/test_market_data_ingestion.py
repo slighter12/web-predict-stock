@@ -1,3 +1,5 @@
+from datetime import date
+
 import pandas as pd
 import pytest
 import requests
@@ -62,6 +64,11 @@ def test_load_to_db_empty_summary():
     assert summary["validated_rows"] == 0
     assert summary["upserted_rows"] == 0
     assert summary["official_overrides"] == 0
+
+
+def test_sanitize_numeric_value_strips_html_tags():
+    assert scraper._sanitize_numeric_value("<p style='color:red'>+1,234</p>") == 1234.0
+    assert scraper._sanitize_numeric_value("<span>--</span>") == 0.0
 
 
 def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
@@ -428,6 +435,73 @@ def test_parse_yfinance_payload_body_replays_successfully():
     assert metadata.parser_version == scraper.YFINANCE_PARSER_VERSION
 
 
+def test_parse_twse_mi_index_payload_body_replays_successfully():
+    payload = """
+    {
+      "stat": "OK",
+      "tables": [
+        {
+          "fields": ["指數", "收盤指數"],
+          "data": [["發行量加權股價指數", "20,000"]]
+        },
+        {
+          "fields": [
+            "證券代號", "證券名稱", "成交股數", "成交筆數", "成交金額",
+            "開盤價", "最高價", "最低價", "收盤價", "漲跌(+/-)", "漲跌價差",
+            "最後揭示買價", "最後揭示買量", "最後揭示賣價", "最後揭示賣量", "本益比"
+          ],
+          "data": [
+            ["2330", "台積電", "1,000", "10", "10,000", "10", "11", "9", "10.5", "+", "0.5", "10.5", "1", "10.6", "2", "20"]
+          ]
+        }
+      ]
+    }
+    """
+
+    cleaned, metadata = scraper.parse_twse_mi_index_payload_body(
+        payload,
+        trading_date=date(2024, 1, 2),
+        raw_payload_id=301,
+    )
+
+    assert len(cleaned) == 1
+    assert cleaned.iloc[0]["symbol"] == "2330"
+    assert cleaned.iloc[0]["source"] == scraper.SOURCE_TWSE_MI_INDEX
+    assert metadata.raw_payload_id == 301
+    assert metadata.parser_version == scraper.TWSE_MI_INDEX_PARSER_VERSION
+
+
+def test_parse_tpex_aftertrading_payload_body_replays_successfully():
+    payload = """
+    {
+      "stat": "ok",
+      "tables": [
+        {
+          "fields": [
+            "Code", "Name", "Close ", "Change (%)", "Open ", "High ", "Low",
+            "Trade Vol. (shares) ", "Trade Amt. (NTD)"
+          ],
+          "data": [
+            ["8049", "ABC", "10.5", "+0.2", "10", "11", "9", "1,000", "10,000"]
+          ]
+        }
+      ]
+    }
+    """
+
+    cleaned, metadata = scraper.parse_tpex_aftertrading_payload_body(
+        payload,
+        trading_date=date(2024, 1, 2),
+        raw_payload_id=302,
+    )
+
+    assert len(cleaned) == 1
+    assert cleaned.iloc[0]["symbol"] == "8049"
+    assert cleaned.iloc[0]["source"] == scraper.SOURCE_TPEX_AFTERTRADING_OTC
+    assert metadata.raw_payload_id == 302
+    assert metadata.parser_version == scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION
+
+
 def test_replay_raw_ingest_record_rejects_unknown_source():
     raw_record = type(
         "RawRecord",
@@ -443,6 +517,190 @@ def test_replay_raw_ingest_record_rejects_unknown_source():
 
     with pytest.raises(ValueError, match="Unsupported source"):
         scraper.replay_raw_ingest_record(raw_record)
+
+
+def test_ingest_tw_market_batch_filters_to_active_universe(monkeypatch):
+    twse_df = pd.DataFrame(
+        [
+            {
+                "date": date(2024, 1, 2),
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_TWSE_MI_INDEX,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            },
+            {
+                "date": date(2024, 1, 2),
+                "symbol": "9999",
+                "market": "TW",
+                "source": scraper.SOURCE_TWSE_MI_INDEX,
+                "open": 12.0,
+                "high": 13.0,
+                "low": 11.0,
+                "close": 12.5,
+                "volume": 200,
+            },
+        ]
+    )
+    tpex_df = pd.DataFrame(
+        [
+            {
+                "date": date(2024, 1, 2),
+                "symbol": "8049",
+                "market": "TW",
+                "source": scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+                "open": 20.0,
+                "high": 21.0,
+                "low": 19.0,
+                "close": 20.5,
+                "volume": 300,
+            }
+        ]
+    )
+    captured = {}
+
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": {"2330", "2317"}, "TPEX": {"8049"}},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=twse_df,
+            raw_row_count=len(twse_df),
+            metadata=scraper.RawTraceMetadata(
+                raw_payload_id=401,
+                archive_object_reference="raw_ingest_audit:401",
+                parser_version=scraper.TWSE_MI_INDEX_PARSER_VERSION,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=tpex_df,
+            raw_row_count=len(tpex_df),
+            metadata=scraper.RawTraceMetadata(
+                raw_payload_id=402,
+                archive_object_reference="raw_ingest_audit:402",
+                parser_version=scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION,
+            ),
+        ),
+    )
+
+    def fake_load(df, metadata=None):
+        captured["symbols"] = sorted(df["symbol"].tolist())
+        captured["raw_payload_ids"] = sorted(df["raw_payload_id"].tolist())
+        return {
+            "input_rows": len(df),
+            "validated_rows": len(df),
+            "dropped_rows": 0,
+            "duplicates_removed": 0,
+            "null_rows_removed": 0,
+            "invalid_rows_removed": 0,
+            "gap_warnings": 0,
+            "upserted_rows": len(df),
+            "official_overrides": 0,
+        }
+
+    monkeypatch.setattr(scraper, "load_to_db", fake_load)
+
+    summary = scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 2))
+
+    assert captured["symbols"] == ["2330", "8049"]
+    assert captured["raw_payload_ids"] == [401, 402]
+    assert summary["universe_count"] == 3
+    assert summary["twse_rows"] == 2
+    assert summary["tpex_rows"] == 1
+    assert summary["filtered_rows"] == 2
+    assert summary["missing_symbol_count"] == 1
+    assert summary["upserted_rows"] == 2
+    assert summary["raw_payload_ids"] == [401, 402]
+    assert summary["errors"] == []
+
+
+def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):
+    tpex_df = pd.DataFrame(
+        [
+            {
+                "date": date(2024, 1, 2),
+                "symbol": "8049",
+                "market": "TW",
+                "source": scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+                "open": 20.0,
+                "high": 21.0,
+                "low": 19.0,
+                "close": 20.5,
+                "volume": 300,
+            }
+        ]
+    )
+
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": {"2330"}, "TPEX": {"8049"}},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            error_message="TWSE batch fetch failed: timeout",
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=tpex_df,
+            raw_row_count=len(tpex_df),
+            metadata=scraper.RawTraceMetadata(
+                raw_payload_id=501,
+                archive_object_reference="raw_ingest_audit:501",
+                parser_version=scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {
+            "input_rows": len(df),
+            "validated_rows": len(df),
+            "dropped_rows": 0,
+            "duplicates_removed": 0,
+            "null_rows_removed": 0,
+            "invalid_rows_removed": 0,
+            "gap_warnings": 0,
+            "upserted_rows": len(df),
+            "official_overrides": 0,
+        },
+    )
+
+    summary = scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 2))
+
+    assert summary["filtered_rows"] == 1
+    assert summary["missing_symbol_count"] == 1
+    assert summary["raw_payload_ids"] == [501]
+    assert summary["errors"] == [
+        {
+            "source_name": scraper.SOURCE_TWSE_MI_INDEX,
+            "message": "TWSE batch fetch failed: timeout",
+        }
+    ]
 
 
 def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):

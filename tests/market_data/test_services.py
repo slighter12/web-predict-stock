@@ -109,6 +109,29 @@ def test_ingest_market_data_normalizes_request(monkeypatch):
     assert result["backfill"]["raw_payload_id"] == 1
 
 
+def test_ingest_tw_market_batch_wraps_scraper(monkeypatch):
+    captured: dict = {}
+
+    def capture(**kwargs):
+        captured.update(kwargs)
+        return {"upserted_rows": 2, "errors": []}
+
+    monkeypatch.setattr(
+        data_ingestion_service.scraper, "ingest_tw_market_batch", capture
+    )
+
+    result = data_ingestion_service.ingest_tw_market_batch(
+        trading_date=datetime(2024, 1, 2, tzinfo=timezone.utc).date(),
+        refresh_universe=True,
+    )
+
+    assert captured == {
+        "trading_date": datetime(2024, 1, 2, tzinfo=timezone.utc).date(),
+        "refresh_universe": True,
+    }
+    assert result["upserted_rows"] == 2
+
+
 def test_ingest_market_data_wraps_value_error(monkeypatch):
     def raise_value_error(**kwargs):
         raise ValueError("bad input")
@@ -134,4 +157,30 @@ def test_ingest_market_data_wraps_unexpected_error(monkeypatch):
     with pytest.raises(DataAccessError, match="Failed to ingest market data."):
         data_ingestion_service.ingest_market_data(
             DataIngestionRequest(symbol="2330", market="TW", years=5)
+        )
+
+
+def test_ingest_tw_market_batch_wraps_unexpected_error(monkeypatch):
+    monkeypatch.setattr(
+        data_ingestion_service.scraper,
+        "ingest_tw_market_batch",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("db down")),
+    )
+
+    with pytest.raises(DataAccessError, match="Failed to ingest TW market batch data."):
+        data_ingestion_service.ingest_tw_market_batch(
+            trading_date=datetime(2024, 1, 2, tzinfo=timezone.utc).date()
+        )
+
+
+def test_ingest_tw_market_batch_wraps_value_error(monkeypatch):
+    monkeypatch.setattr(
+        data_ingestion_service.scraper,
+        "ingest_tw_market_batch",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("empty universe")),
+    )
+
+    with pytest.raises(UnsupportedConfigurationError, match="empty universe"):
+        data_ingestion_service.ingest_tw_market_batch(
+            trading_date=datetime(2024, 1, 2, tzinfo=timezone.utc).date()
         )

@@ -156,6 +156,12 @@ Run TW company profile crawler:
 .venv/bin/python -m scripts.crawl_tw_company_profiles
 ```
 
+Run TW market daily batch ingestion:
+
+```bash
+.venv/bin/python -m scripts.crawl_tw_daily_batch 2026-03-20 --refresh-universe
+```
+
 Run a local TWSE tick snapshot smoke test:
 
 ```bash

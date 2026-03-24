@@ -17,6 +17,7 @@ from backend.market_data.services.company_profiles import (
     count_active_tw_company_profiles,
     save_tw_company_profile,
 )
+from backend.market_data.services.tls_helpers import request_with_tls_fallback
 from backend.platform.errors import (
     DataAccessError,
     ExternalFetchError,
@@ -102,6 +103,18 @@ def _parse_listing_date(value: str | None) -> date | None:
         return None
 
 
+def _request_company_feed_with_tls_fallback(
+    *, url: str, timeout_seconds: int
+) -> requests.Response:
+    return request_with_tls_fallback(
+        method="GET",
+        url=url,
+        timeout_seconds=timeout_seconds,
+        logger=logger,
+        context_label="company feed fetch",
+    )
+
+
 def _fetch_company_feed(
     *,
     url_env: str,
@@ -115,7 +128,10 @@ def _fetch_company_feed(
     fetch_timestamp = utc_now()
     expected_context = f"source={source_name};market=TW"
     try:
-        response = requests.get(url, timeout=30)
+        response = _request_company_feed_with_tls_fallback(
+            url=url,
+            timeout_seconds=30,
+        )
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException as exc:

@@ -1,9 +1,10 @@
 import json
 import logging
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from io import StringIO
 
@@ -14,13 +15,12 @@ from sqlalchemy import text
 
 try:
     from backend.database import DailyOHLCV, RawIngestAudit, engine
-    from backend.market_data.services.tick_archive_provider import (
-        _build_ssl_context,
-        _ca_auto_download_enabled,
-        _download_ca_bundle,
-        _insecure_tls_fallback_enabled,
-        _resolve_tls_verify,
-        _SSLContextAdapter,
+    from backend.market_data.services.company_crawlers import crawl_tw_company_profiles
+    from backend.market_data.services.company_profiles import (
+        list_active_tw_company_profiles,
+    )
+    from backend.market_data.services.tls_helpers import (
+        request_with_tls_fallback,
     )
     from backend.platform.time import utc_now
 except ImportError:
@@ -37,8 +37,20 @@ logger = logging.getLogger(__name__)
 
 SOURCE_TWSE = "twse"
 SOURCE_YFINANCE = "yfinance"
+SOURCE_TWSE_MI_INDEX = "twse_mi_index"
+SOURCE_TPEX_AFTERTRADING_OTC = "tpex_aftertrading_otc"
 MARKET_TW = "TW"
 MARKET_US = "US"
+TWSE_BATCH_SYMBOL = "TWSE_BATCH_DAILY"
+TPEX_BATCH_SYMBOL = "TPEX_BATCH_DAILY"
+TWSE_MI_INDEX_TYPE = "ALLBUT0999"
+TPEX_AFTERTRADING_TYPE = "AL"
+OFFICIAL_BATCH_TIMEOUT_SECONDS = int(os.getenv("OFFICIAL_BATCH_TIMEOUT_SECONDS", "60"))
+OFFICIAL_SOURCES = (
+    SOURCE_TWSE,
+    SOURCE_TWSE_MI_INDEX,
+    SOURCE_TPEX_AFTERTRADING_OTC,
+)
 
 
 @dataclass
@@ -75,8 +87,19 @@ class RawTraceMetadata:
 
 TWSE_PARSER_VERSION = "twse_parser_v1"
 YFINANCE_PARSER_VERSION = "yfinance_parser_v1"
+TWSE_MI_INDEX_PARSER_VERSION = "twse_mi_index_v1"
+TPEX_AFTERTRADING_OTC_PARSER_VERSION = "tpex_aftertrading_otc_v1"
 FETCH_STATUS_SUCCESS = "success"
 FETCH_STATUS_FAILED = "failed"
+
+
+@dataclass
+class BatchFetchResult:
+    source_name: str
+    dataframe: pd.DataFrame
+    raw_row_count: int
+    metadata: RawTraceMetadata | None = None
+    error_message: str | None = None
 
 
 def persist_raw_ingest_record(
@@ -131,6 +154,76 @@ def to_yfinance_ticker(symbol: str, market: str) -> str:
     if market_code == MARKET_TW and "." not in symbol:
         return f"{symbol}.TW"
     return symbol
+
+
+def _normalize_field_name(value: str) -> str:
+    return " ".join(str(value).strip().lower().split())
+
+
+def _find_field_name(fields: list[str], aliases: tuple[str, ...]) -> str:
+    normalized = {_normalize_field_name(field): field for field in fields}
+    for alias in aliases:
+        matched = normalized.get(_normalize_field_name(alias))
+        if matched is not None:
+            return matched
+    raise ValueError(f"Required field aliases={aliases} were not found.")
+
+
+def _sanitize_numeric_value(value) -> float:
+    text = str(value).strip()
+    if text in {"", "--", "---", "----"}:
+        return 0.0
+    sanitized = re.sub(r"<[^>]+>", "", text).replace(",", "").strip()
+    numeric = pd.to_numeric(sanitized, errors="coerce")
+    if pd.isna(numeric):
+        return 0.0
+    return float(numeric)
+
+
+def _build_ohlcv_frame(
+    *,
+    rows: list[dict[str, object]],
+    trading_date: date,
+    source_name: str,
+    market: str,
+) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "date",
+                "symbol",
+                "market",
+                "source",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+            ]
+        )
+
+    df = pd.DataFrame(rows)
+    df["date"] = trading_date
+    df["market"] = market
+    df["source"] = source_name
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = df[col].map(_sanitize_numeric_value)
+    df["volume"] = df["volume"].astype(int)
+    return df[
+        ["date", "symbol", "market", "source", "open", "high", "low", "close", "volume"]
+    ]
+
+
+def _empty_batch_result(
+    source_name: str, error_message: str | None = None
+) -> BatchFetchResult:
+    return BatchFetchResult(
+        source_name=source_name,
+        dataframe=pd.DataFrame(),
+        raw_row_count=0,
+        metadata=None,
+        error_message=error_message,
+    )
 
 
 def validate_ohlcv_with_report(
@@ -317,6 +410,150 @@ def replay_raw_ingest_record(raw_record) -> tuple[pd.DataFrame, RawTraceMetadata
     )
 
 
+def resolve_tw_active_universe() -> dict[str, set[str]]:
+    universe = {"TWSE": set(), "TPEX": set()}
+    for record in list_active_tw_company_profiles(limit=0):
+        exchange = str(record.get("exchange") or "").upper()
+        symbol = str(record.get("symbol") or "").upper()
+        if exchange in universe and symbol:
+            universe[exchange].add(symbol)
+    return universe
+
+
+def parse_twse_mi_index_payload_body(
+    payload_body: str,
+    *,
+    trading_date: date,
+    raw_payload_id: int | None = None,
+) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    payload = json.loads(payload_body)
+    if payload.get("stat") != "OK":
+        raise ValueError("TWSE MI_INDEX payload is not replayable.")
+
+    tables = payload.get("tables") or []
+    selected_table = None
+    for table in tables:
+        fields = [str(field).strip() for field in table.get("fields", [])]
+        normalized = {_normalize_field_name(field) for field in fields}
+        if "證券代號" in fields or "security code" in normalized:
+            selected_table = table
+            break
+    if selected_table is None:
+        raise ValueError("TWSE MI_INDEX stock table was not found.")
+
+    fields = [str(field).strip() for field in selected_table.get("fields", [])]
+    field_map = {
+        "symbol": _find_field_name(fields, ("證券代號", "security code", "code")),
+        "open": _find_field_name(fields, ("開盤價", "open")),
+        "high": _find_field_name(fields, ("最高價", "high")),
+        "low": _find_field_name(fields, ("最低價", "low")),
+        "close": _find_field_name(fields, ("收盤價", "close")),
+        "volume": _find_field_name(
+            fields,
+            ("成交股數", "trade volume (shares)", "trade vol. (shares)"),
+        ),
+    }
+
+    rows = []
+    for item in selected_table.get("data", []):
+        if not isinstance(item, list):
+            continue
+        row = dict(zip(fields, item))
+        rows.append(
+            {
+                "symbol": str(row[field_map["symbol"]]).strip().upper(),
+                "open": row[field_map["open"]],
+                "high": row[field_map["high"]],
+                "low": row[field_map["low"]],
+                "close": row[field_map["close"]],
+                "volume": row[field_map["volume"]],
+            }
+        )
+
+    return _build_ohlcv_frame(
+        rows=rows,
+        trading_date=trading_date,
+        source_name=SOURCE_TWSE_MI_INDEX,
+        market=MARKET_TW,
+    ), RawTraceMetadata.from_ingest(raw_payload_id, TWSE_MI_INDEX_PARSER_VERSION)
+
+
+def parse_tpex_aftertrading_payload_body(
+    payload_body: str,
+    *,
+    trading_date: date,
+    raw_payload_id: int | None = None,
+) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    payload = json.loads(payload_body)
+    if str(payload.get("stat")).lower() != "ok":
+        raise ValueError("TPEX afterTrading payload is not replayable.")
+
+    tables = payload.get("tables") or []
+    if not tables:
+        raise ValueError("TPEX afterTrading payload does not contain tables.")
+    selected_table = tables[0]
+    fields = [str(field).strip() for field in selected_table.get("fields", [])]
+    field_map = {
+        "symbol": _find_field_name(fields, ("代號", "code", "security code")),
+        "open": _find_field_name(fields, ("開盤", "open", "open ")),
+        "high": _find_field_name(fields, ("最高", "high", "high ")),
+        "low": _find_field_name(fields, ("最低", "low")),
+        "close": _find_field_name(fields, ("收盤", "close", "close ")),
+        "volume": _find_field_name(
+            fields,
+            ("成交股數", "trade vol. (shares)", "trade volume (shares)"),
+        ),
+    }
+
+    rows = []
+    for item in selected_table.get("data", []):
+        if not isinstance(item, list):
+            continue
+        row = dict(zip(fields, item))
+        rows.append(
+            {
+                "symbol": str(row[field_map["symbol"]]).strip().upper(),
+                "open": row[field_map["open"]],
+                "high": row[field_map["high"]],
+                "low": row[field_map["low"]],
+                "close": row[field_map["close"]],
+                "volume": row[field_map["volume"]],
+            }
+        )
+
+    return _build_ohlcv_frame(
+        rows=rows,
+        trading_date=trading_date,
+        source_name=SOURCE_TPEX_AFTERTRADING_OTC,
+        market=MARKET_TW,
+    ), RawTraceMetadata.from_ingest(
+        raw_payload_id, TPEX_AFTERTRADING_OTC_PARSER_VERSION
+    )
+
+
+def _filter_batch_frame_to_universe(
+    df: pd.DataFrame,
+    *,
+    allowed_symbols: set[str],
+) -> pd.DataFrame:
+    if df.empty:
+        return df
+    return df[df["symbol"].isin(allowed_symbols)].copy()
+
+
+def _attach_frame_metadata(
+    df: pd.DataFrame,
+    metadata: RawTraceMetadata | None,
+) -> pd.DataFrame:
+    enriched = df.copy()
+    enriched["raw_payload_id"] = metadata.raw_payload_id if metadata else None
+    enriched["archive_object_reference"] = (
+        metadata.archive_object_reference if metadata else None
+    )
+    enriched["parser_version"] = metadata.parser_version if metadata else None
+    return enriched
+
+
 def scrape_twse_data(
     symbol: str, date_str: str | None = None
 ) -> tuple[pd.DataFrame, RawTraceMetadata | None]:
@@ -348,7 +585,9 @@ def scrape_twse_data(
     raw_payload_id = None
     try:
         response = _request_twse_daily_report(
-            url=url, headers=headers, timeout_seconds=30
+            url=url,
+            headers=headers,
+            timeout_seconds=OFFICIAL_BATCH_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload_body = response.text
@@ -413,61 +652,184 @@ def scrape_twse_data(
 def _request_twse_daily_report(
     *, url: str, headers: dict[str, str], timeout_seconds: int
 ) -> requests.Response:
-    verify = _resolve_tls_verify()
-    try:
-        return _perform_tls_request(
-            url=url,
-            headers=headers,
-            timeout_seconds=timeout_seconds,
-            verify=verify,
-        )
-    except requests.exceptions.SSLError:
-        response = None
-        if _ca_auto_download_enabled():
-            try:
-                downloaded_verify = _download_ca_bundle()
-                response = _perform_tls_request(
-                    url=url,
-                    headers=headers,
-                    timeout_seconds=timeout_seconds,
-                    verify=downloaded_verify,
-                )
-            except requests.RequestException:
-                logger.exception(
-                    "Failed TWSE daily report fetch after CA download url=%s", url
-                )
-            except Exception:
-                logger.exception("Failed to download TWSE CA bundle for url=%s", url)
-
-        if response is None and _insecure_tls_fallback_enabled():
-            logger.warning(
-                "Retrying TWSE daily report without TLS verification url=%s", url
-            )
-            response = _perform_tls_request(
-                url=url,
-                headers=headers,
-                timeout_seconds=timeout_seconds,
-                verify=False,
-            )
-
-        if response is None:
-            raise
-        return response
+    return request_with_tls_fallback(
+        method="GET",
+        url=url,
+        headers=headers,
+        timeout_seconds=timeout_seconds,
+        logger=logger,
+        context_label="TWSE daily report fetch",
+    )
 
 
-def _perform_tls_request(
+def _request_tpex_daily_report(
     *,
     url: str,
     headers: dict[str, str],
     timeout_seconds: int,
-    verify: bool | str,
+    data: dict[str, str],
 ) -> requests.Response:
-    if verify is False:
-        return requests.get(url, headers=headers, timeout=timeout_seconds, verify=False)
+    return request_with_tls_fallback(
+        method="POST",
+        url=url,
+        headers=headers,
+        data=data,
+        timeout_seconds=timeout_seconds,
+        logger=logger,
+        context_label="TPEX daily report fetch",
+    )
 
-    session = requests.Session()
-    session.mount("https://", _SSLContextAdapter(_build_ssl_context(verify)))
-    return session.get(url, headers=headers, timeout=timeout_seconds)
+
+def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
+    trading_date_str = trading_date.strftime("%Y%m%d")
+    fetch_timestamp = utc_now()
+    payload_body = ""
+    expected_context = f"market={MARKET_TW};exchange=TWSE;date={trading_date_str};type={TWSE_MI_INDEX_TYPE}"
+    _persist = partial(
+        persist_raw_ingest_record,
+        source_name=SOURCE_TWSE_MI_INDEX,
+        symbol=TWSE_BATCH_SYMBOL,
+        market=MARKET_TW,
+        parser_version=TWSE_MI_INDEX_PARSER_VERSION,
+        expected_symbol_context=expected_context,
+        fetch_timestamp=fetch_timestamp,
+    )
+    url = (
+        "https://www.twse.com.tw/exchangeReport/MI_INDEX"
+        f"?response=json&date={trading_date_str}&type={TWSE_MI_INDEX_TYPE}"
+    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
+    }
+
+    try:
+        response = _request_twse_daily_report(
+            url=url, headers=headers, timeout_seconds=30
+        )
+        response.raise_for_status()
+        payload_body = response.text
+    except requests.exceptions.RequestException as exc:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=SOURCE_TWSE_MI_INDEX,
+        )
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            error_message=f"TWSE batch fetch failed: {exc}",
+        )
+
+    raw_payload_id = _persist(
+        fetch_status=FETCH_STATUS_SUCCESS,
+        payload_body=payload_body,
+    )
+
+    try:
+        dataframe, metadata = parse_twse_mi_index_payload_body(
+            payload_body,
+            trading_date=trading_date,
+            raw_payload_id=raw_payload_id,
+        )
+    except Exception as exc:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TWSE_MI_INDEX} parse failure",
+        )
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            error_message=f"TWSE batch parse failed: {exc}",
+        )
+
+    return BatchFetchResult(
+        source_name=SOURCE_TWSE_MI_INDEX,
+        dataframe=dataframe,
+        raw_row_count=len(dataframe),
+        metadata=metadata,
+    )
+
+
+def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
+    trading_date_str = trading_date.strftime("%Y/%m/%d")
+    fetch_timestamp = utc_now()
+    payload_body = ""
+    expected_context = f"market={MARKET_TW};exchange=TPEX;date={trading_date_str};type={TPEX_AFTERTRADING_TYPE}"
+    _persist = partial(
+        persist_raw_ingest_record,
+        source_name=SOURCE_TPEX_AFTERTRADING_OTC,
+        symbol=TPEX_BATCH_SYMBOL,
+        market=MARKET_TW,
+        parser_version=TPEX_AFTERTRADING_OTC_PARSER_VERSION,
+        expected_symbol_context=expected_context,
+        fetch_timestamp=fetch_timestamp,
+    )
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        )
+    }
+    payload = {
+        "date": trading_date_str,
+        "type": TPEX_AFTERTRADING_TYPE,
+        "response": "json",
+    }
+
+    try:
+        response = _request_tpex_daily_report(
+            url="https://www.tpex.org.tw/www/en-us/afterTrading/otc",
+            headers=headers,
+            timeout_seconds=OFFICIAL_BATCH_TIMEOUT_SECONDS,
+            data=payload,
+        )
+        response.raise_for_status()
+        payload_body = response.text
+    except requests.exceptions.RequestException as exc:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=SOURCE_TPEX_AFTERTRADING_OTC,
+        )
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            error_message=f"TPEX batch fetch failed: {exc}",
+        )
+
+    raw_payload_id = _persist(
+        fetch_status=FETCH_STATUS_SUCCESS,
+        payload_body=payload_body,
+    )
+
+    try:
+        dataframe, metadata = parse_tpex_aftertrading_payload_body(
+            payload_body,
+            trading_date=trading_date,
+            raw_payload_id=raw_payload_id,
+        )
+    except Exception as exc:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TPEX_AFTERTRADING_OTC} parse failure",
+        )
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            error_message=f"TPEX batch parse failed: {exc}",
+        )
+
+    return BatchFetchResult(
+        source_name=SOURCE_TPEX_AFTERTRADING_OTC,
+        dataframe=dataframe,
+        raw_row_count=len(dataframe),
+        metadata=metadata,
+    )
 
 
 def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> dict:
@@ -493,11 +855,38 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
         return summary
 
     temp_table_name = "daily_ohlcv_temp"
+    if not OFFICIAL_SOURCES:
+        raise ValueError("OFFICIAL_SOURCES must not be empty.")
+    official_source_params = {
+        f"official_source_{index}": source
+        for index, source in enumerate(OFFICIAL_SOURCES, start=1)
+    }
+    official_source_placeholders = ",\n                                ".join(
+        f":official_source_{index}" for index in range(1, len(OFFICIAL_SOURCES) + 1)
+    )
     try:
         validated_df = validated_df.copy()
-        validated_df["raw_payload_id"] = raw_payload_id
-        validated_df["archive_object_reference"] = archive_object_reference
-        validated_df["parser_version"] = parser_version
+        if "raw_payload_id" in validated_df.columns:
+            validated_df["raw_payload_id"] = validated_df["raw_payload_id"].where(
+                validated_df["raw_payload_id"].notna(), raw_payload_id
+            )
+        else:
+            validated_df["raw_payload_id"] = raw_payload_id
+        if "archive_object_reference" in validated_df.columns:
+            validated_df["archive_object_reference"] = validated_df[
+                "archive_object_reference"
+            ].where(
+                validated_df["archive_object_reference"].notna(),
+                archive_object_reference,
+            )
+        else:
+            validated_df["archive_object_reference"] = archive_object_reference
+        if "parser_version" in validated_df.columns:
+            validated_df["parser_version"] = validated_df["parser_version"].where(
+                validated_df["parser_version"].notna(), parser_version
+            )
+        else:
+            validated_df["parser_version"] = parser_version
         with engine.connect() as conn:
             with conn.begin():
                 validated_df.to_sql(
@@ -512,11 +901,18 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                         INNER JOIN {temp_table_name} incoming
                             ON existing.date = incoming.date
                            AND existing.symbol = incoming.symbol
-                        WHERE incoming.source = :official_source
-                          AND existing.source != :official_source
+                        WHERE incoming.source IN (
+                                {official_source_placeholders}
+                        )
+                          AND (
+                            existing.source IS NULL
+                            OR existing.source NOT IN (
+                                {official_source_placeholders}
+                            )
+                          )
                         """
                     ),
-                    {"official_source": SOURCE_TWSE},
+                    official_source_params,
                 ).scalar_one()
 
                 result = conn.execute(
@@ -540,12 +936,16 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                             raw_payload_id = EXCLUDED.raw_payload_id,
                             archive_object_reference = EXCLUDED.archive_object_reference,
                             parser_version = EXCLUDED.parser_version
-                        WHERE EXCLUDED.source = :official_source
+                        WHERE EXCLUDED.source IN (
+                                {official_source_placeholders}
+                            )
                            OR {DailyOHLCV.__tablename__}.source IS NULL
-                           OR {DailyOHLCV.__tablename__}.source != :official_source
+                           OR {DailyOHLCV.__tablename__}.source NOT IN (
+                                {official_source_placeholders}
+                            )
                         """
                     ),
-                    {"official_source": SOURCE_TWSE},
+                    official_source_params,
                 )
         summary["official_overrides"] = int(override_count)
         summary["upserted_rows"] = (
@@ -641,6 +1041,79 @@ def backfill_history(
         market,
     )
     return cleaned, metadata
+
+
+def ingest_tw_market_batch(
+    *,
+    trading_date: date,
+    refresh_universe: bool = False,
+) -> dict:
+    universe_refresh_summary = None
+    if refresh_universe:
+        universe_refresh_summary = crawl_tw_company_profiles()
+
+    universe_by_exchange = resolve_tw_active_universe()
+    universe_count = sum(len(symbols) for symbols in universe_by_exchange.values())
+    if universe_count == 0:
+        raise ValueError("Active TW company universe is empty.")
+
+    twse_result = fetch_twse_market_batch(trading_date)
+    tpex_result = fetch_tpex_market_batch(trading_date)
+
+    filtered_frames = []
+    errors = []
+    missing_symbol_count = 0
+    for exchange, result in (("TWSE", twse_result), ("TPEX", tpex_result)):
+        allowed_symbols = universe_by_exchange[exchange]
+        if result.error_message:
+            errors.append(
+                {
+                    "source_name": result.source_name,
+                    "message": result.error_message,
+                }
+            )
+            missing_symbol_count += len(allowed_symbols)
+            continue
+
+        filtered = _filter_batch_frame_to_universe(
+            result.dataframe,
+            allowed_symbols=allowed_symbols,
+        )
+        validated_filtered, _ = validate_ohlcv_with_report(
+            filtered,
+            label=f"{exchange.lower()}_batch_missing",
+        )
+        missing_symbol_count += len(allowed_symbols - set(validated_filtered["symbol"]))
+        filtered_frames.append(_attach_frame_metadata(filtered, result.metadata))
+
+    combined_df = (
+        pd.concat(filtered_frames, ignore_index=True)
+        if filtered_frames
+        else pd.DataFrame()
+    )
+    load_summary = load_to_db(combined_df)
+    summary = {
+        "market": MARKET_TW,
+        "trading_date": trading_date.isoformat(),
+        "refresh_universe": refresh_universe,
+        "universe_count": universe_count,
+        "twse_rows": twse_result.raw_row_count,
+        "tpex_rows": tpex_result.raw_row_count,
+        "filtered_rows": len(combined_df),
+        "missing_symbol_count": missing_symbol_count,
+        "upserted_rows": load_summary["upserted_rows"],
+        "validated_rows": load_summary["validated_rows"],
+        "official_overrides": load_summary["official_overrides"],
+        "raw_payload_ids": [
+            metadata.raw_payload_id
+            for metadata in (twse_result.metadata, tpex_result.metadata)
+            if metadata is not None and metadata.raw_payload_id is not None
+        ],
+        "errors": errors,
+    }
+    if universe_refresh_summary is not None:
+        summary["universe_refresh"] = universe_refresh_summary
+    return summary
 
 
 def ingest_symbol(
