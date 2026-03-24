@@ -2,17 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import ssl
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import certifi
 import requests
-from requests.adapters import HTTPAdapter
 
+from backend.market_data.services import tls_helpers
 from backend.platform.errors import ExternalFetchError
 
 logger = logging.getLogger(__name__)
@@ -21,62 +18,29 @@ TWSE_PUBLIC_SNAPSHOT_SOURCE = "twse_public_snapshot"
 TWSE_PUBLIC_SNAPSHOT_PARSER_VERSION = "twse_public_snapshot_parser_v1"
 TWSE_PUBLIC_SNAPSHOT_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 _TW_TZ = ZoneInfo("Asia/Taipei")
-_DEFAULT_CA_CACHE_PATH = (
-    Path(__file__).resolve().parents[2] / "var" / "certs" / "twse-mis-ca.pem"
-)
 
 
-def _env_flag(name: str) -> bool:
-    return (os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _ca_bundle_target_path() -> Path:
-    raw_path = (os.getenv("TWSE_MIS_CA_BUNDLE") or "").strip()
-    if raw_path:
-        return Path(raw_path).expanduser()
-    raw_cache_path = (os.getenv("TWSE_MIS_CA_CACHE_PATH") or "").strip()
-    if raw_cache_path:
-        return Path(raw_cache_path).expanduser()
-    return _DEFAULT_CA_CACHE_PATH
-
-
-def _ca_bundle_download_url() -> str | None:
-    raw_url = (os.getenv("TWSE_MIS_CA_BUNDLE_URL") or "").strip()
-    return raw_url or None
-
-
-def _ca_auto_download_enabled() -> bool:
-    return _env_flag("TWSE_MIS_CA_AUTO_DOWNLOAD")
-
-
-def _insecure_tls_fallback_enabled() -> bool:
-    return _env_flag("TWSE_MIS_ENABLE_INSECURE_FALLBACK")
+_env_flag = tls_helpers.env_flag
+_ca_bundle_target_path = tls_helpers.ca_bundle_target_path
+_ca_bundle_download_url = tls_helpers.ca_bundle_download_url
+_ca_auto_download_enabled = tls_helpers.ca_auto_download_enabled
+_insecure_tls_fallback_enabled = tls_helpers.insecure_tls_fallback_enabled
+_build_ssl_context = tls_helpers.build_ssl_context
+_SSLContextAdapter = tls_helpers.SSLContextAdapter
 
 
 def _download_ca_bundle() -> str:
-    download_url = _ca_bundle_download_url()
-    if not download_url:
-        raise ValueError("TWSE MIS CA bundle URL is not configured.")
-
-    target_path = _ca_bundle_target_path()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    response = requests.get(
-        download_url,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=30,
+    return tls_helpers.download_ca_bundle(
+        download_url=_ca_bundle_download_url(),
+        target_path=_ca_bundle_target_path(),
     )
-    response.raise_for_status()
-    target_path.write_bytes(response.content)
-    return str(target_path)
 
 
 def _resolve_tls_verify() -> bool | str:
-    ca_bundle_path = _ca_bundle_target_path()
-    if ca_bundle_path.exists():
-        return str(ca_bundle_path)
-    if _env_flag("TWSE_MIS_SKIP_TLS_VERIFY"):
-        return False
-    return certifi.where()
+    return tls_helpers.resolve_tls_verify(
+        bundle_path=_ca_bundle_target_path(),
+        skip_tls_verify=_env_flag("TWSE_MIS_SKIP_TLS_VERIFY"),
+    )
 
 
 def _request_snapshot(
@@ -103,31 +67,6 @@ def _request_snapshot(
         headers={"User-Agent": "Mozilla/5.0"},
         timeout=timeout_seconds,
     )
-
-
-def _build_ssl_context(verify: bool | str) -> ssl.SSLContext:
-    if verify is True:
-        context = ssl.create_default_context()
-    else:
-        context = ssl.create_default_context(cafile=str(verify))
-    if hasattr(ssl, "VERIFY_X509_STRICT"):
-        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    return context
-
-
-class _SSLContextAdapter(HTTPAdapter):
-    def __init__(self, ssl_context: ssl.SSLContext, **kwargs: Any) -> None:
-        self._ssl_context = ssl_context
-        super().__init__(**kwargs)
-
-    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
-        pool_kwargs["ssl_context"] = self._ssl_context
-        return super().init_poolmanager(
-            connections,
-            maxsize,
-            block=block,
-            **pool_kwargs,
-        )
 
 
 def _split_field(value: str | None) -> list[str]:
@@ -292,7 +231,9 @@ def fetch_twse_public_snapshot(
                     "Failed to fetch TWSE public snapshot with insecure fallback symbol_count=%s",
                     len(symbols),
                 )
-                raise ExternalFetchError("Failed to fetch TWSE public snapshot.") from exc
+                raise ExternalFetchError(
+                    "Failed to fetch TWSE public snapshot."
+                ) from exc
 
         if response is None:
             logger.exception(

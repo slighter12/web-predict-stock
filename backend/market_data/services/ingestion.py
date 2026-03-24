@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from backend.market_data.contracts.operations import DataIngestionRequest
 from backend.market_data.services._normalization import clean_optional_text
@@ -8,6 +9,43 @@ from backend.platform.errors import DataAccessError, UnsupportedConfigurationErr
 from scripts import market_data_ingestion as scraper
 
 logger = logging.getLogger(__name__)
+
+
+def ingest_tw_market_batch(
+    *,
+    trading_date: date,
+    refresh_universe: bool = False,
+) -> dict:
+    logger.info(
+        "Starting TW market batch ingestion trading_date=%s refresh_universe=%s",
+        trading_date,
+        refresh_universe,
+    )
+    try:
+        summary = scraper.ingest_tw_market_batch(
+            trading_date=trading_date,
+            refresh_universe=refresh_universe,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "TW market batch ingestion rejected trading_date=%s reason=%s",
+            trading_date,
+            exc,
+        )
+        raise UnsupportedConfigurationError(str(exc)) from exc
+    except Exception as exc:
+        logger.exception(
+            "TW market batch ingestion failed trading_date=%s", trading_date
+        )
+        raise DataAccessError("Failed to ingest TW market batch data.") from exc
+
+    logger.info(
+        "Completed TW market batch ingestion trading_date=%s upserted_rows=%s errors=%s",
+        trading_date,
+        summary.get("upserted_rows"),
+        len(summary.get("errors", [])),
+    )
+    return summary
 
 
 def ingest_market_data(request: DataIngestionRequest) -> dict:
