@@ -1,247 +1,317 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    import PredictionStudio from "./PredictionStudio.svelte";
-    import WorkspaceSection from "./layout/WorkspaceSection.svelte";
+    import { ApiError, fetchResearchGate } from "../api";
+    import { buildCapabilityReadinessMap } from "../state/researchWorkflow";
+    import type {
+        ResearchPhaseGateResponse,
+        ResearchRunResponse,
+        ResearchSubmissionSummary,
+    } from "../types";
+    import OperationsWorkspace from "./OperationsWorkspace.svelte";
+    import ResearchWorkspace from "./ResearchWorkspace.svelte";
+    import RunReviewWorkspace from "./RunReviewWorkspace.svelte";
 
-    type SvelteModule = {
-        default: new (...args: never[]) => unknown;
+    type SurfaceId = "research" | "review" | "operations";
+
+    let activeSurface: SurfaceId = "research";
+    let latestResult: ResearchRunResponse | null = null;
+    let latestSubmission: ResearchSubmissionSummary | null = null;
+
+    const gatePhases = ["p7", "p8", "p9", "p10", "p11"] as const;
+    let gates: ResearchPhaseGateResponse[] = [];
+    let gateLoadError: string | null = null;
+
+    const loadGateReadiness = async () => {
+        const nextGates: ResearchPhaseGateResponse[] = [];
+        const failures: string[] = [];
+
+        for (const phase of gatePhases) {
+            try {
+                nextGates.push(await fetchResearchGate(phase));
+            } catch (error) {
+                failures.push(
+                    error instanceof ApiError
+                        ? `${phase.toUpperCase()}: ${error.code}`
+                        : `${phase.toUpperCase()}: unavailable`,
+                );
+            }
+        }
+
+        gates = nextGates;
+        gateLoadError = failures.length ? failures.join(" / ") : null;
     };
 
-    let maintenanceWorkspacePromise: Promise<SvelteModule> | null = null;
-    let maintenanceLoadError: string | null = null;
+    const setSurface = (surfaceId: SurfaceId) => {
+        activeSurface = surfaceId;
+    };
 
-    const commandDeck = [
-        {
-            href: "#prediction-studio",
-            label: "Prediction Studio",
-            detail: "Build the feature, model, validation, and result flow in one surface.",
-        },
-        {
-            href: "#maintenance-workspace",
-            label: "Maintenance",
-            detail: "Open repair, replay, event correction, and execution diagnostics only when the workflow needs intervention.",
-        },
-    ];
-
-    function loadMaintenanceWorkspace() {
-        if (maintenanceWorkspacePromise) {
-            return;
-        }
-
-        maintenanceLoadError = null;
-        maintenanceWorkspacePromise =
-            import("./MaintenanceWorkspace.svelte").catch((error) => {
-                maintenanceLoadError =
-                    error instanceof Error
-                        ? error.message
-                        : "Unable to load maintenance workspace.";
-                maintenanceWorkspacePromise = null;
-                throw error;
-            });
-    }
+    const handleRunCreated = (
+        event: CustomEvent<{
+            result: ResearchRunResponse;
+            summary: ResearchSubmissionSummary;
+        }>,
+    ) => {
+        latestResult = event.detail.result;
+        latestSubmission = event.detail.summary;
+        activeSurface = "review";
+    };
 
     onMount(() => {
-        let isDisposed = false;
-
-        const queueLoad = () => {
-            if (!isDisposed) {
-                loadMaintenanceWorkspace();
-            }
-        };
-
-        if (typeof window.requestIdleCallback === "function") {
-            const handle = window.requestIdleCallback(queueLoad, {
-                timeout: 500,
-            });
-
-            return () => {
-                isDisposed = true;
-                window.cancelIdleCallback(handle);
-            };
-        }
-
-        const timeoutId = window.setTimeout(queueLoad, 180);
-
-        return () => {
-            isDisposed = true;
-            window.clearTimeout(timeoutId);
-        };
+        void loadGateReadiness();
     });
+
+    $: capabilityReadiness = buildCapabilityReadinessMap(gates);
+    $: readinessCounts = Object.values(capabilityReadiness).reduce(
+        (summary, readiness) => {
+            summary[readiness.status] += 1;
+            return summary;
+        },
+        {
+            available: 0,
+            setup_required: 0,
+            gated: 0,
+            not_implemented: 0,
+        },
+    );
 </script>
 
-<section class="command-shell">
-    <div class="command-shell__intro">
-        <p class="eyebrow">Workspace Overview</p>
-        <h2>
-            Prediction first. Maintenance only when the workflow needs repair.
-        </h2>
-        <p class="command-shell__summary">
-            Start with Prediction Studio to build the feature and model flow.
-            Open Maintenance only for replay, recovery, event correction, or
-            execution diagnostics.
-        </p>
-    </div>
+<div class="dashboard-shell">
+    <section class="surface shell-hero">
+        <div class="shell-hero__copy">
+            <p class="eyebrow">Research Workbench V2</p>
+            <h2>
+                Build research first, review it as a decision, and only open
+                operations when the data plane actually needs repair.
+            </h2>
+            <p class="muted">
+                The new shell separates research workflow, run review, and
+                operations so ML expansion no longer has to live inside a single
+                overloaded page.
+            </p>
+        </div>
 
-    <div class="command-shell__callout">
-        Prediction Studio is the primary path. Maintenance stays available for
-        repair and diagnostics, but it no longer competes with the modeling
-        flow.
-    </div>
-
-    <nav class="workspace-nav" aria-label="Workspace navigation">
-        {#each commandDeck as item}
-            <a href={item.href} class="workspace-nav__link">
-                <span>{item.label}</span>
-                <strong>{item.detail}</strong>
-            </a>
-        {/each}
-    </nav>
-</section>
-
-<div class="dashboard-grid">
-    <PredictionStudio />
-
-    {#if maintenanceWorkspacePromise}
-        {#await maintenanceWorkspacePromise}
-            <WorkspaceSection
-                id="maintenance-workspace"
-                eyebrow="Maintenance"
-                title="Maintenance"
-                description="Loading replay, repair, and diagnostics tools."
-            >
-                <div class="workspace-placeholder">
-                    Loading maintenance workspace...
-                </div>
-            </WorkspaceSection>
-        {:then maintenanceWorkspaceModule}
-            <svelte:component this={maintenanceWorkspaceModule.default} />
-        {:catch}
-            <WorkspaceSection
-                id="maintenance-workspace"
-                eyebrow="Maintenance"
-                title="Maintenance"
-                description="Replay, repair, and diagnostics tools stay outside the primary prediction flow."
-            >
-                <p class="workspace-error">
-                    {maintenanceLoadError ??
-                        "Unable to load maintenance workspace."}
+        <div class="shell-hero__meta">
+            <div class="meta-card">
+                <span>Research</span>
+                <strong>Primary path</strong>
+                <p>
+                    Templates, capabilities, model family selection, and run
+                    submission.
                 </p>
-            </WorkspaceSection>
-        {/await}
-    {:else}
-        <WorkspaceSection
-            id="maintenance-workspace"
-            eyebrow="Maintenance"
-            title="Maintenance"
-            description="Replay, repair, and diagnostics tools stay outside the primary prediction flow."
-        >
-            <div class="workspace-placeholder">
-                Preparing maintenance workspace...
             </div>
-        </WorkspaceSection>
+            <div class="meta-card">
+                <span>Run Review</span>
+                <strong>Decision view</strong>
+                <p>
+                    Outcome, baseline verdict, comparison eligibility, and
+                    governance context.
+                </p>
+            </div>
+            <div class="meta-card">
+                <span>Operations</span>
+                <strong>Secondary path</strong>
+                <p>
+                    Repair, replay, tick archive, lifecycle correction, and
+                    event fixes.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section class="surface shell-nav">
+        <div class="surface-header">
+            <div>
+                <p class="eyebrow">Navigation</p>
+                <h3>Choose the surface you want</h3>
+            </div>
+            <div class="readiness-strip">
+                <span>{readinessCounts.available} available</span>
+                <span>{readinessCounts.setup_required} setup required</span>
+                <span>{readinessCounts.gated} gated</span>
+                {#if gateLoadError}
+                    <span class="readiness-strip__warning">{gateLoadError}</span
+                    >
+                {/if}
+            </div>
+        </div>
+
+        <div class="surface-nav">
+            <button
+                type="button"
+                class:surface-nav__button={true}
+                class:surface-nav__button--active={activeSurface === "research"}
+                onclick={() => setSurface("research")}
+            >
+                <span>Research</span>
+                <strong>Start from a template and run a workflow</strong>
+            </button>
+            <button
+                type="button"
+                class:surface-nav__button={true}
+                class:surface-nav__button--active={activeSurface === "review"}
+                onclick={() => setSurface("review")}
+            >
+                <span>Run Review</span>
+                <strong>
+                    {latestResult
+                        ? `Latest run ${latestResult.run_id} is ready to review`
+                        : "Review the latest result or load a persisted run"}
+                </strong>
+            </button>
+            <button
+                type="button"
+                class:surface-nav__button={true}
+                class:surface-nav__button--active={activeSurface ===
+                    "operations"}
+                onclick={() => setSurface("operations")}
+            >
+                <span>Operations</span>
+                <strong
+                    >Repair, replay, archive, and market-state correction</strong
+                >
+            </button>
+        </div>
+    </section>
+
+    {#if activeSurface === "research"}
+        <ResearchWorkspace
+            {capabilityReadiness}
+            on:runcreated={handleRunCreated}
+        />
+    {/if}
+
+    {#if activeSurface === "review"}
+        <RunReviewWorkspace
+            {capabilityReadiness}
+            {latestResult}
+            {latestSubmission}
+        />
+    {/if}
+
+    {#if activeSurface === "operations"}
+        <OperationsWorkspace />
     {/if}
 </div>
 
 <style lang="scss">
-    .command-shell {
+    .dashboard-shell,
+    .shell-hero__meta,
+    .surface-nav {
         display: grid;
-        gap: 1rem;
-        padding: 1.2rem;
-        border-radius: var(--radius-xl);
-        border: 1px solid var(--border-subtle);
-        background:
-            linear-gradient(
-                180deg,
-                rgba(8, 21, 35, 0.92),
-                rgba(5, 13, 22, 0.88)
-            ),
-            var(--surface-raised);
-        box-shadow: var(--shadow-soft);
+        gap: var(--space-4);
     }
 
-    .command-shell__intro {
+    .shell-hero {
+        grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+        align-items: stretch;
+        gap: var(--space-5);
+        background:
+            linear-gradient(
+                135deg,
+                rgba(10, 31, 44, 0.96),
+                rgba(8, 20, 34, 0.94)
+            ),
+            var(--surface-1);
+    }
+
+    .shell-hero__copy {
         display: grid;
-        gap: 0.45rem;
-        max-width: 70ch;
+        gap: var(--space-3);
+        align-content: start;
+    }
+
+    h2,
+    h3,
+    p {
+        margin: 0;
     }
 
     h2 {
-        margin: 0;
-        font-size: clamp(1.8rem, 3vw, 2.6rem);
-        line-height: 1.02;
+        font-size: clamp(2rem, 4vw, 3.3rem);
+        line-height: 1.05;
         letter-spacing: -0.04em;
     }
 
-    .command-shell__summary {
-        margin: 0;
-        color: var(--text-secondary);
+    .shell-hero__meta {
+        grid-template-columns: 1fr;
     }
 
-    .command-shell__callout {
-        max-width: 70ch;
-        padding: 0.95rem 1rem;
-        border-radius: var(--radius-md);
-        border: 1px solid rgba(125, 211, 252, 0.08);
-        background: rgba(10, 24, 39, 0.72);
-        color: var(--text-secondary);
-    }
-
-    .workspace-nav {
-        display: grid;
-        gap: 1rem;
-        grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-    }
-
-    .workspace-nav__link {
+    .meta-card,
+    .surface-nav__button {
         display: grid;
         gap: 0.45rem;
-        padding: 1rem 1.1rem;
-        border-radius: 18px;
-        border: 1px solid rgba(125, 211, 252, 0.14);
-        background: rgba(5, 13, 22, 0.72);
-        color: inherit;
-        text-decoration: none;
-        transition:
-            transform 140ms ease,
-            border-color 140ms ease;
+        text-align: left;
+        padding: 1rem 1.05rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(6, 18, 30, 0.84);
     }
 
-    .workspace-nav__link span {
-        color: var(--muted);
-        font-size: 0.74rem;
+    .meta-card span,
+    .surface-nav__button span {
+        color: var(--accent-primary);
+        font-size: 0.76rem;
+        font-weight: 600;
         letter-spacing: 0.12em;
         text-transform: uppercase;
     }
 
-    .workspace-nav__link strong {
-        font-size: 0.98rem;
+    .meta-card p,
+    .surface-nav__button strong {
+        color: var(--text-secondary);
         line-height: 1.45;
-        font-weight: 600;
     }
 
-    .workspace-nav__link:hover {
-        transform: translateY(-1px);
-        border-color: rgba(245, 158, 11, 0.34);
+    .shell-nav {
+        gap: var(--space-4);
     }
 
-    .dashboard-grid {
-        display: grid;
-        gap: 1.4rem;
+    .readiness-strip {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
     }
 
-    .workspace-placeholder,
-    .workspace-error {
-        padding: 0.95rem 1rem;
-        border-radius: 16px;
-        background: rgba(2, 6, 23, 0.42);
+    .readiness-strip span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.2rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(6, 18, 30, 0.84);
         color: var(--muted);
+        font-size: 0.8rem;
     }
 
-    @media (max-width: 960px) {
-        .command-shell__stats,
-        .workspace-nav {
+    .readiness-strip__warning {
+        border: 1px solid rgba(245, 158, 11, 0.24);
+        background: rgba(120, 53, 15, 0.22);
+        color: var(--warning);
+    }
+
+    .surface-nav {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .surface-nav__button--active {
+        border-color: rgba(56, 189, 248, 0.38);
+        background: rgba(9, 32, 49, 0.94);
+        box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.14);
+    }
+
+    @media (max-width: 1100px) {
+        .shell-hero,
+        .surface-nav {
             grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 720px) {
+        .readiness-strip {
+            align-items: flex-start;
+            flex-direction: column;
         }
     }
 </style>
