@@ -27,6 +27,7 @@ import {
   VNEXT_SPEC_MODE,
   availableBaselines,
 } from "./predictionPipeline";
+import { getDefaultFeatureWindow } from "./featureRegistry";
 
 const formatLocalDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -55,7 +56,7 @@ const defaultIndicator = (
 ): ResearchFeatureRow => ({
   id: `workflow-feature-${index + 1}`,
   name,
-  window: name === "ma" ? 5 : 14,
+  window: getDefaultFeatureWindow(name),
   source,
   shift: 1,
 });
@@ -178,7 +179,12 @@ export const researchCapabilityRegistry: ResearchCapabilityDefinition[] = [
     summary:
       "Move beyond research-only runs only when simulation adapters and live controls are explicitly ready.",
     requires: [],
-    fields: ["executionRoute", "simulationProfileId", "liveControlProfileId", "manualConfirmed"],
+    fields: [
+      "executionRoute",
+      "simulationProfileId",
+      "liveControlProfileId",
+      "manualConfirmed",
+    ],
     gateRefs: ["P9", "P10"],
     requestMapping: [
       "execution_route",
@@ -217,25 +223,29 @@ export const modelVariants: ModelVariantDefinition[] = [
   {
     id: "xgboost",
     label: "XGBoost",
-    summary: "Default gradient-boosted tree path and the fastest way to a valid baseline run.",
+    summary:
+      "Default gradient-boosted tree path and the fastest way to a valid baseline run.",
     status: "available",
   },
   {
     id: "random_forest",
     label: "Random Forest",
-    summary: "Bagging tree baseline for robustness checks and lower-variance comparisons.",
+    summary:
+      "Bagging tree baseline for robustness checks and lower-variance comparisons.",
     status: "available",
   },
   {
     id: "extra_trees",
     label: "Extra Trees",
-    summary: "A higher-randomness tree ensemble for quick comparison against the default boosted path.",
+    summary:
+      "A higher-randomness tree ensemble for quick comparison against the default boosted path.",
     status: "available",
   },
   {
     id: "lstm",
     label: "Sequence LSTM",
-    summary: "Reserved for future deep-learning expansion. Visible in v2 but not yet implemented.",
+    summary:
+      "Reserved for future deep-learning expansion. Visible in v2 but not yet implemented.",
     status: "not_implemented",
   },
 ];
@@ -259,7 +269,10 @@ export const modelFamilies: ModelFamilyDefinition[] = [
   },
 ];
 
-const createDefaultCapabilities = (): Record<ResearchCapabilityId, boolean> => ({
+const createDefaultCapabilities = (): Record<
+  ResearchCapabilityId,
+  boolean
+> => ({
   technical_indicators: true,
   factor_catalog: false,
   external_signals: false,
@@ -291,12 +304,13 @@ export const getModelVariantById = (variantId: ModelVariantId) =>
   modelVariants.find((variant) => variant.id === variantId) ?? modelVariants[0];
 
 export const getCapabilityDefinition = (capabilityId: ResearchCapabilityId) =>
-  researchCapabilityRegistry.find((capability) => capability.id === capabilityId) ??
-  researchCapabilityRegistry[0];
+  researchCapabilityRegistry.find(
+    (capability) => capability.id === capabilityId,
+  ) ?? researchCapabilityRegistry[0];
 
 export const getAvailableVariantsForFamily = (familyId: ModelFamilyId) =>
-  getModelFamilyById(familyId).variantIds
-    .map((variantId) => getModelVariantById(variantId))
+  getModelFamilyById(familyId)
+    .variantIds.map((variantId) => getModelVariantById(variantId))
     .filter((variant) => variant.status === "available");
 
 export const createDefaultResearchWorkflowDraft = (
@@ -331,12 +345,15 @@ export const createDefaultResearchWorkflowDraft = (
         template.id === "factor_augmented_research"
           ? "company_listing_age_days_v1, important_event_count_30d_v1"
           : "",
-      externalSignalPolicyVersion:
-        capabilities.external_signals ? "tw_company_event_layer_v1" : "",
-      clusterSnapshotVersion:
-        capabilities.peer_context ? "peer_cluster_kmeans_v1" : "",
-      peerPolicyVersion:
-        capabilities.peer_context ? "cluster_nearest_neighbors_v1" : "",
+      externalSignalPolicyVersion: capabilities.external_signals
+        ? "tw_company_event_layer_v1"
+        : "",
+      clusterSnapshotVersion: capabilities.peer_context
+        ? "peer_cluster_kmeans_v1"
+        : "",
+      peerPolicyVersion: capabilities.peer_context
+        ? "cluster_nearest_neighbors_v1"
+        : "",
     },
     modelFamily: {
       familyId: template.recommendedFamilyId,
@@ -354,26 +371,32 @@ export const createDefaultResearchWorkflowDraft = (
       validationTestSize: 0.2,
       baselines: ["buy_and_hold", "naive_momentum"],
       executionRoute:
-        capabilities.simulation_execution && template.id === "adaptive_exploration"
+        capabilities.simulation_execution &&
+        template.id === "adaptive_exploration"
           ? "simulation_internal_v1"
           : "research_only",
       slippage: 0.001,
       fees: 0.002,
       portfolioAum: null,
       recordAsMonitorRun: false,
-      simulationProfileId:
-        capabilities.simulation_execution ? "simulation_internal_default_v1" : "",
+      simulationProfileId: capabilities.simulation_execution
+        ? "simulation_internal_default_v1"
+        : "",
       liveControlProfileId: "",
       manualConfirmed: false,
       adaptiveMode: capabilities.adaptive_workflow ? "shadow" : "off",
-      adaptiveProfileId:
-        capabilities.adaptive_workflow ? "adaptive_shadow_v1" : "",
-      rewardDefinitionVersion:
-        capabilities.adaptive_workflow ? "reward_daily_active_return_v1" : "",
-      stateDefinitionVersion:
-        capabilities.adaptive_workflow ? "state_market_context_v1" : "",
-      rolloutControlVersion:
-        capabilities.adaptive_workflow ? "rollout_shadow_only_v1" : "",
+      adaptiveProfileId: capabilities.adaptive_workflow
+        ? "adaptive_shadow_v1"
+        : "",
+      rewardDefinitionVersion: capabilities.adaptive_workflow
+        ? "reward_daily_active_return_v1"
+        : "",
+      stateDefinitionVersion: capabilities.adaptive_workflow
+        ? "state_market_context_v1"
+        : "",
+      rolloutControlVersion: capabilities.adaptive_workflow
+        ? "rollout_shadow_only_v1"
+        : "",
     },
   };
 };
@@ -462,7 +485,8 @@ export const withCapabilityToggled = (
 
   if (capabilityId === "peer_context") {
     nextDraft.signalSources.clusterSnapshotVersion =
-      nextDraft.signalSources.clusterSnapshotVersion || "peer_cluster_kmeans_v1";
+      nextDraft.signalSources.clusterSnapshotVersion ||
+      "peer_cluster_kmeans_v1";
     nextDraft.signalSources.peerPolicyVersion =
       nextDraft.signalSources.peerPolicyVersion ||
       "cluster_nearest_neighbors_v1";
@@ -497,11 +521,9 @@ export const withCapabilityToggled = (
       nextDraft.evaluation.rewardDefinitionVersion ||
       "reward_daily_active_return_v1";
     nextDraft.evaluation.stateDefinitionVersion =
-      nextDraft.evaluation.stateDefinitionVersion ||
-      "state_market_context_v1";
+      nextDraft.evaluation.stateDefinitionVersion || "state_market_context_v1";
     nextDraft.evaluation.rolloutControlVersion =
-      nextDraft.evaluation.rolloutControlVersion ||
-      "rollout_shadow_only_v1";
+      nextDraft.evaluation.rolloutControlVersion || "rollout_shadow_only_v1";
   }
 
   return nextDraft;
@@ -621,7 +643,7 @@ export const buildResearchRunPayloadFromWorkflow = (
   runtime_mode: draft.modelFamily.runtimeMode,
   default_bundle_version:
     draft.modelFamily.runtimeMode === VNEXT_SPEC_MODE
-      ? draft.modelFamily.defaultBundleVersion ?? undefined
+      ? (draft.modelFamily.defaultBundleVersion ?? undefined)
       : undefined,
   market: draft.universe.market,
   symbols: parseSymbols(draft.universe.symbolsInput),
@@ -775,7 +797,9 @@ export const validateResearchWorkflow = (
       errors.factorCatalogVersion =
         "Factor catalog version is required when the factor capability is enabled.";
     }
-    const factorIds = parseScoringFactorIds(draft.signalSources.scoringFactorIdsInput);
+    const factorIds = parseScoringFactorIds(
+      draft.signalSources.scoringFactorIdsInput,
+    );
     if (!factorIds.length) {
       errors.scoringFactorIdsInput =
         "Pick at least one scoring factor for factor-augmented research.";
@@ -812,8 +836,12 @@ export const validateResearchWorkflow = (
 
   const selectedVariant = getModelVariantById(draft.modelFamily.variantId);
   const selectedFamily = getModelFamilyById(draft.modelFamily.familyId);
-  if (selectedFamily.status !== "available" || selectedVariant.status !== "available") {
-    errors.modelVariant = "Choose an available model variant for this version of the product.";
+  if (
+    selectedFamily.status !== "available" ||
+    selectedVariant.status !== "available"
+  ) {
+    errors.modelVariant =
+      "Choose an available model variant for this version of the product.";
   }
 
   if (draft.modelFamily.runtimeMode === VNEXT_SPEC_MODE) {
@@ -823,8 +851,7 @@ export const validateResearchWorkflow = (
     }
   } else {
     if (draft.modelFamily.threshold === null) {
-      errors.threshold =
-        "Threshold is required in manual threshold mode.";
+      errors.threshold = "Threshold is required in manual threshold mode.";
     }
     if (draft.modelFamily.topN === null) {
       errors.topN = "Top N is required in manual threshold mode.";
@@ -962,7 +989,9 @@ export const deriveSubmissionSummaryFromRun = (
   };
 };
 
-export const summarizeBaselineComparison = (result: ResearchRunResponse | null) => {
+export const summarizeBaselineComparison = (
+  result: ResearchRunResponse | null,
+) => {
   if (!result) {
     return null;
   }

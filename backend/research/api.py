@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Request
 
-from backend.research.contracts.runs import BacktestRequest
 from backend.platform.http.request_context import get_request_id
 from backend.research.contracts.adaptive import (
     AdaptiveProfileRequest,
@@ -17,9 +16,17 @@ from backend.research.contracts.governance import (
     ResearchPhaseGateResponse,
 )
 from backend.research.contracts.runs import (
+    BacktestRequest,
+    FeatureRegistryResponse,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
+)
+from backend.research.services.adaptive import (
+    create_adaptive_profile_record,
+    create_adaptive_training_run_record,
+    list_adaptive_profile_records,
+    list_adaptive_training_run_records,
 )
 from backend.research.services.capability_gates import (
     get_p7_phase_gate_summary,
@@ -28,18 +35,16 @@ from backend.research.services.capability_gates import (
     get_p10_phase_gate_summary,
     get_p11_phase_gate_summary,
 )
-from backend.research.services.adaptive import (
-    create_adaptive_profile_record,
-    create_adaptive_training_run_record,
-    list_adaptive_profile_records,
-    list_adaptive_training_run_records,
-)
-from backend.research.services.micro_kpis import get_micro_kpi_summary
 from backend.research.services.governance import get_p3_phase_gate_summary
+from backend.research.services.micro_kpis import get_micro_kpi_summary
 from backend.research.services.runs import (
     create_research_run,
     get_research_run,
     list_research_runs,
+)
+from backend.shared.analytics.features import (
+    FEATURE_REGISTRY_VERSION,
+    list_feature_definitions,
 )
 
 router = APIRouter()
@@ -91,6 +96,18 @@ def read_research_run(run_id: str) -> ResearchRunRecordResponse:
 )
 def read_research_runs() -> list[ResearchRunRecordResponse]:
     return list_research_runs()
+
+
+@router.get(
+    "/api/v1/research/feature-registry",
+    tags=["Research Runs"],
+    response_model=FeatureRegistryResponse,
+)
+def read_feature_registry() -> FeatureRegistryResponse:
+    return FeatureRegistryResponse(
+        version=FEATURE_REGISTRY_VERSION,
+        features=list_feature_definitions(),
+    )
 
 
 @router.get(

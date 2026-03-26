@@ -1,6 +1,22 @@
 export type MarketCode = "TW" | "US";
 export type PriceSource = "open" | "high" | "low" | "close" | "volume";
-export type FeatureName = "ma" | "rsi";
+export const knownFeatureNames = [
+  "ma",
+  "ema",
+  "rsi",
+  "roc",
+  "volatility",
+  "zscore",
+] as const;
+
+type ServerFeatureName = string & {
+  readonly __serverFeatureNameBrand: unique symbol;
+};
+
+export type KnownFeatureName = (typeof knownFeatureNames)[number];
+export type FeatureName = KnownFeatureName | ServerFeatureName;
+
+export const toFeatureName = (value: string): FeatureName => value as FeatureName;
 export type ReturnTarget = "open_to_open" | "close_to_close" | "open_to_close";
 export type ModelType = "xgboost" | "random_forest" | "extra_trees";
 export type ValidationMethod =

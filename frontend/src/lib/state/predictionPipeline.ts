@@ -8,6 +8,7 @@ import type {
   ResearchRunCreateRequest,
   RuntimeMode,
 } from "../types";
+import { getDefaultFeatureWindow } from "./featureRegistry";
 
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "runtime_compatibility_mode";
 export const VNEXT_SPEC_MODE: RuntimeMode = "vnext_spec_mode";
@@ -43,7 +44,7 @@ const defaultIndicator = (
 ): ResearchFeatureRow => ({
   id: `feature-${index + 1}`,
   name,
-  window: name === "ma" ? 5 : 14,
+  window: getDefaultFeatureWindow(name),
   source,
   shift: 1,
 });
@@ -59,7 +60,7 @@ export const predictionFeatureModulePresets: PredictionFeatureModulePreset[] = [
     id: "technical_indicators",
     label: "Technical Indicators",
     description: "Use structured indicator rows as the core prediction inputs.",
-    helper: "Supports MA and RSI in the current backend contract.",
+    helper: "Indicator choices are loaded from the backend feature registry.",
   },
   {
     id: "factor_catalog",

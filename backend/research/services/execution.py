@@ -5,8 +5,6 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from backend.shared.analytics import backtest as backtest_service, baselines as baseline_service, market_data as data_service, features as feature_engine, models as model_service, validation as validation_service
-from backend.research.domain.version_pack import build_version_pack_payload
 from backend.platform.errors import (
     DataNotFoundError,
     InsufficientDataError,
@@ -18,7 +16,12 @@ from backend.research.contracts.runs import (
     ResearchRunResponse,
     ValidationSummary,
 )
-from backend.research.contracts.runtime_metadata import ConfigSources, EffectiveStrategyConfig, FallbackAudit
+from backend.research.contracts.runtime_metadata import (
+    ConfigSources,
+    EffectiveStrategyConfig,
+    FallbackAudit,
+)
+from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.services.adaptive import record_run_adaptive_exclusion
 from backend.research.services.run_foundations import (
     build_run_foundation_context,
@@ -29,6 +32,12 @@ from backend.research.services.run_foundations import (
     persist_run_peer_outputs,
 )
 from backend.research.services.tradability import build_p3_summary
+from backend.shared.analytics import backtest as backtest_service
+from backend.shared.analytics import baselines as baseline_service
+from backend.shared.analytics import features as feature_engine
+from backend.shared.analytics import market_data as data_service
+from backend.shared.analytics import models as model_service
+from backend.shared.analytics import validation as validation_service
 from backend.shared.analytics.strategy import (
     ADOPTION_COMPARISON_POLICY_VERSION,
     BOOTSTRAP_POLICY_VERSION,
@@ -70,10 +79,23 @@ def build_feature_config(request: ResearchRunCreateRequest) -> tuple[dict, dict]
         col_name = feature_engine.feature_col_name(spec.name, spec.window, spec.source)
         shift_map[col_name] = spec.shift
 
-    for key in ("ma", "rsi"):
-        if key in config:
-            unique = {(item["window"], item["source"]) for item in config[key]}
-            config[key] = [{"window": w, "source": s} for w, s in sorted(unique)]
+    for key in feature_engine.FEATURE_DEFINITION_BY_NAME:
+        items = config.get(key)
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            raise UnsupportedConfigurationError(
+                f"Feature config for '{key}' must be a list of window/source entries."
+            )
+
+        try:
+            unique = {(item["window"], item["source"]) for item in items}
+        except (KeyError, TypeError) as exc:
+            raise UnsupportedConfigurationError(
+                f"Feature config for '{key}' must contain window/source pairs."
+            ) from exc
+
+        config[key] = [{"window": w, "source": s} for w, s in sorted(unique)]
 
     return config, shift_map
 
