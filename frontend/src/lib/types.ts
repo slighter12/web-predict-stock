@@ -6,3 +6,4 @@ export * from "./types/foundations";
 export * from "./types/forms";
 export * from "./types/system";
 export * from "./types/predictionPipeline";
+export * from "./types/researchWorkflow";

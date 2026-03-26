@@ -22,11 +22,6 @@ export class ApiError extends Error implements AppError {
   }
 }
 
-const buildRequestId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `req_${Date.now()}`;
-
 async function parseError(response: Response): Promise<ApiError> {
   const requestId = response.headers.get("X-Request-Id");
   try {
@@ -54,14 +49,15 @@ export async function requestJson<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const requestId = buildRequestId();
   const bodyIsFormData =
     typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const hasBody = init?.body !== undefined && init?.body !== null;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
-      "X-Request-Id": requestId,
-      ...(bodyIsFormData ? {} : { "Content-Type": "application/json" }),
+      ...(hasBody && !bodyIsFormData
+        ? { "Content-Type": "application/json" }
+        : {}),
       ...(init?.headers ?? {}),
     },
   });
