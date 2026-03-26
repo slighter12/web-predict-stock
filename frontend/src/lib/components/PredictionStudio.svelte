@@ -4,6 +4,7 @@
     import {
         ApiError,
         createResearchRun,
+        fetchResearchFeatureRegistry,
         fetchResearchGate,
         fetchResearchRun,
         fetchSystemHealth,
@@ -20,6 +21,13 @@
         predictionFeatureModulePresets,
         withFeatureModuleToggled,
     } from "../state/predictionPipeline";
+    import {
+        createFeatureRegistryQueryOptions,
+        createIndicatorRow,
+        getAllowedSources,
+        getFeatureDefinitions,
+        updateIndicatorFeatureName,
+    } from "../state/featureRegistry";
     import type {
         AppError,
         HealthResponse,
@@ -44,12 +52,7 @@
         summary: string;
     };
 
-    type StageId =
-        | "data"
-        | "feature"
-        | "model"
-        | "validation"
-        | "results";
+    type StageId = "data" | "feature" | "model" | "validation" | "results";
 
     let draft: PredictionPipelineDraft = createDefaultPredictionPipelineDraft();
     let errors: Record<string, string> = {};
@@ -158,6 +161,10 @@
         refetchOnWindowFocus: false,
     }));
 
+    const featureRegistryQuery = createQuery(() =>
+        createFeatureRegistryQueryOptions(fetchResearchFeatureRegistry),
+    );
+
     const researchRunMutation = createMutation(() => ({
         mutationFn: createResearchRun,
         onSuccess: (data) => {
@@ -187,6 +194,7 @@
 
     const hasModule = (moduleId: PredictionFeatureModuleId) =>
         draft.feature.selectedModuleIds.includes(moduleId);
+    const featureRegistry = () => featureRegistryQuery.data?.features;
 
     const getOptionLabel = (value: string) => optionLabels[value] ?? value;
     const runtimeUsesDefaults = () =>
@@ -234,13 +242,7 @@
                 ...draft.feature,
                 indicatorRows: [
                     ...draft.feature.indicatorRows,
-                    {
-                        id: `feature-${Date.now()}`,
-                        name: "ma",
-                        window: 5,
-                        source: "close",
-                        shift: 1,
-                    },
+                    createIndicatorRow(`feature-${Date.now()}`, featureRegistry()),
                 ],
             },
         };
@@ -272,7 +274,15 @@
             feature: {
                 ...draft.feature,
                 indicatorRows: draft.feature.indicatorRows.map((feature) =>
-                    feature.id === id ? { ...feature, [key]: value } : feature,
+                    feature.id === id
+                        ? key === "name"
+                            ? updateIndicatorFeatureName(
+                                  feature,
+                                  String(value),
+                                  featureRegistry(),
+                              )
+                            : { ...feature, [key]: value }
+                        : feature,
                 ),
             },
         };
@@ -616,12 +626,17 @@
                 </div>
                 <div class="lead-summary">
                     <strong
-                        >{activeStageSummary.label} {activeStageSummary.title}</strong
+                        >{activeStageSummary.label}
+                        {activeStageSummary.title}</strong
                     >
                     <p>{activeStageSummary.summary}</p>
                 </div>
             </div>
-            <div class="stage-strip" role="tablist" aria-label="Prediction flow stages">
+            <div
+                class="stage-strip"
+                role="tablist"
+                aria-label="Prediction flow stages"
+            >
                 {#each stageSummaries as stage}
                     <button
                         type="button"
@@ -691,7 +706,8 @@
                             bind:value={draft.data.symbolsInput}
                             placeholder="2330, 2317, AAPL"
                         />
-                        {#if errors.symbolsInput}<small>{errors.symbolsInput}</small
+                        {#if errors.symbolsInput}<small
+                                >{errors.symbolsInput}</small
                             >{/if}
                     </label>
                     <label>
@@ -723,7 +739,8 @@
                             min="1"
                             bind:value={draft.data.horizonDays}
                         />
-                        {#if errors.horizonDays}<small>{errors.horizonDays}</small
+                        {#if errors.horizonDays}<small
+                                >{errors.horizonDays}</small
                             >{/if}
                     </label>
                 </div>
@@ -808,8 +825,11 @@
                                                         .value as ResearchFeatureRow["name"],
                                                 )}
                                         >
-                                            <option value="ma">ma</option>
-                                            <option value="rsi">rsi</option>
+                                            {#each getFeatureDefinitions(featureRegistry()) as definition}
+                                                <option value={definition.name}
+                                                    >{definition.name}</option
+                                                >
+                                            {/each}
                                         </select>
                                     </label>
                                     <label>
@@ -844,11 +864,11 @@
                                                         .value as ResearchFeatureRow["source"],
                                                 )}
                                         >
-                                            <option value="open">open</option>
-                                            <option value="high">high</option>
-                                            <option value="low">low</option>
-                                            <option value="close">close</option>
-                                            <option value="volume">volume</option>
+                                            {#each getAllowedSources(feature.name, featureRegistry()) as source}
+                                                <option value={source}
+                                                    >{source}</option
+                                                >
+                                            {/each}
                                         </select>
                                     </label>
                                     <label>
@@ -872,13 +892,16 @@
                                     <button
                                         type="button"
                                         class="danger"
-                                        onclick={() => removeIndicator(feature.id)}
+                                        onclick={() =>
+                                            removeIndicator(feature.id)}
                                     >
                                         Remove
                                     </button>
                                     {#if errors[`feature-${feature.id}`]}
                                         <small class="full"
-                                            >{errors[`feature-${feature.id}`]}</small
+                                            >{errors[
+                                                `feature-${feature.id}`
+                                            ]}</small
                                         >
                                     {/if}
                                 </div>
@@ -933,7 +956,9 @@
                         <label>
                             <span>Cluster Snapshot Version</span>
                             <input
-                                bind:value={draft.feature.clusterSnapshotVersion}
+                                bind:value={
+                                    draft.feature.clusterSnapshotVersion
+                                }
                                 placeholder="peer_cluster_kmeans_v1"
                             />
                             {#if errors.clusterSnapshotVersion}<small
@@ -1056,7 +1081,8 @@
                             step="0.001"
                             bind:value={draft.model.threshold}
                         />
-                        {#if errors.threshold}<small>{errors.threshold}</small>{/if}
+                        {#if errors.threshold}<small>{errors.threshold}</small
+                            >{/if}
                     </label>
                     <label>
                         <span>Top N</span>
@@ -1117,7 +1143,9 @@
                                 >{getOptionLabel("research_only")}</option
                             >
                             <option value="simulation_internal_v1"
-                                >{getOptionLabel("simulation_internal_v1")}</option
+                                >{getOptionLabel(
+                                    "simulation_internal_v1",
+                                )}</option
                             >
                             <option value="live_stub_v1"
                                 >{getOptionLabel("live_stub_v1")}</option
@@ -1134,7 +1162,8 @@
                                         checked={draft.validation.baselines.includes(
                                             baseline,
                                         )}
-                                        onchange={() => toggleBaseline(baseline)}
+                                        onchange={() =>
+                                            toggleBaseline(baseline)}
                                     />
                                     <span>{baseline}</span>
                                 </label>
@@ -1146,9 +1175,13 @@
                     <div class="group three">
                         <label>
                             <span>Validation Method</span>
-                            <select bind:value={draft.validation.validationMethod}>
+                            <select
+                                bind:value={draft.validation.validationMethod}
+                            >
                                 <option value="holdout">holdout</option>
-                                <option value="walk_forward">walk_forward</option>
+                                <option value="walk_forward"
+                                    >walk_forward</option
+                                >
                                 <option value="rolling_window"
                                     >rolling_window</option
                                 >
@@ -1222,20 +1255,26 @@
                             <span>Save as monitoring run</span>
                             <input
                                 type="checkbox"
-                                bind:checked={draft.validation.recordAsMonitorRun}
+                                bind:checked={
+                                    draft.validation.recordAsMonitorRun
+                                }
                             />
                         </label>
                         <label>
                             <span>Simulation Profile</span>
                             <input
-                                bind:value={draft.validation.simulationProfileId}
+                                bind:value={
+                                    draft.validation.simulationProfileId
+                                }
                                 placeholder="simulation_internal_default_v1"
                             />
                         </label>
                         <label>
                             <span>Live Control Profile</span>
                             <input
-                                bind:value={draft.validation.liveControlProfileId}
+                                bind:value={
+                                    draft.validation.liveControlProfileId
+                                }
                                 placeholder="live_stub_default_v1"
                             />
                         </label>
@@ -1249,7 +1288,9 @@
                         <label>
                             <span>Adaptive Mode</span>
                             <select bind:value={draft.validation.adaptiveMode}>
-                                <option value="off">{getOptionLabel("off")}</option>
+                                <option value="off"
+                                    >{getOptionLabel("off")}</option
+                                >
                                 <option value="shadow"
                                     >{getOptionLabel("shadow")}</option
                                 >
@@ -1280,14 +1321,18 @@
                         <label>
                             <span>State Version</span>
                             <input
-                                bind:value={draft.validation.stateDefinitionVersion}
+                                bind:value={
+                                    draft.validation.stateDefinitionVersion
+                                }
                                 placeholder="state_market_context_v1"
                             />
                         </label>
                         <label>
                             <span>Rollout Control</span>
                             <input
-                                bind:value={draft.validation.rolloutControlVersion}
+                                bind:value={
+                                    draft.validation.rolloutControlVersion
+                                }
                                 placeholder="rollout_shadow_only_v1"
                             />
                         </label>
@@ -1307,7 +1352,8 @@
                             : "Run Prediction Workflow"}
                     </button>
                     <p class="muted">
-                        The UI stages compile into the current backend run contract.
+                        The UI stages compile into the current backend run
+                        contract.
                     </p>
                 </div>
                 <div class="stage-actions">
@@ -1390,8 +1436,9 @@
                                                     ) ?? "N/A"}</td
                                                 >
                                                 <td
-                                                    >{metrics.sharpe?.toFixed(3) ??
-                                                        "N/A"}</td
+                                                    >{metrics.sharpe?.toFixed(
+                                                        3,
+                                                    ) ?? "N/A"}</td
                                                 >
                                                 <td
                                                     >{metrics.max_drawdown?.toFixed(
@@ -1426,7 +1473,10 @@
                     <button
                         type="button"
                         class="secondary"
-                        onclick={() => (activeStage = latestResult ? "validation" : "data")}
+                        onclick={() =>
+                            (activeStage = latestResult
+                                ? "validation"
+                                : "data")}
                     >
                         {latestResult ? "Back to Validation" : "Back to Start"}
                     </button>

@@ -1,14 +1,25 @@
 <script lang="ts">
-    import { createMutation } from "@tanstack/svelte-query";
+    import { createMutation, createQuery } from "@tanstack/svelte-query";
     import { createEventDispatcher } from "svelte";
 
-    import { ApiError, createResearchRun } from "../api";
+    import {
+        ApiError,
+        createResearchRun,
+        fetchResearchFeatureRegistry,
+    } from "../api";
     import {
         availableBaselines,
         DEFAULT_BUNDLE_VERSION,
         DEFAULT_RUNTIME_MODE,
         VNEXT_SPEC_MODE,
     } from "../state/predictionPipeline";
+    import {
+        createFeatureRegistryQueryOptions,
+        createIndicatorRow,
+        getAllowedSources,
+        getFeatureDefinitions,
+        updateIndicatorFeatureName,
+    } from "../state/featureRegistry";
     import {
         applyTemplateToDraft,
         buildResearchRunPayloadFromWorkflow,
@@ -112,7 +123,12 @@
         },
     }));
 
+    const featureRegistryQuery = createQuery(() =>
+        createFeatureRegistryQueryOptions(fetchResearchFeatureRegistry),
+    );
+
     const getOptionLabel = (value: string) => optionLabels[value] ?? value;
+    const featureRegistry = () => featureRegistryQuery.data?.features;
 
     const getReadiness = (capabilityId: ResearchCapabilityId) =>
         capabilityReadiness[capabilityId] ?? {
@@ -149,13 +165,10 @@
                 ...draft.signalSources,
                 indicatorRows: [
                     ...draft.signalSources.indicatorRows,
-                    {
-                        id: `workflow-feature-${Date.now()}`,
-                        name: "ma",
-                        window: 5,
-                        source: "close",
-                        shift: 1,
-                    },
+                    createIndicatorRow(
+                        `workflow-feature-${Date.now()}`,
+                        featureRegistry(),
+                    ),
                 ],
             },
         };
@@ -189,7 +202,13 @@
                 indicatorRows: draft.signalSources.indicatorRows.map(
                     (feature) =>
                         feature.id === id
-                            ? { ...feature, [key]: value }
+                            ? key === "name"
+                                ? updateIndicatorFeatureName(
+                                      feature,
+                                      String(value),
+                                      featureRegistry(),
+                                  )
+                                : { ...feature, [key]: value }
                             : feature,
                 ),
             },
@@ -571,8 +590,12 @@
                                                             .value as ResearchFeatureRow["name"],
                                                     )}
                                             >
-                                                <option value="ma">ma</option>
-                                                <option value="rsi">rsi</option>
+                                                {#each getFeatureDefinitions(featureRegistry()) as definition}
+                                                    <option
+                                                        value={definition.name}
+                                                        >{definition.name}</option
+                                                    >
+                                                {/each}
                                             </select>
                                         </label>
                                         <label>
@@ -607,19 +630,11 @@
                                                             .value as ResearchFeatureRow["source"],
                                                     )}
                                             >
-                                                <option value="open"
-                                                    >open</option
-                                                >
-                                                <option value="high"
-                                                    >high</option
-                                                >
-                                                <option value="low">low</option>
-                                                <option value="close"
-                                                    >close</option
-                                                >
-                                                <option value="volume"
-                                                    >volume</option
-                                                >
+                                                {#each getAllowedSources(feature.name, featureRegistry()) as source}
+                                                    <option value={source}
+                                                        >{source}</option
+                                                    >
+                                                {/each}
                                             </select>
                                         </label>
                                         <label>

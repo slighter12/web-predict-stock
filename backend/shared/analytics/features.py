@@ -1,10 +1,116 @@
 import logging
 from typing import Iterable, Tuple, Union
 
+import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
 logger = logging.getLogger(__name__)
+
+FEATURE_REGISTRY_VERSION = "technical_feature_registry_v1"
+PRICE_SOURCE_OPTIONS = ("open", "high", "low", "close", "volume")
+FEATURE_DEFINITIONS = (
+    {
+        "name": "ma",
+        "label": "Moving Average",
+        "description": "Simple moving average for baseline trend smoothing.",
+        "default_window": 5,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+    {
+        "name": "ema",
+        "label": "Exponential Moving Average",
+        "description": "Faster trend-following average that reacts more quickly to recent data.",
+        "default_window": 5,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+    {
+        "name": "rsi",
+        "label": "Relative Strength Index",
+        "description": "Momentum oscillator for overbought and oversold regimes.",
+        "default_window": 14,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+    {
+        "name": "roc",
+        "label": "Rate Of Change",
+        "description": "Windowed percent change for momentum and breakout-style signals.",
+        "default_window": 10,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+    {
+        "name": "volatility",
+        "label": "Rolling Volatility",
+        "description": "Annualized rolling standard deviation of returns for risk-sensitive models.",
+        "default_window": 20,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+    {
+        "name": "zscore",
+        "label": "Rolling Z-Score",
+        "description": "Normalized distance from the rolling mean for mean-reversion style features.",
+        "default_window": 20,
+        "allowed_sources": PRICE_SOURCE_OPTIONS,
+    },
+)
+FEATURE_DEFINITION_BY_NAME = {
+    feature["name"]: feature for feature in FEATURE_DEFINITIONS
+}
+
+
+def list_feature_definitions() -> list[dict[str, object]]:
+    return [
+        {**feature, "allowed_sources": list(feature["allowed_sources"])}
+        for feature in FEATURE_DEFINITIONS
+    ]
+
+
+def get_feature_definition(name: str) -> dict[str, object] | None:
+    feature = FEATURE_DEFINITION_BY_NAME.get(name)
+    if feature is None:
+        return None
+    return {**feature, "allowed_sources": list(feature["allowed_sources"])}
+
+
+def _returns(series: pd.Series) -> pd.Series:
+    return series.pct_change().replace([np.inf, -np.inf], np.nan)
+
+
+def _add_trend_feature(
+    df: pd.DataFrame,
+    *,
+    indicator_name: str,
+    window: int,
+    source: str,
+) -> None:
+    series = df[source]
+    if indicator_name == "MA":
+        feature = vbt.MA.run(series, window=window, short_name=f"ma_{window}").ma
+    else:
+        feature = series.ewm(span=window, adjust=False, min_periods=window).mean()
+    df[feature_col_name(indicator_name, window, source)] = feature
+
+
+def _add_return_feature(
+    df: pd.DataFrame,
+    *,
+    indicator_name: str,
+    window: int,
+    source: str,
+) -> None:
+    series = df[source]
+    returns = _returns(series)
+
+    if indicator_name == "ROC":
+        feature = series.pct_change(periods=window).replace([np.inf, -np.inf], np.nan)
+    elif indicator_name == "VOLATILITY":
+        feature = returns.rolling(window=window, min_periods=window).std() * np.sqrt(252)
+    else:
+        rolling_mean = series.rolling(window=window, min_periods=window).mean()
+        rolling_std = series.rolling(window=window, min_periods=window).std()
+        feature = (series - rolling_mean) / rolling_std.mask(rolling_std == 0)
+
+    df[feature_col_name(indicator_name, window, source)] = feature
 
 
 def feature_col_name(name: str, window: int, source: str) -> str:
@@ -55,9 +161,12 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     if "ma" in config and config["ma"]:
         for window, source in _normalize_window_config(config["ma"]):
             try:
-                series = df[source]
-                ma = vbt.MA.run(series, window=window, short_name=f"ma_{window}")
-                df[feature_col_name("MA", window, source)] = ma.ma
+                _add_trend_feature(
+                    df,
+                    indicator_name="MA",
+                    window=window,
+                    source=source,
+                )
             except Exception as exc:
                 logger.exception(
                     "Failed to calculate MA window=%s source=%s",
@@ -66,6 +175,26 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 )
                 raise ValueError(
                     f"Could not calculate MA for window {window} on source '{source}'."
+                ) from exc
+
+    # Calculate Exponential Moving Average (EMA)
+    if "ema" in config and config["ema"]:
+        for window, source in _normalize_window_config(config["ema"]):
+            try:
+                _add_trend_feature(
+                    df,
+                    indicator_name="EMA",
+                    window=window,
+                    source=source,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate EMA window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    f"Could not calculate EMA for window {window} on source '{source}'."
                 ) from exc
 
     # Calculate Relative Strength Index (RSI)
@@ -83,6 +212,67 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
                 )
                 raise ValueError(
                     f"Could not calculate RSI for window {window} on source '{source}'."
+                ) from exc
+
+    # Calculate Rate of Change (ROC)
+    if "roc" in config and config["roc"]:
+        for window, source in _normalize_window_config(config["roc"]):
+            try:
+                _add_return_feature(
+                    df,
+                    indicator_name="ROC",
+                    window=window,
+                    source=source,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate ROC window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    f"Could not calculate ROC for window {window} on source '{source}'."
+                ) from exc
+
+    # Calculate rolling annualized volatility
+    if "volatility" in config and config["volatility"]:
+        for window, source in _normalize_window_config(config["volatility"]):
+            try:
+                _add_return_feature(
+                    df,
+                    indicator_name="VOLATILITY",
+                    window=window,
+                    source=source,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate volatility window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    "Could not calculate volatility "
+                    f"for window {window} on source '{source}'."
+                ) from exc
+
+    # Calculate rolling z-score for mean-reversion style features
+    if "zscore" in config and config["zscore"]:
+        for window, source in _normalize_window_config(config["zscore"]):
+            try:
+                _add_return_feature(
+                    df,
+                    indicator_name="ZSCORE",
+                    window=window,
+                    source=source,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Failed to calculate zscore window=%s source=%s",
+                    window,
+                    source,
+                )
+                raise ValueError(
+                    f"Could not calculate zscore for window {window} on source '{source}'."
                 ) from exc
 
     return df

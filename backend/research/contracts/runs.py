@@ -63,6 +63,19 @@ class FeatureSpec(RequestModel):
     shift: conint(ge=0) = 1  # type: ignore[valid-type]
 
 
+class FeatureDefinition(BaseModel):
+    name: str
+    label: str
+    description: str
+    default_window: conint(ge=1)  # type: ignore[valid-type]
+    allowed_sources: List[PriceSource] = Field(default_factory=list)
+
+
+class FeatureRegistryResponse(BaseModel):
+    version: str
+    features: List[FeatureDefinition] = Field(default_factory=list)
+
+
 class ModelConfig(RequestModel):
     type: ModelType = Field(default="xgboost", description="Model identifier.")
     params: Dict[str, object] = Field(default_factory=dict)

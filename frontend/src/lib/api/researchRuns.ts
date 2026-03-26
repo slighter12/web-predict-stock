@@ -1,5 +1,6 @@
 import type {
   AdaptiveProfileRecord,
+  ResearchFeatureRegistryResponse,
   AdaptiveTrainingRunRecord,
   ResearchPhaseGateResponse,
   ResearchRunCreateRequest,
@@ -20,6 +21,9 @@ export const fetchResearchRun = (runId: string) =>
 
 export const fetchResearchRuns = () =>
   requestJson<ResearchRunRecord[]>("/api/v1/research/runs");
+
+export const fetchResearchFeatureRegistry = () =>
+  requestJson<ResearchFeatureRegistryResponse>("/api/v1/research/feature-registry");
 
 export const fetchResearchGate = (
   phase: "p3" | "p7" | "p8" | "p9" | "p10" | "p11",

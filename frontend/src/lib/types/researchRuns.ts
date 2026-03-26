@@ -30,6 +30,19 @@ export interface FeatureSpec {
   shift: number;
 }
 
+export interface ResearchFeatureDefinition {
+  name: string;
+  label: string;
+  description: string;
+  default_window: number;
+  allowed_sources: PriceSource[];
+}
+
+export interface ResearchFeatureRegistryResponse {
+  version: string;
+  features: ResearchFeatureDefinition[];
+}
+
 export interface ValidationConfig {
   method: ValidationMethod;
   splits: number;

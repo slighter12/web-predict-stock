@@ -6,6 +6,7 @@ export {
   createAdaptiveTrainingRun,
   fetchResearchRun,
   fetchResearchRuns,
+  fetchResearchFeatureRegistry,
   fetchResearchGate,
   fetchAdaptiveProfiles,
   fetchAdaptiveTrainingRuns,
