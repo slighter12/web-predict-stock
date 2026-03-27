@@ -161,7 +161,7 @@ pyyaml==6.0.3
     # via uvicorn
 regex==2026.1.15
     # via dateparser
-requests==2.32.5
+requests==2.33.0
     # via
     #   quant-platform (pyproject.toml)
     #   vectorbt
