@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
@@ -389,6 +390,44 @@ def _parse_ingestion_date_override(date_str: str | None) -> date | None:
         return datetime.strptime(date_str, "%Y%m%d").date()
     except ValueError:
         return None
+
+
+def _build_staging_table_name(prefix: str) -> str:
+    table_name = f"{prefix}_{uuid.uuid4().hex}"
+    _validate_sql_identifier(table_name)
+    return table_name
+
+
+def _create_staging_table(conn, *, table_name: str, like_table_name: str) -> None:
+    _validate_sql_identifier(table_name)
+    _validate_sql_identifier(like_table_name)
+    conn.execute(
+        text(
+            f"""
+            CREATE TEMP TABLE {table_name}
+            (LIKE {like_table_name} INCLUDING DEFAULTS)
+            ON COMMIT DROP
+            """
+        )
+    )
+
+
+def _drop_staging_table(conn, table_name: str) -> None:
+    _validate_sql_identifier(table_name)
+    drop_statement = text(f"DROP TABLE IF EXISTS {table_name}")
+    try:
+        if conn.in_transaction():
+            conn.execute(drop_statement)
+        else:
+            with conn.begin():
+                conn.execute(drop_statement)
+    except Exception:
+        logger.exception("Failed to drop staging table name=%s", table_name)
+
+
+def _validate_sql_identifier(identifier: str) -> None:
+    if not re.fullmatch(r"[a-z0-9_]+", identifier):
+        raise ValueError(f"Unsafe SQL identifier: {identifier}")
 
 
 def _list_symbol_daily_trading_days(
@@ -1122,7 +1161,7 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
         )
         return summary
 
-    temp_table_name = "daily_ohlcv_temp"
+    temp_table_name = _build_staging_table_name("daily_ohlcv_temp")
     if not OFFICIAL_SOURCES:
         raise ValueError("OFFICIAL_SOURCES must not be empty.")
     official_source_params = {
@@ -1156,65 +1195,75 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
         else:
             validated_df["parser_version"] = parser_version
         with engine.connect() as conn:
-            with conn.begin():
-                validated_df.to_sql(
-                    temp_table_name, conn, if_exists="replace", index=False
-                )
+            try:
+                with conn.begin():
+                    _create_staging_table(
+                        conn,
+                        table_name=temp_table_name,
+                        like_table_name=DailyOHLCV.__tablename__,
+                    )
+                    validated_df.to_sql(
+                        temp_table_name, conn, if_exists="append", index=False
+                    )
 
-                override_count = conn.execute(
-                    text(
-                        f"""
-                        SELECT COUNT(*)
-                        FROM {DailyOHLCV.__tablename__} existing
-                        INNER JOIN {temp_table_name} incoming
-                            ON existing.date = incoming.date
-                           AND existing.symbol = incoming.symbol
-                        WHERE incoming.source IN (
-                                {official_source_placeholders}
-                        )
-                          AND (
-                            existing.source IS NULL
-                            OR existing.source NOT IN (
-                                {official_source_placeholders}
+                    override_count = conn.execute(
+                        text(
+                            f"""
+                            SELECT COUNT(*)
+                            FROM {DailyOHLCV.__tablename__} existing
+                            INNER JOIN {temp_table_name} incoming
+                                ON existing.date = incoming.date
+                               AND existing.symbol = incoming.symbol
+                            WHERE incoming.source IN (
+                                    {official_source_placeholders}
                             )
-                          )
-                        """
-                    ),
-                    official_source_params,
-                ).scalar_one()
+                              AND (
+                                existing.source IS NULL
+                                OR existing.source NOT IN (
+                                    {official_source_placeholders}
+                                )
+                              )
+                            """
+                        ),
+                        official_source_params,
+                    ).scalar_one()
 
-                result = conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO {DailyOHLCV.__tablename__} (
-                            date, symbol, market, source, open, high, low, close, volume,
-                            raw_payload_id, archive_object_reference, parser_version
-                        )
-                        SELECT date, symbol, market, source, open, high, low, close, volume,
-                               raw_payload_id, archive_object_reference, parser_version
-                        FROM {temp_table_name}
-                        ON CONFLICT (date, symbol) DO UPDATE SET
-                            market = EXCLUDED.market,
-                            source = EXCLUDED.source,
-                            open = EXCLUDED.open,
-                            high = EXCLUDED.high,
-                            low = EXCLUDED.low,
-                            close = EXCLUDED.close,
-                            volume = EXCLUDED.volume,
-                            raw_payload_id = EXCLUDED.raw_payload_id,
-                            archive_object_reference = EXCLUDED.archive_object_reference,
-                            parser_version = EXCLUDED.parser_version
-                        WHERE EXCLUDED.source IN (
-                                {official_source_placeholders}
+                    result = conn.execute(
+                        text(
+                            f"""
+                            INSERT INTO {DailyOHLCV.__tablename__} (
+                                date, symbol, market, source, open, high, low, close, volume,
+                                raw_payload_id, archive_object_reference, parser_version
                             )
-                           OR {DailyOHLCV.__tablename__}.source IS NULL
-                           OR {DailyOHLCV.__tablename__}.source NOT IN (
-                                {official_source_placeholders}
-                            )
-                        """
-                    ),
-                    official_source_params,
-                )
+                            SELECT date, symbol, market, source, open, high, low, close, volume,
+                                   raw_payload_id, archive_object_reference, parser_version
+                            FROM {temp_table_name}
+                            ON CONFLICT (date, symbol) DO UPDATE SET
+                                market = EXCLUDED.market,
+                                source = EXCLUDED.source,
+                                open = EXCLUDED.open,
+                                high = EXCLUDED.high,
+                                low = EXCLUDED.low,
+                                close = EXCLUDED.close,
+                                volume = EXCLUDED.volume,
+                                raw_payload_id = EXCLUDED.raw_payload_id,
+                                archive_object_reference = EXCLUDED.archive_object_reference,
+                                parser_version = EXCLUDED.parser_version
+                            WHERE EXCLUDED.source IN (
+                                    {official_source_placeholders}
+                                )
+                               OR {DailyOHLCV.__tablename__}.source IS NULL
+                               OR {DailyOHLCV.__tablename__}.source NOT IN (
+                                    {official_source_placeholders}
+                                )
+                            """
+                        ),
+                        official_source_params,
+                    )
+                _drop_staging_table(conn, temp_table_name)
+            except Exception:
+                _drop_staging_table(conn, temp_table_name)
+                raise
         summary["official_overrides"] = int(override_count)
         summary["upserted_rows"] = (
             result.rowcount
@@ -1249,7 +1298,7 @@ def load_minute_to_db(
         )
         return summary
 
-    temp_table_name = "minute_ohlcv_temp"
+    temp_table_name = _build_staging_table_name("minute_ohlcv_temp")
     try:
         validated_df = validated_df.copy()
         if "raw_payload_id" in validated_df.columns:
@@ -1266,35 +1315,45 @@ def load_minute_to_db(
             validated_df["parser_version"] = parser_version
 
         with engine.connect() as conn:
-            with conn.begin():
-                validated_df.to_sql(
-                    temp_table_name, conn, if_exists="replace", index=False
-                )
-                result = conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO {MinuteOHLCV.__tablename__} (
-                            market, symbol, bar_ts, trading_date, source,
-                            open, high, low, close, volume,
-                            raw_payload_id, parser_version
-                        )
-                        SELECT market, symbol, bar_ts, trading_date, source,
-                               open, high, low, close, volume,
-                               raw_payload_id, parser_version
-                        FROM {temp_table_name}
-                        ON CONFLICT (market, symbol, bar_ts) DO UPDATE SET
-                            trading_date = EXCLUDED.trading_date,
-                            source = EXCLUDED.source,
-                            open = EXCLUDED.open,
-                            high = EXCLUDED.high,
-                            low = EXCLUDED.low,
-                            close = EXCLUDED.close,
-                            volume = EXCLUDED.volume,
-                            raw_payload_id = EXCLUDED.raw_payload_id,
-                            parser_version = EXCLUDED.parser_version
-                        """
+            try:
+                with conn.begin():
+                    _create_staging_table(
+                        conn,
+                        table_name=temp_table_name,
+                        like_table_name=MinuteOHLCV.__tablename__,
                     )
-                )
+                    validated_df.to_sql(
+                        temp_table_name, conn, if_exists="append", index=False
+                    )
+                    result = conn.execute(
+                        text(
+                            f"""
+                            INSERT INTO {MinuteOHLCV.__tablename__} (
+                                market, symbol, bar_ts, trading_date, source,
+                                open, high, low, close, volume,
+                                raw_payload_id, parser_version
+                            )
+                            SELECT market, symbol, bar_ts, trading_date, source,
+                                   open, high, low, close, volume,
+                                   raw_payload_id, parser_version
+                            FROM {temp_table_name}
+                            ON CONFLICT (market, symbol, bar_ts) DO UPDATE SET
+                                trading_date = EXCLUDED.trading_date,
+                                source = EXCLUDED.source,
+                                open = EXCLUDED.open,
+                                high = EXCLUDED.high,
+                                low = EXCLUDED.low,
+                                close = EXCLUDED.close,
+                                volume = EXCLUDED.volume,
+                                raw_payload_id = EXCLUDED.raw_payload_id,
+                                parser_version = EXCLUDED.parser_version
+                            """
+                        )
+                    )
+                _drop_staging_table(conn, temp_table_name)
+            except Exception:
+                _drop_staging_table(conn, temp_table_name)
+                raise
         summary["upserted_rows"] = (
             result.rowcount
             if result.rowcount and result.rowcount > 0
