@@ -7,6 +7,61 @@ import requests
 from scripts import market_data_ingestion as scraper
 
 
+class _FakeResult:
+    def __init__(self, *, scalar_value=None, rowcount=None):
+        self._scalar_value = scalar_value
+        self.rowcount = rowcount
+
+    def scalar_one(self):
+        return self._scalar_value
+
+
+class _FakeTransaction:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __enter__(self):
+        self.connection.transaction_depth += 1
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.connection.transaction_depth -= 1
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, execute_plan=None):
+        self.execute_plan = list(execute_plan or [])
+        self.statements = []
+        self.to_sql_names = []
+        self.dropped_tables = []
+        self.transaction_depth = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def begin(self):
+        return _FakeTransaction(self)
+
+    def in_transaction(self):
+        return self.transaction_depth > 0
+
+    def execute(self, statement, params=None):
+        sql = str(statement).strip()
+        self.statements.append((sql, params))
+        if sql.startswith("DROP TABLE IF EXISTS "):
+            self.dropped_tables.append(sql.removeprefix("DROP TABLE IF EXISTS ").strip())
+        if not self.execute_plan:
+            return _FakeResult()
+        action = self.execute_plan.pop(0)
+        if isinstance(action, Exception):
+            raise action
+        return action
+
+
 def test_validate_ohlcv_with_report_tracks_removed_rows():
     df = pd.DataFrame(
         [
@@ -64,6 +119,319 @@ def test_load_to_db_empty_summary():
     assert summary["validated_rows"] == 0
     assert summary["upserted_rows"] == 0
     assert summary["official_overrides"] == 0
+
+
+def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_TWSE,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connections = []
+    execute_plans = [
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
+    ]
+
+    def fake_connect():
+        connection = _FakeConnection(execute_plan=execute_plans.pop(0))
+        connections.append(connection)
+        return connection
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", fake_connect)
+    monkeypatch.setattr(
+        scraper,
+        "validate_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    summary_a = scraper.load_to_db(df)
+    summary_b = scraper.load_to_db(df)
+
+    first_name = connections[0].to_sql_names[0][0]
+    second_name = connections[1].to_sql_names[0][0]
+    first_create_sql = connections[0].statements[0][0]
+    second_create_sql = connections[1].statements[0][0]
+    assert summary_a["official_overrides"] == 1
+    assert summary_a["upserted_rows"] == 1
+    assert summary_b["official_overrides"] == 1
+    assert summary_b["upserted_rows"] == 1
+    assert first_name != second_name
+    assert connections[0].to_sql_names[0][1] == "append"
+    assert connections[1].to_sql_names[0][1] == "append"
+    assert first_create_sql.startswith("CREATE TEMP TABLE")
+    assert second_create_sql.startswith("CREATE TEMP TABLE")
+    assert "ON COMMIT DROP" in first_create_sql
+    assert "ON COMMIT DROP" in second_create_sql
+    assert connections[0].dropped_tables == [first_name]
+    assert connections[1].dropped_tables == [second_name]
+
+
+def test_load_to_db_cleans_up_staging_table_on_failure(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_TWSE,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connection = _FakeConnection(
+        execute_plan=[
+            _FakeResult(),
+            _FakeResult(scalar_value=1),
+            RuntimeError("insert failed"),
+            _FakeResult(),
+        ]
+    )
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", lambda: connection)
+    monkeypatch.setattr(
+        scraper,
+        "validate_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        scraper.load_to_db(df)
+
+    staging_name = connection.to_sql_names[0][0]
+    assert connection.statements[0][0].startswith("CREATE TEMP TABLE")
+    assert connection.dropped_tables == [staging_name]
+
+
+def test_load_to_db_cleanup_failure_does_not_override_insert_error(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_TWSE,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connection = _FakeConnection(
+        execute_plan=[
+            _FakeResult(),
+            _FakeResult(scalar_value=1),
+            RuntimeError("insert failed"),
+            RuntimeError("drop failed"),
+        ]
+    )
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", lambda: connection)
+    monkeypatch.setattr(
+        scraper,
+        "validate_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        scraper.load_to_db(df)
+
+    staging_name = connection.to_sql_names[0][0]
+    assert connection.statements[0][0].startswith("CREATE TEMP TABLE")
+    assert connection.dropped_tables == [staging_name]
+
+
+def test_load_minute_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "trading_date": date(2024, 1, 2),
+                "bar_ts": pd.Timestamp("2024-01-02T01:00:00Z"),
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_YFINANCE_MINUTE_1M,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connections = []
+    execute_plans = [
+        [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
+    ]
+
+    def fake_connect():
+        connection = _FakeConnection(execute_plan=execute_plans.pop(0))
+        connections.append(connection)
+        return connection
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", fake_connect)
+    monkeypatch.setattr(
+        scraper,
+        "validate_minute_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    summary_a = scraper.load_minute_to_db(df)
+    summary_b = scraper.load_minute_to_db(df)
+
+    first_name = connections[0].to_sql_names[0][0]
+    second_name = connections[1].to_sql_names[0][0]
+    first_create_sql = connections[0].statements[0][0]
+    second_create_sql = connections[1].statements[0][0]
+    assert summary_a["upserted_rows"] == 1
+    assert summary_b["upserted_rows"] == 1
+    assert first_name != second_name
+    assert connections[0].to_sql_names[0][1] == "append"
+    assert connections[1].to_sql_names[0][1] == "append"
+    assert first_create_sql.startswith("CREATE TEMP TABLE")
+    assert second_create_sql.startswith("CREATE TEMP TABLE")
+    assert "ON COMMIT DROP" in first_create_sql
+    assert "ON COMMIT DROP" in second_create_sql
+    assert connections[0].dropped_tables == [first_name]
+    assert connections[1].dropped_tables == [second_name]
+
+
+def test_load_minute_to_db_cleans_up_staging_table_on_failure(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "trading_date": date(2024, 1, 2),
+                "bar_ts": pd.Timestamp("2024-01-02T01:00:00Z"),
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_YFINANCE_MINUTE_1M,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connection = _FakeConnection(
+        execute_plan=[
+            _FakeResult(),
+            RuntimeError("insert failed"),
+            _FakeResult(),
+        ]
+    )
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", lambda: connection)
+    monkeypatch.setattr(
+        scraper,
+        "validate_minute_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        scraper.load_minute_to_db(df)
+
+    staging_name = connection.to_sql_names[0][0]
+    assert connection.statements[0][0].startswith("CREATE TEMP TABLE")
+    assert connection.dropped_tables == [staging_name]
+
+
+def test_load_minute_to_db_cleanup_failure_does_not_override_insert_error(monkeypatch):
+    df = pd.DataFrame(
+        [
+            {
+                "trading_date": date(2024, 1, 2),
+                "bar_ts": pd.Timestamp("2024-01-02T01:00:00Z"),
+                "symbol": "2330",
+                "market": "TW",
+                "source": scraper.SOURCE_YFINANCE_MINUTE_1M,
+                "open": 10.0,
+                "high": 11.0,
+                "low": 9.0,
+                "close": 10.5,
+                "volume": 100,
+            }
+        ]
+    )
+    connection = _FakeConnection(
+        execute_plan=[
+            _FakeResult(),
+            RuntimeError("insert failed"),
+            RuntimeError("drop failed"),
+        ]
+    )
+
+    def fake_to_sql(self, name, conn, if_exists="fail", index=True, **kwargs):
+        conn.to_sql_names.append((name, if_exists, index))
+
+    monkeypatch.setattr(scraper.engine, "connect", lambda: connection)
+    monkeypatch.setattr(
+        scraper,
+        "validate_minute_ohlcv_with_report",
+        lambda frame, label: (
+            frame.copy(),
+            scraper.QualityReport(input_rows=len(frame), output_rows=len(frame)),
+        ),
+    )
+    monkeypatch.setattr(pd.DataFrame, "to_sql", fake_to_sql)
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        scraper.load_minute_to_db(df)
+
+    staging_name = connection.to_sql_names[0][0]
+    assert connection.statements[0][0].startswith("CREATE TEMP TABLE")
+    assert connection.dropped_tables == [staging_name]
 
 
 def test_sanitize_numeric_value_strips_html_tags():
