@@ -81,10 +81,11 @@ def ingest_market_data(request: DataIngestionRequest) -> dict:
         raise DataAccessError("Failed to ingest market data.") from exc
 
     logger.info(
-        "Completed market data ingestion symbol=%s market=%s backfill_raw_payload_id=%s daily_raw_payload_id=%s",
+        "Completed market data ingestion symbol=%s market=%s backfill_raw_payload_id=%s daily_raw_payload_id=%s minute_status=%s",
         symbol,
         market,
         summary["backfill"].get("raw_payload_id"),
         summary["daily_update"].get("raw_payload_id"),
+        summary["minute_supplement"].get("status"),
     )
     return summary

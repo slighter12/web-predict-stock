@@ -48,11 +48,26 @@ class IngestionStageSummary(BaseModel):
     official_overrides: int
 
 
+class MinuteSupplementSummary(BaseModel):
+    status: str
+    window_start: Optional[date] = None
+    window_end: Optional[date] = None
+    segment_count: int
+    segments_succeeded: int
+    segments_failed: int
+    covered_trading_days: int
+    input_rows: int
+    upserted_rows: int
+    duplicates_removed: int
+    skipped_reason: Optional[str] = None
+
+
 class DataIngestionResponse(BaseModel):
     symbol: str
     market: str
     backfill: IngestionStageSummary
     daily_update: IngestionStageSummary
+    minute_supplement: MinuteSupplementSummary
 
 
 class ReplayRequest(RequestModel):

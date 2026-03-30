@@ -43,6 +43,19 @@ def test_create_data_ingestion(monkeypatch):
                 "upserted_rows": 2,
                 "official_overrides": 0,
             },
+            "minute_supplement": {
+                "status": "succeeded",
+                "window_start": "2026-02-28",
+                "window_end": "2026-03-29",
+                "segment_count": 1,
+                "segments_succeeded": 1,
+                "segments_failed": 0,
+                "covered_trading_days": 20,
+                "input_rows": 1200,
+                "upserted_rows": 1200,
+                "duplicates_removed": 0,
+                "skipped_reason": None,
+            },
         },
     )
 
@@ -52,6 +65,7 @@ def test_create_data_ingestion(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["backfill"]["raw_payload_id"] == 1
+    assert response.json()["minute_supplement"]["status"] == "succeeded"
 
 
 def test_replay_and_replay_list(monkeypatch):

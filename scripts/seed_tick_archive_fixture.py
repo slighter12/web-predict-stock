@@ -29,8 +29,10 @@ from backend.market_data.services.tick_archive_provider import (
     parse_archive_entry,
 )
 from backend.market_data.services.tick_archive_storage import (
+    NORMALIZED_ARCHIVE_SUBDIRECTORY,
     object_key_to_path,
     write_archive_part,
+    write_normalized_archive_part,
 )
 from backend.market_data.services.tick_archives import (
     TICK_ARCHIVE_LAYOUT_VERSION,
@@ -197,6 +199,10 @@ def _cleanup_fixture_data() -> dict:
         object_ids = [row.id for row in object_rows]
         object_refs = [f"tick_archive_object:{row.id}" for row in object_rows]
         object_paths = [object_key_to_path(row.object_key) for row in object_rows]
+        normalized_paths = [
+            path.parent / NORMALIZED_ARCHIVE_SUBDIRECTORY / path.name
+            for path in object_paths
+        ]
 
         if object_ids:
             session.execute(
@@ -220,17 +226,17 @@ def _cleanup_fixture_data() -> dict:
             )
         session.commit()
 
-    for path in object_paths:
+    for path in [*object_paths, *normalized_paths]:
         if path.exists():
             path.unlink()
             removed_paths.append(str(path))
-            directory = path.parent
-            while directory != PROJECT_ROOT and directory.exists():
-                try:
-                    directory.rmdir()
-                except OSError:
-                    break
-                directory = directory.parent
+        directory = path.parent
+        while directory != PROJECT_ROOT and directory.exists():
+            try:
+                directory.rmdir()
+            except OSError:
+                break
+            directory = directory.parent
     return {
         "removed_run_count": len(run_ids),
         "removed_object_count": len(object_rows),
@@ -267,6 +273,13 @@ def _create_fixture_run(
             entries=[entry],
         )
         observations = parse_archive_entry(entry)
+        write_normalized_archive_part(
+            market="TW",
+            trading_date=trading_date,
+            run_id=run["id"],
+            part_number=part_number,
+            observations=observations,
+        )
         archive_objects.append(
             persist_tick_archive_object(
                 _archive_object_payload(

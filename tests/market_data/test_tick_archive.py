@@ -211,7 +211,9 @@ def test_fetch_twse_public_snapshot_insecure_fallback_requires_explicit_opt_in(
         fake_request_snapshot,
     )
 
-    with pytest.raises(ExternalFetchError, match="Failed to fetch TWSE public snapshot."):
+    with pytest.raises(
+        ExternalFetchError, match="Failed to fetch TWSE public snapshot."
+    ):
         tick_archive_provider.fetch_twse_public_snapshot(["2330"])
 
     assert calls == [tick_archive_provider.certifi.where()]
@@ -253,6 +255,7 @@ def test_fetch_twse_public_snapshot_can_use_explicit_insecure_fallback(monkeypat
 def test_create_tick_archive_dispatch_persists_run_and_objects(monkeypatch):
     persisted_runs: list[dict] = []
     persisted_objects: list[dict] = []
+    normalized_writes: list[dict] = []
 
     def capture_run(payload):
         record = {"id": payload.get("id", len(persisted_runs) + 1), **payload}
@@ -310,6 +313,20 @@ def test_create_tick_archive_dispatch_persists_run_and_objects(monkeypatch):
     )
     monkeypatch.setattr(
         tick_archive_service,
+        "write_normalized_archive_part",
+        lambda **kwargs: (
+            normalized_writes.append(kwargs)
+            or {
+                "object_key": "var/tick_archives/TW/2026-03-20/1/normalized/part-00001.jsonl.gz",
+                "compressed_bytes": 96,
+                "uncompressed_bytes": 256,
+                "compression_ratio": 0.625,
+                "checksum": "normalized123",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
         "persist_tick_archive_object",
         lambda payload: persisted_objects.append(payload) or {"id": 1, **payload},
     )
@@ -332,6 +349,7 @@ def test_create_tick_archive_dispatch_persists_run_and_objects(monkeypatch):
     assert result["request_count"] == 1
     assert result["observation_count"] == 1
     assert persisted_objects[0]["record_count"] == 1
+    assert len(normalized_writes) == 1
 
 
 def test_create_tick_archive_dispatch_raises_after_persisting_failed_run(monkeypatch):
@@ -458,6 +476,17 @@ def test_create_tick_archive_dispatch_cleans_up_persisted_parts_on_late_failure(
         tick_archive_service, "write_archive_part", lambda **kwargs: next(write_results)
     )
     monkeypatch.setattr(
+        tick_archive_service,
+        "write_normalized_archive_part",
+        lambda **kwargs: {
+            "object_key": "var/tick_archives/TW/2026-03-20/1/normalized/part-00001.jsonl.gz",
+            "compressed_bytes": 96,
+            "uncompressed_bytes": 256,
+            "compression_ratio": 0.625,
+            "checksum": "normalized123",
+        },
+    )
+    monkeypatch.setattr(
         tick_archive_service, "persist_tick_archive_object", capture_object
     )
     monkeypatch.setattr(
@@ -486,7 +515,10 @@ def test_create_tick_archive_dispatch_cleans_up_persisted_parts_on_late_failure(
         tick_archive_service.create_tick_archive_dispatch(request)
 
     assert deleted_object_ids == [1]
-    assert deleted_keys == ["var/tick_archives/TW/2026-03-20/1/part-00001.jsonl.gz"]
+    assert deleted_keys == [
+        "var/tick_archives/TW/2026-03-20/1/normalized/part-00001.jsonl.gz",
+        "var/tick_archives/TW/2026-03-20/1/part-00001.jsonl.gz",
+    ]
     assert persisted_runs[-1]["status"] == "failed"
     assert persisted_runs[-1]["observation_count"] == 0
 
@@ -542,6 +574,17 @@ def test_create_tick_archive_dispatch_resolves_symbols_for_requested_trading_dat
             "uncompressed_bytes": 512,
             "compression_ratio": 0.75,
             "checksum": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "write_normalized_archive_part",
+        lambda **kwargs: {
+            "object_key": "var/tick_archives/TW/2026-03-18/1/normalized/part-00001.jsonl.gz",
+            "compressed_bytes": 96,
+            "uncompressed_bytes": 256,
+            "compression_ratio": 0.625,
+            "checksum": "normalized123",
         },
     )
     monkeypatch.setattr(
@@ -637,6 +680,107 @@ def test_create_tick_archive_import_rejects_mismatched_archive_metadata(monkeypa
 
     assert persisted_runs[-1]["status"] == "failed"
     assert deleted_keys == ["var/tick_archives/TW/2026-03-21/1/upload.jsonl.gz"]
+
+
+def test_create_tick_archive_import_writes_normalized_sidecar(monkeypatch):
+    persisted_runs: list[dict] = []
+    persisted_objects: list[dict] = []
+    normalized_writes: list[dict] = []
+
+    def capture_run(payload):
+        record = {"id": payload.get("id", len(persisted_runs) + 1), **payload}
+        persisted_runs.append(record)
+        return record
+
+    monkeypatch.setattr(tick_archive_service, "persist_tick_archive_run", capture_run)
+    monkeypatch.setattr(
+        tick_archive_service,
+        "write_uploaded_archive",
+        lambda **kwargs: {
+            "object_key": "var/tick_archives/TW/2026-03-21/1/part-00001.jsonl.gz",
+            "compressed_bytes": 128,
+            "uncompressed_bytes": 512,
+            "compression_ratio": 0.75,
+            "checksum": "abc123",
+        },
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "read_archive_entries",
+        lambda object_key: [
+            {
+                "raw_response_body": '{"msgArray":[]}',
+                "fetch_timestamp": "2026-03-21T02:05:00+00:00",
+                "request_symbols": ["2330"],
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "parse_archive_entry",
+        lambda entry: [
+            {
+                "trading_date": date(2026, 3, 21),
+                "observation_ts": datetime(2026, 3, 21, 2, 5, tzinfo=timezone.utc),
+                "symbol": "2330",
+                "market": "TW",
+                "last_price": 1840.0,
+                "last_size": 24094,
+                "cumulative_volume": 46139,
+                "best_bid_prices": [1840.0],
+                "best_bid_sizes": [763],
+                "best_ask_prices": [1845.0],
+                "best_ask_sizes": [110],
+                "source_name": "twse_public_snapshot",
+                "parser_version": "twse_public_snapshot_parser_v1",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "write_normalized_archive_part",
+        lambda **kwargs: (
+            normalized_writes.append(kwargs)
+            or {
+                "object_key": "var/tick_archives/TW/2026-03-21/1/normalized/part-00001.jsonl.gz",
+                "compressed_bytes": 96,
+                "uncompressed_bytes": 256,
+                "compression_ratio": 0.625,
+                "checksum": "normalized123",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "persist_tick_archive_object",
+        lambda payload: persisted_objects.append(payload) or {"id": 1, **payload},
+    )
+    monkeypatch.setattr(
+        tick_archive_service,
+        "_collect_backup_metadata",
+        lambda object_key: {
+            "backup_backend": "google_drive_mirror",
+            "backup_object_key": None,
+            "backup_status": "not_configured",
+            "backup_completed_at": None,
+            "backup_error": None,
+        },
+    )
+
+    result = tick_archive_service.create_tick_archive_import(
+        market="TW",
+        trading_date=date(2026, 3, 21),
+        notes="manual import",
+        file_bytes=b"gzip-content",
+    )
+
+    assert result["run"]["status"] == "succeeded"
+    assert result["archive_object"]["record_count"] == 1
+    assert len(normalized_writes) == 1
+    assert normalized_writes[0]["part_number"] == 1
+    assert persisted_objects[0]["object_key"] == (
+        "var/tick_archives/TW/2026-03-21/1/part-00001.jsonl.gz"
+    )
 
 
 def test_create_tick_replay_persists_restore_metrics(monkeypatch):

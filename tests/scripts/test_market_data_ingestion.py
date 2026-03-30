@@ -120,6 +120,23 @@ def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
     monkeypatch.setattr(
         scraper, "scrape_daily_twse", lambda **kwargs: (daily_df, daily_meta)
     )
+    monkeypatch.setattr(
+        scraper,
+        "supplement_yahoo_minute_history",
+        lambda **kwargs: {
+            "status": "succeeded",
+            "window_start": date(2024, 1, 1),
+            "window_end": date(2024, 1, 31),
+            "segment_count": 1,
+            "segments_succeeded": 1,
+            "segments_failed": 0,
+            "covered_trading_days": 1,
+            "input_rows": 2,
+            "upserted_rows": 2,
+            "duplicates_removed": 0,
+            "skipped_reason": None,
+        },
+    )
 
     def fake_load(df, metadata=None):
         calls.append(df.iloc[0]["source"] if not df.empty else "empty")
@@ -136,6 +153,7 @@ def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
 
     assert calls == ["yfinance", "twse"]
     assert summary["daily_update"]["official_overrides"] == 1
+    assert summary["minute_supplement"]["status"] == "succeeded"
 
 
 def test_ingest_symbol_us_skips_daily_update(monkeypatch):
@@ -173,6 +191,8 @@ def test_ingest_symbol_us_skips_daily_update(monkeypatch):
 
     assert summary["backfill"]["validated_rows"] == 1
     assert summary["daily_update"]["validated_rows"] == 0
+    assert summary["minute_supplement"]["status"] == "skipped"
+    assert summary["minute_supplement"]["skipped_reason"] == "market_not_supported"
 
 
 def test_scrape_twse_data_records_success(monkeypatch):
@@ -433,6 +453,155 @@ def test_parse_yfinance_payload_body_replays_successfully():
     assert len(cleaned) == 1
     assert cleaned.iloc[0]["source"] == scraper.SOURCE_YFINANCE
     assert metadata.parser_version == scraper.YFINANCE_PARSER_VERSION
+
+
+def test_parse_yfinance_minute_payload_body_replays_successfully():
+    payload_df = pd.DataFrame(
+        {
+            "Datetime": pd.to_datetime(["2024-01-02 09:00:00+08:00"]),
+            "Open": [10.0],
+            "High": [11.0],
+            "Low": [9.0],
+            "Close": [10.5],
+            "Volume": [100],
+        }
+    )
+    payload = payload_df.to_json(orient="table", date_format="iso")
+
+    cleaned, metadata = scraper.parse_yfinance_minute_payload_body(
+        payload_body=payload,
+        symbol="2330",
+        market="TW",
+        raw_payload_id=78,
+    )
+
+    assert len(cleaned) == 1
+    assert cleaned.iloc[0]["source"] == scraper.SOURCE_YFINANCE_MINUTE_1M
+    assert cleaned.iloc[0]["trading_date"] == date(2024, 1, 2)
+    assert metadata.raw_payload_id == 78
+    assert metadata.parser_version == scraper.YFINANCE_MINUTE_PARSER_VERSION
+
+
+def test_build_minute_fetch_segments_groups_missing_days():
+    window_start = pd.Timestamp("2024-01-01 10:00:00", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 15:00:00", tz="Asia/Taipei").to_pydatetime()
+
+    segments = scraper._build_minute_fetch_segments(
+        missing_days=[
+            date(2024, 1, 2),
+            date(2024, 1, 3),
+            date(2024, 1, 20),
+        ],
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+    assert len(segments) == 2
+    assert segments[0][0].date() == date(2024, 1, 2)
+    assert segments[0][1].date() == date(2024, 1, 9)
+    assert segments[1][0].date() == date(2024, 1, 20)
+
+
+def test_supplement_yahoo_minute_history_skips_historical_override(monkeypatch):
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (
+            pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime(),
+            pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime(),
+        ),
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240130",
+    )
+
+    assert summary["status"] == "skipped"
+    assert summary["skipped_reason"] == "historical_date_override_not_supported"
+
+
+def test_supplement_yahoo_minute_history_fetches_missing_segments(monkeypatch):
+    window_start = pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+    segment_calls = []
+    covered_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (window_start, window_end),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_list_symbol_daily_trading_days",
+        lambda **kwargs: [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 20)],
+    )
+
+    def fake_minute_days(**kwargs):
+        covered_calls["count"] += 1
+        if covered_calls["count"] == 1:
+            return [date(2024, 1, 2)]
+        return [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 20)]
+
+    monkeypatch.setattr(scraper, "_list_symbol_minute_trading_days", fake_minute_days)
+    monkeypatch.setattr(scraper.yf, "Ticker", lambda symbol: object())
+
+    def fake_fetch(**kwargs):
+        segment_calls.append((kwargs["start_dt"], kwargs["end_dt"]))
+        segment_start = kwargs["start_dt"].astimezone(scraper.TW_TIMEZONE)
+        df = pd.DataFrame(
+            [
+                {
+                    "trading_date": segment_start.date(),
+                    "bar_ts": kwargs["start_dt"].astimezone(scraper.timezone.utc),
+                    "symbol": "2330",
+                    "market": "TW",
+                    "source": scraper.SOURCE_YFINANCE_MINUTE_1M,
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.0,
+                    "close": 10.5,
+                    "volume": 100,
+                }
+            ]
+        )
+        return (
+            df,
+            scraper.RawTraceMetadata(
+                raw_payload_id=501,
+                archive_object_reference="raw_ingest_audit:501",
+                parser_version=scraper.YFINANCE_MINUTE_PARSER_VERSION,
+            ),
+        )
+
+    monkeypatch.setattr(scraper, "fetch_yfinance_minute_segment", fake_fetch)
+    monkeypatch.setattr(
+        scraper,
+        "load_minute_to_db",
+        lambda df, metadata=None: {
+            "input_rows": len(df),
+            "validated_rows": len(df),
+            "duplicates_removed": 0,
+            "upserted_rows": len(df),
+        },
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240131",
+    )
+
+    assert len(segment_calls) == 2
+    assert summary["status"] == "succeeded"
+    assert summary["segment_count"] == 2
+    assert summary["segments_succeeded"] == 2
+    assert summary["segments_failed"] == 0
+    assert summary["covered_trading_days"] == 3
+    assert summary["input_rows"] == 2
+    assert summary["upserted_rows"] == 2
 
 
 def test_parse_twse_mi_index_payload_body_replays_successfully():
@@ -768,6 +937,23 @@ def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
             else 0,
         },
     )
+    monkeypatch.setattr(
+        scraper,
+        "supplement_yahoo_minute_history",
+        lambda **kwargs: {
+            "status": "succeeded",
+            "window_start": date(2026, 2, 28),
+            "window_end": date(2026, 3, 29),
+            "segment_count": 1,
+            "segments_succeeded": 1,
+            "segments_failed": 0,
+            "covered_trading_days": 2,
+            "input_rows": 2,
+            "upserted_rows": 2,
+            "duplicates_removed": 0,
+            "skipped_reason": None,
+        },
+    )
 
     summary = scraper.ingest_symbol(symbol="2330", market="TW", years=5)
 
@@ -775,3 +961,4 @@ def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):
     assert summary["backfill"]["parser_version"] == scraper.YFINANCE_PARSER_VERSION
     assert summary["daily_update"]["raw_payload_id"] == 11
     assert summary["daily_update"]["official_overrides"] == 1
+    assert summary["minute_supplement"]["covered_trading_days"] == 2

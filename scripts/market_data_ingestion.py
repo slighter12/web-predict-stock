@@ -4,9 +4,10 @@ import os
 import re
 import sys
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import partial
 from io import StringIO
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -14,7 +15,12 @@ import yfinance as yf
 from sqlalchemy import text
 
 try:
-    from backend.database import DailyOHLCV, RawIngestAudit, engine
+    from backend.database import (
+        DailyOHLCV,
+        MinuteOHLCV,
+        RawIngestAudit,
+        engine,
+    )
     from backend.market_data.services.company_crawlers import crawl_tw_company_profiles
     from backend.market_data.services.company_profiles import (
         list_active_tw_company_profiles,
@@ -37,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 SOURCE_TWSE = "twse"
 SOURCE_YFINANCE = "yfinance"
+SOURCE_YFINANCE_MINUTE_1M = "yfinance_minute_1m"
 SOURCE_TWSE_MI_INDEX = "twse_mi_index"
 SOURCE_TPEX_AFTERTRADING_OTC = "tpex_aftertrading_otc"
 MARKET_TW = "TW"
@@ -46,6 +53,11 @@ TPEX_BATCH_SYMBOL = "TPEX_BATCH_DAILY"
 TWSE_MI_INDEX_TYPE = "ALLBUT0999"
 TPEX_AFTERTRADING_TYPE = "AL"
 OFFICIAL_BATCH_TIMEOUT_SECONDS = int(os.getenv("OFFICIAL_BATCH_TIMEOUT_SECONDS", "60"))
+YFINANCE_MINUTE_INTERVAL = "1m"
+YFINANCE_MINUTE_SEGMENT_DAYS = 7
+YFINANCE_MINUTE_WINDOW_DAYS = 30
+YFINANCE_MINUTE_WINDOW_BUFFER_SECONDS = 1
+TW_TIMEZONE = ZoneInfo("Asia/Taipei")
 OFFICIAL_SOURCES = (
     SOURCE_TWSE,
     SOURCE_TWSE_MI_INDEX,
@@ -87,6 +99,7 @@ class RawTraceMetadata:
 
 TWSE_PARSER_VERSION = "twse_parser_v1"
 YFINANCE_PARSER_VERSION = "yfinance_parser_v1"
+YFINANCE_MINUTE_PARSER_VERSION = "yfinance_minute_1m_parser_v1"
 TWSE_MI_INDEX_PARSER_VERSION = "twse_mi_index_v1"
 TPEX_AFTERTRADING_OTC_PARSER_VERSION = "tpex_aftertrading_otc_v1"
 FETCH_STATUS_SUCCESS = "success"
@@ -281,6 +294,202 @@ def validate_ohlcv(df: pd.DataFrame, label: str = "") -> pd.DataFrame:
     return cleaned
 
 
+def validate_minute_ohlcv_with_report(
+    df: pd.DataFrame, label: str = ""
+) -> tuple[pd.DataFrame, QualityReport]:
+    report = QualityReport(input_rows=len(df))
+    if df.empty:
+        return df, report
+
+    required_cols = [
+        "trading_date",
+        "bar_ts",
+        "symbol",
+        "market",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+    ]
+    missing = [col for col in required_cols if col not in df.columns]
+    if missing:
+        logger.warning(
+            "Missing columns in minute OHLCV data label=%s missing=%s", label, missing
+        )
+        return pd.DataFrame(), report
+
+    cleaned = df.copy()
+    cleaned["bar_ts"] = pd.to_datetime(cleaned["bar_ts"], utc=True, errors="coerce")
+    cleaned["trading_date"] = pd.to_datetime(cleaned["trading_date"]).dt.date
+
+    before_dedup = len(cleaned)
+    cleaned = cleaned.drop_duplicates(
+        subset=["market", "symbol", "bar_ts"], keep="last"
+    )
+    report.duplicates_removed = before_dedup - len(cleaned)
+
+    null_rows = cleaned[required_cols].isnull().any(axis=1)
+    report.null_rows_removed = int(null_rows.sum())
+    if report.null_rows_removed:
+        cleaned = cleaned[~null_rows]
+
+    invalid_price = (cleaned[["open", "high", "low", "close"]] <= 0).any(axis=1)
+    invalid_volume = cleaned["volume"] < 0
+    invalid_rows = invalid_price | invalid_volume
+    report.invalid_rows_removed = int(invalid_rows.sum())
+    if report.invalid_rows_removed:
+        cleaned = cleaned[~invalid_rows]
+
+    report.output_rows = len(cleaned)
+    logger.info("Validated minute OHLCV label=%s report=%s", label, report.to_dict())
+    return cleaned, report
+
+
+def _empty_minute_supplement_summary(
+    *,
+    status: str,
+    window_start: date | None,
+    window_end: date | None,
+    skipped_reason: str | None = None,
+) -> dict:
+    return {
+        "status": status,
+        "window_start": window_start,
+        "window_end": window_end,
+        "segment_count": 0,
+        "segments_succeeded": 0,
+        "segments_failed": 0,
+        "covered_trading_days": 0,
+        "input_rows": 0,
+        "upserted_rows": 0,
+        "duplicates_removed": 0,
+        "skipped_reason": skipped_reason,
+    }
+
+
+def _current_tw_now(reference_time: datetime | None = None) -> datetime:
+    current = reference_time or utc_now()
+    return current.astimezone(TW_TIMEZONE)
+
+
+def _resolve_minute_window(
+    reference_time: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    window_end = _current_tw_now(reference_time)
+    window_start = window_end - timedelta(days=YFINANCE_MINUTE_WINDOW_DAYS)
+    window_start += timedelta(seconds=YFINANCE_MINUTE_WINDOW_BUFFER_SECONDS)
+    return window_start, window_end
+
+
+def _parse_ingestion_date_override(date_str: str | None) -> date | None:
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _list_symbol_daily_trading_days(
+    *,
+    symbol: str,
+    market: str,
+    start_date: date,
+    end_date: date,
+) -> list[date]:
+    query = text(
+        f"""
+        SELECT DISTINCT date
+        FROM {DailyOHLCV.__tablename__}
+        WHERE symbol = :symbol
+          AND market = :market
+          AND date >= :start_date
+          AND date <= :end_date
+        ORDER BY date
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(
+            query,
+            {
+                "symbol": symbol,
+                "market": market,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        ).scalars()
+        return [item for item in rows if item is not None]
+
+
+def _list_symbol_minute_trading_days(
+    *,
+    symbol: str,
+    market: str,
+    start_date: date,
+    end_date: date,
+) -> list[date]:
+    query = text(
+        f"""
+        SELECT DISTINCT trading_date
+        FROM {MinuteOHLCV.__tablename__}
+        WHERE symbol = :symbol
+          AND market = :market
+          AND trading_date >= :start_date
+          AND trading_date <= :end_date
+        ORDER BY trading_date
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(
+            query,
+            {
+                "symbol": symbol,
+                "market": market,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        ).scalars()
+        return [item for item in rows if item is not None]
+
+
+def _build_minute_fetch_segments(
+    *,
+    missing_days: list[date],
+    window_start: datetime,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    if not missing_days:
+        return []
+
+    segments: list[tuple[datetime, datetime]] = []
+    sorted_days = sorted(missing_days)
+    index = 0
+    while index < len(sorted_days):
+        segment_start_day = sorted_days[index]
+        segment_end_day = min(
+            segment_start_day + timedelta(days=YFINANCE_MINUTE_SEGMENT_DAYS - 1),
+            window_end.date(),
+        )
+        segment_start = max(
+            datetime.combine(segment_start_day, datetime.min.time(), tzinfo=TW_TIMEZONE),
+            window_start,
+        )
+        segment_end = min(
+            datetime.combine(
+                segment_end_day + timedelta(days=1),
+                datetime.min.time(),
+                tzinfo=TW_TIMEZONE,
+            ),
+            window_end,
+        )
+        if segment_start < segment_end:
+            segments.append((segment_start, segment_end))
+        while index < len(sorted_days) and sorted_days[index] <= segment_end_day:
+            index += 1
+    return segments
+
+
 def _attach_stage_metadata(summary: dict, metadata: RawTraceMetadata | None) -> dict:
     enriched = dict(summary)
     enriched["raw_payload_id"] = metadata.raw_payload_id if metadata else None
@@ -382,6 +591,65 @@ def parse_yfinance_payload_body(
     )
     return cleaned, RawTraceMetadata.from_ingest(
         raw_payload_id, YFINANCE_PARSER_VERSION
+    )
+
+
+def parse_yfinance_minute_payload_body(
+    payload_body: str,
+    *,
+    symbol: str,
+    market: str,
+    raw_payload_id: int | None = None,
+) -> tuple[pd.DataFrame, RawTraceMetadata]:
+    payload = json.loads(payload_body)
+    hist = pd.DataFrame(payload.get("data", []))
+    hist.rename(
+        columns={
+            "Date": "bar_ts",
+            "Datetime": "bar_ts",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+        },
+        inplace=True,
+    )
+
+    bar_ts = pd.to_datetime(hist["bar_ts"], errors="coerce")
+    if getattr(bar_ts.dt, "tz", None) is None:
+        local_bar_ts = bar_ts.dt.tz_localize(TW_TIMEZONE)
+    else:
+        local_bar_ts = bar_ts.dt.tz_convert(TW_TIMEZONE)
+
+    hist["trading_date"] = local_bar_ts.dt.date
+    hist["bar_ts"] = local_bar_ts.dt.tz_convert(timezone.utc)
+    hist["symbol"] = symbol
+    hist["market"] = market
+    hist["source"] = SOURCE_YFINANCE_MINUTE_1M
+
+    for col in ["open", "high", "low", "close", "volume"]:
+        hist[col] = pd.to_numeric(hist[col], errors="coerce")
+    hist["volume"] = hist["volume"].fillna(0).astype(int)
+    hist = hist[
+        [
+            "trading_date",
+            "bar_ts",
+            "symbol",
+            "market",
+            "source",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+        ]
+    ]
+    cleaned, _ = validate_minute_ohlcv_with_report(
+        hist, label=f"{symbol}:{SOURCE_YFINANCE_MINUTE_1M}:replay"
+    )
+    return cleaned, RawTraceMetadata.from_ingest(
+        raw_payload_id, YFINANCE_MINUTE_PARSER_VERSION
     )
 
 
@@ -960,6 +1228,85 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
         raise
 
 
+def load_minute_to_db(
+    df: pd.DataFrame, metadata: RawTraceMetadata | None = None
+) -> dict:
+    validated_df, quality = validate_minute_ohlcv_with_report(
+        df, label="load_minute_to_db"
+    )
+    raw_payload_id = metadata.raw_payload_id if metadata else None
+    parser_version = metadata.parser_version if metadata else None
+    summary = {
+        "input_rows": quality.input_rows,
+        "validated_rows": quality.output_rows,
+        "duplicates_removed": quality.duplicates_removed,
+        "upserted_rows": 0,
+    }
+    if validated_df.empty:
+        logger.info(
+            "Skipping minute DB load because validated DataFrame is empty summary=%s",
+            summary,
+        )
+        return summary
+
+    temp_table_name = "minute_ohlcv_temp"
+    try:
+        validated_df = validated_df.copy()
+        if "raw_payload_id" in validated_df.columns:
+            validated_df["raw_payload_id"] = validated_df["raw_payload_id"].where(
+                validated_df["raw_payload_id"].notna(), raw_payload_id
+            )
+        else:
+            validated_df["raw_payload_id"] = raw_payload_id
+        if "parser_version" in validated_df.columns:
+            validated_df["parser_version"] = validated_df["parser_version"].where(
+                validated_df["parser_version"].notna(), parser_version
+            )
+        else:
+            validated_df["parser_version"] = parser_version
+
+        with engine.connect() as conn:
+            with conn.begin():
+                validated_df.to_sql(
+                    temp_table_name, conn, if_exists="replace", index=False
+                )
+                result = conn.execute(
+                    text(
+                        f"""
+                        INSERT INTO {MinuteOHLCV.__tablename__} (
+                            market, symbol, bar_ts, trading_date, source,
+                            open, high, low, close, volume,
+                            raw_payload_id, parser_version
+                        )
+                        SELECT market, symbol, bar_ts, trading_date, source,
+                               open, high, low, close, volume,
+                               raw_payload_id, parser_version
+                        FROM {temp_table_name}
+                        ON CONFLICT (market, symbol, bar_ts) DO UPDATE SET
+                            trading_date = EXCLUDED.trading_date,
+                            source = EXCLUDED.source,
+                            open = EXCLUDED.open,
+                            high = EXCLUDED.high,
+                            low = EXCLUDED.low,
+                            close = EXCLUDED.close,
+                            volume = EXCLUDED.volume,
+                            raw_payload_id = EXCLUDED.raw_payload_id,
+                            parser_version = EXCLUDED.parser_version
+                        """
+                    )
+                )
+        summary["upserted_rows"] = (
+            result.rowcount
+            if result.rowcount and result.rowcount > 0
+            else len(validated_df)
+        )
+        logger.info("Loaded minute OHLCV rows summary=%s", summary)
+        return summary
+    except Exception:
+        logger.exception("Failed to load minute OHLCV rows summary=%s", summary)
+        raise
+
+
 def scrape_daily_twse(
     symbol: str, date_str: str | None = None
 ) -> tuple[pd.DataFrame, RawTraceMetadata | None]:
@@ -1041,6 +1388,218 @@ def backfill_history(
         market,
     )
     return cleaned, metadata
+
+
+def fetch_yfinance_minute_segment(
+    *,
+    ticker,
+    symbol: str,
+    market: str,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> tuple[pd.DataFrame, RawTraceMetadata | None]:
+    fetch_timestamp = utc_now()
+    expected_context = (
+        f"symbol={symbol};market={market};interval={YFINANCE_MINUTE_INTERVAL};"
+        f"start={start_dt.astimezone(timezone.utc).isoformat()};"
+        f"end={end_dt.astimezone(timezone.utc).isoformat()}"
+    )
+    payload_body = ""
+
+    _persist = partial(
+        persist_raw_ingest_record,
+        source_name=SOURCE_YFINANCE_MINUTE_1M,
+        symbol=symbol,
+        market=market,
+        parser_version=YFINANCE_MINUTE_PARSER_VERSION,
+        expected_symbol_context=expected_context,
+        fetch_timestamp=fetch_timestamp,
+    )
+
+    try:
+        hist = ticker.history(
+            start=start_dt.astimezone(timezone.utc),
+            end=end_dt.astimezone(timezone.utc),
+            interval=YFINANCE_MINUTE_INTERVAL,
+            auto_adjust=False,
+            actions=False,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to fetch yfinance minute data symbol=%s market=%s start=%s end=%s",
+            symbol,
+            market,
+            start_dt,
+            end_dt,
+        )
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"yfinance minute fetch failure {symbol}",
+        )
+        return pd.DataFrame(), None
+
+    if hist.empty:
+        logger.warning(
+            "No yfinance minute data returned symbol=%s market=%s start=%s end=%s",
+            symbol,
+            market,
+            start_dt,
+            end_dt,
+        )
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_SUCCESS,
+            payload_body=payload_body,
+            context_label=f"yfinance minute empty fetch {symbol}",
+        )
+        return pd.DataFrame(), None
+
+    hist = hist.reset_index()
+    payload_body = hist.to_json(orient="table", date_format="iso")
+    raw_payload_id = _persist(
+        fetch_status=FETCH_STATUS_SUCCESS,
+        payload_body=payload_body,
+    )
+
+    try:
+        cleaned, metadata = parse_yfinance_minute_payload_body(
+            payload_body=payload_body,
+            symbol=symbol,
+            market=market,
+            raw_payload_id=raw_payload_id,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to parse yfinance minute data symbol=%s market=%s start=%s end=%s",
+            symbol,
+            market,
+            start_dt,
+            end_dt,
+        )
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"yfinance minute parse failure {symbol}",
+        )
+        return pd.DataFrame(), None
+
+    logger.info(
+        "Fetched yfinance minute rows=%s symbol=%s market=%s start=%s end=%s",
+        len(cleaned),
+        symbol,
+        market,
+        start_dt,
+        end_dt,
+    )
+    return cleaned, metadata
+
+
+def supplement_yahoo_minute_history(
+    *,
+    symbol: str,
+    market: str,
+    date_str: str | None = None,
+    reference_time: datetime | None = None,
+) -> dict:
+    market_code = (market or "").upper()
+    window_start, window_end = _resolve_minute_window(reference_time)
+    window_start_date = window_start.date()
+    window_end_date = window_end.date()
+
+    if market_code != MARKET_TW:
+        return _empty_minute_supplement_summary(
+            status="skipped",
+            window_start=window_start_date,
+            window_end=window_end_date,
+            skipped_reason="market_not_supported",
+        )
+
+    override_date = _parse_ingestion_date_override(date_str)
+    if date_str and override_date != window_end_date:
+        return _empty_minute_supplement_summary(
+            status="skipped",
+            window_start=window_start_date,
+            window_end=window_end_date,
+            skipped_reason="historical_date_override_not_supported",
+        )
+
+    trading_days = _list_symbol_daily_trading_days(
+        symbol=symbol,
+        market=market_code,
+        start_date=window_start_date,
+        end_date=window_end_date,
+    )
+    if not trading_days:
+        return _empty_minute_supplement_summary(
+            status="skipped",
+            window_start=window_start_date,
+            window_end=window_end_date,
+            skipped_reason="no_recent_trading_days",
+        )
+
+    covered_days = set(
+        _list_symbol_minute_trading_days(
+            symbol=symbol,
+            market=market_code,
+            start_date=window_start_date,
+            end_date=window_end_date,
+        )
+    )
+    missing_days = [day for day in trading_days if day not in covered_days]
+
+    summary = _empty_minute_supplement_summary(
+        status="succeeded",
+        window_start=window_start_date,
+        window_end=window_end_date,
+    )
+    summary["covered_trading_days"] = len(covered_days)
+    if not missing_days:
+        return summary
+
+    segments = _build_minute_fetch_segments(
+        missing_days=missing_days,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    summary["segment_count"] = len(segments)
+    ticker = yf.Ticker(to_yfinance_ticker(symbol, market_code))
+
+    for segment_start, segment_end in segments:
+        segment_df, metadata = fetch_yfinance_minute_segment(
+            ticker=ticker,
+            symbol=symbol,
+            market=market_code,
+            start_dt=segment_start,
+            end_dt=segment_end,
+        )
+        if segment_df.empty or metadata is None:
+            summary["segments_failed"] += 1
+            continue
+
+        load_summary = load_minute_to_db(segment_df, metadata=metadata)
+        summary["segments_succeeded"] += 1
+        summary["input_rows"] += int(load_summary["input_rows"])
+        summary["upserted_rows"] += int(load_summary["upserted_rows"])
+        summary["duplicates_removed"] += int(load_summary["duplicates_removed"])
+
+    covered_days = set(
+        _list_symbol_minute_trading_days(
+            symbol=symbol,
+            market=market_code,
+            start_date=window_start_date,
+            end_date=window_end_date,
+        )
+    )
+    summary["covered_trading_days"] = len(covered_days)
+    if summary["segments_failed"] and summary["segments_succeeded"]:
+        summary["status"] = "partial_failure"
+    elif summary["segments_failed"] and not summary["segments_succeeded"]:
+        summary["status"] = "failed"
+
+    return summary
 
 
 def ingest_tw_market_batch(
@@ -1128,6 +1687,7 @@ def ingest_symbol(
         "market": market_code,
         "backfill": {},
         "daily_update": {},
+        "minute_supplement": {},
     }
 
     backfill_df, backfill_meta = backfill_history(
@@ -1159,6 +1719,12 @@ def ingest_symbol(
             },
             None,
         )
+
+    summary["minute_supplement"] = supplement_yahoo_minute_history(
+        symbol=symbol,
+        market=market_code,
+        date_str=date_str,
+    )
 
     logger.info("Ingest completed summary=%s", summary)
     return summary
