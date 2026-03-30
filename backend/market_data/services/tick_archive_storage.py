@@ -12,15 +12,52 @@ from typing import Any
 _ARCHIVE_ROOT = Path(__file__).resolve().parents[2] / "var" / "tick_archives"
 _GOOGLE_DRIVE_ROOT_ENV = "GOOGLE_DRIVE_TICK_ARCHIVE_ROOT"
 _GOOGLE_DRIVE_BACKUP_PREFIX = "google_drive_mirror"
+NORMALIZED_ARCHIVE_SUBDIRECTORY = "normalized"
 
 
 def _run_directory(market: str, trading_date: date, run_id: int) -> Path:
     return _ARCHIVE_ROOT / market / trading_date.isoformat() / str(run_id)
 
 
+def _json_default(value: Any) -> str:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _part_file_name(part_number: int) -> str:
+    return f"part-{part_number:05d}.jsonl.gz"
+
+
+def _jsonl_lines(entries: list[dict[str, Any]]) -> list[str]:
+    return [
+        json.dumps(
+            entry,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=_json_default,
+        )
+        + "\n"
+        for entry in entries
+    ]
+
+
 def _gzip_bytes(lines: list[str]) -> tuple[bytes, int]:
     raw_bytes = "".join(lines).encode("utf-8")
     return gzip.compress(raw_bytes), len(raw_bytes)
+
+
+def _write_jsonl_part(
+    *,
+    directory: Path,
+    file_name: str,
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / file_name
+    compressed_bytes, uncompressed_bytes = _gzip_bytes(_jsonl_lines(entries))
+    path.write_bytes(compressed_bytes)
+    return _build_file_metadata(path, compressed_bytes, uncompressed_bytes)
 
 
 def write_archive_part(
@@ -31,16 +68,27 @@ def write_archive_part(
     part_number: int,
     entries: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    directory = _run_directory(market, trading_date, run_id)
-    directory.mkdir(parents=True, exist_ok=True)
-    file_name = f"part-{part_number:05d}.jsonl.gz"
-    path = directory / file_name
-    lines = [
-        json.dumps(entry, ensure_ascii=True, sort_keys=True) + "\n" for entry in entries
-    ]
-    compressed_bytes, uncompressed_bytes = _gzip_bytes(lines)
-    path.write_bytes(compressed_bytes)
-    return _build_file_metadata(path, compressed_bytes, uncompressed_bytes)
+    return _write_jsonl_part(
+        directory=_run_directory(market, trading_date, run_id),
+        file_name=_part_file_name(part_number),
+        entries=entries,
+    )
+
+
+def write_normalized_archive_part(
+    *,
+    market: str,
+    trading_date: date,
+    run_id: int,
+    part_number: int,
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return _write_jsonl_part(
+        directory=_run_directory(market, trading_date, run_id)
+        / NORMALIZED_ARCHIVE_SUBDIRECTORY,
+        file_name=_part_file_name(part_number),
+        entries=observations,
+    )
 
 
 def write_uploaded_archive(

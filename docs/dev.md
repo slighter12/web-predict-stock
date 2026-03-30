@@ -189,7 +189,10 @@ Manual import note:
 
 Tick archive operational notes:
 
-- archive storage is currently `local_filesystem` only under `var/tick_archives/`
+- archive storage is currently `local_filesystem` only under `backend/var/tick_archives/`
+- each persisted tick archive part keeps the raw TWSE snapshot request envelope at
+  the archive object path and writes a normalized observation sidecar under
+  `backend/var/tick_archives/<market>/<trading_date>/<run_id>/normalized/`
 - when `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured, each new tick archive is
   mirrored into the same relative object-key layout under that Google Drive path
 - when `TICK_ARCHIVE_BACKUP_REQUIRED=true`, tick archive dispatch and import

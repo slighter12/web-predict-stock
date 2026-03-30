@@ -87,6 +87,7 @@ def test_ingest_market_data_normalizes_request(monkeypatch):
             "market": kwargs["market"],
             "backfill": {"raw_payload_id": 1},
             "daily_update": {"raw_payload_id": 2},
+            "minute_supplement": {"status": "succeeded"},
         }
 
     monkeypatch.setattr(data_ingestion_service.scraper, "ingest_symbol", capture)

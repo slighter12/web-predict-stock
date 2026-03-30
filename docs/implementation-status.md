@@ -261,8 +261,9 @@ Current coverage:
 ### `P2` Constraints
 
 - `KPI-TICK-*` values remain exploratory telemetry until `TBD-002` is closed
-- archive storage is limited to `local_filesystem` under `var/tick_archives/`
-  with optional Google Drive mirroring
+- archive storage is limited to `local_filesystem` under
+  `backend/var/tick_archives/` with optional Google Drive mirroring; each run
+  also writes a normalized observation sidecar alongside the raw snapshot parts
 - there is no S3, GCS, cross-instance archive sharing, or storage redundancy
 - some operational list endpoints are still optimized for recent inspection
   rather than large-scale browsing

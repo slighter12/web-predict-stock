@@ -24,6 +24,7 @@ from backend.market_data.services.tick_archive_storage import (
     mirror_archive_to_google_drive,
     read_archive_entries,
     write_archive_part,
+    write_normalized_archive_part,
     write_uploaded_archive,
 )
 from backend.platform.errors import (
@@ -200,17 +201,20 @@ def _cleanup_tick_archive_parts(parts: list[dict[str, object]]) -> list[str]:
                 delete_google_drive_archive_mirror(backup_object_key=backup_object_key)
             except ValueError as exc:
                 cleanup_failures.append(f"backup_cleanup_failed: {exc}")
-        object_key = item.get("object_key")
         storage_backend = item.get("storage_backend")
-        if not isinstance(object_key, str) or not isinstance(storage_backend, str):
+        if not isinstance(storage_backend, str):
             continue
-        try:
-            delete_archive_object(
-                object_key=object_key,
-                storage_backend=storage_backend,
-            )
-        except ValueError as exc:
-            cleanup_failures.append(f"storage_cleanup_failed: {exc}")
+        for key_name in ("normalized_object_key", "object_key"):
+            object_key = item.get(key_name)
+            if not isinstance(object_key, str):
+                continue
+            try:
+                delete_archive_object(
+                    object_key=object_key,
+                    storage_backend=storage_backend,
+                )
+            except ValueError as exc:
+                cleanup_failures.append(f"storage_cleanup_failed: {exc}")
     return cleanup_failures
 
 
@@ -297,11 +301,22 @@ def create_tick_archive_dispatch(request) -> dict:
                 persisted_part = {
                     "object_id": None,
                     "object_key": file_metadata["object_key"],
+                    "normalized_object_key": None,
                     "storage_backend": TICK_STORAGE_BACKEND,
                     "backup_object_key": None,
                 }
                 persisted_parts.append(persisted_part)
                 observations = fetch_result["observations"]
+                normalized_file_metadata = write_normalized_archive_part(
+                    market=market,
+                    trading_date=request.trading_date,
+                    run_id=run["id"],
+                    part_number=part_number,
+                    observations=observations,
+                )
+                persisted_part["normalized_object_key"] = normalized_file_metadata[
+                    "object_key"
+                ]
                 backup_metadata = _collect_backup_metadata(
                     object_key=file_metadata["object_key"]
                 )
@@ -386,6 +401,7 @@ def create_tick_archive_import(
     )
     run = persist_tick_archive_run(run_payload)
     uploaded_object_key: str | None = None
+    uploaded_normalized_object_key: str | None = None
     uploaded_backup_object_key: str | None = None
     try:
         file_metadata = write_uploaded_archive(
@@ -406,6 +422,14 @@ def create_tick_archive_import(
             market=normalized_market,
             trading_date=trading_date,
         )
+        normalized_file_metadata = write_normalized_archive_part(
+            market=normalized_market,
+            trading_date=trading_date,
+            run_id=run["id"],
+            part_number=1,
+            observations=observations,
+        )
+        uploaded_normalized_object_key = normalized_file_metadata["object_key"]
         backup_metadata = _collect_backup_metadata(
             object_key=file_metadata["object_key"]
         )
@@ -442,6 +466,18 @@ def create_tick_archive_import(
                     "Failed to cleanup uploaded tick archive run_id=%s object_key=%s",
                     run["id"],
                     uploaded_object_key,
+                )
+        if uploaded_normalized_object_key:
+            try:
+                delete_archive_object(
+                    object_key=uploaded_normalized_object_key,
+                    storage_backend=TICK_STORAGE_BACKEND,
+                )
+            except ValueError:
+                logger.exception(
+                    "Failed to cleanup uploaded normalized tick archive run_id=%s object_key=%s",
+                    run["id"],
+                    uploaded_normalized_object_key,
                 )
         if uploaded_backup_object_key:
             try:
