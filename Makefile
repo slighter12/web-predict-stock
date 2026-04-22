@@ -6,10 +6,10 @@ venv:
 	uv venv .venv
 
 install:
-	uv pip install --python .venv/bin/python -r backend/requirements.txt
+	uv sync
 
 dev:
-	uv pip install --python .venv/bin/python ".[dev]"
+	uv sync --extra dev
 
 test:
 	.venv/bin/python -m pytest -q
