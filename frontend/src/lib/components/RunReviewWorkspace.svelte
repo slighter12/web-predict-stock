@@ -33,6 +33,24 @@
 
     type SortKey = "created_desc" | "created_asc" | "return_desc" | "rmse_asc";
     type ReviewRun = ResearchRunRecord | ResearchRunResponse;
+    type ComparisonSeverity = "blocker" | "note";
+    type ComparisonFinding = {
+        label: string;
+        detail: string;
+        severity: ComparisonSeverity;
+    };
+    type RunComparisonFields = {
+        datasetLabel: string;
+        datasetSignature: string;
+        targetLabel: string;
+        targetSignature: string;
+        featureLabel: string;
+        featureSignature: string;
+        modelLabel: string;
+        modelSignature: string;
+        costLabel: string;
+        costSignature: string;
+    };
 
     let selectedRunId = "";
     let searchQuery = "";
@@ -146,13 +164,230 @@
         return value === null || value === undefined ? "N/A" : String(value);
     };
 
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+
+    const normalizeForSignature = (value: unknown): unknown => {
+        if (Array.isArray(value)) {
+            return value.map(normalizeForSignature);
+        }
+        if (!isRecord(value)) {
+            return value;
+        }
+        return Object.fromEntries(
+            Object.entries(value)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, entry]) => [key, normalizeForSignature(entry)]),
+        );
+    };
+
+    const stableStringify = (value: unknown) =>
+        JSON.stringify(normalizeForSignature(value));
+
+    const uniqueValues = (values: string[]) => [...new Set(values)];
+
+    const getPayloadObject = (
+        payload: Record<string, unknown> | null | undefined,
+        key: string,
+    ) => {
+        const value = payload?.[key];
+        return isRecord(value) ? value : null;
+    };
+
+    const getSymbols = (run: ResearchRunRecord) => {
+        const payloadSymbols = getPayloadArray(run.request_payload, "symbols")
+            .filter((symbol): symbol is string => typeof symbol === "string")
+            .sort();
+        return payloadSymbols.length ? payloadSymbols : [...run.symbols].sort();
+    };
+
+    const getDateRangeParts = (
+        payload: Record<string, unknown> | null | undefined,
+    ) => {
+        const dateRange = getPayloadObject(payload, "date_range");
+        return {
+            start: getPayloadText(dateRange, "start"),
+            end: getPayloadText(dateRange, "end"),
+        };
+    };
+
+    const getFeatureSignature = (
+        payload: Record<string, unknown> | null | undefined,
+    ) => {
+        const features = getPayloadArray(payload, "features");
+        return features
+            .map((feature) => {
+                if (!isRecord(feature)) {
+                    return String(feature);
+                }
+                return stableStringify({
+                    name: feature.name,
+                    source: feature.source,
+                    window: feature.window,
+                    shift: feature.shift,
+                });
+            })
+            .sort()
+            .join("|");
+    };
+
+    const getFeatureLabel = (
+        payload: Record<string, unknown> | null | undefined,
+    ) => {
+        const features = getPayloadArray(payload, "features");
+        return features.length ? `${features.length} features` : "N/A";
+    };
+
+    const getModelFields = (
+        payload: Record<string, unknown> | null | undefined,
+    ) => {
+        const model = getPayloadObject(payload, "model");
+        if (!model) {
+            return { label: "N/A", signature: "N/A" };
+        }
+        const modelType = getPayloadText(model, "type");
+        const params = getPayloadObject(model, "params");
+        const paramsSignature = params ? stableStringify(params) : "{}";
+        return {
+            label: paramsSignature === "{}" ? modelType : `${modelType} params`,
+            signature: stableStringify(model),
+        };
+    };
+
+    const getCostFields = (run: ResearchRunRecord) => {
+        const execution = getPayloadObject(run.request_payload, "execution");
+        const slippage = getPayloadText(execution, "slippage");
+        const fees = getPayloadText(execution, "fees");
+        const version = run.execution_cost_model_version ?? "N/A";
+        return {
+            label: `fee ${fees} / slip ${slippage}`,
+            signature: stableStringify({
+                execution,
+                execution_cost_model_version: version,
+                price_basis_version: run.price_basis_version,
+            }),
+        };
+    };
+
+    const getComparisonFields = (run: ResearchRunRecord): RunComparisonFields => {
+        const symbols = getSymbols(run);
+        const dateRange = getDateRangeParts(run.request_payload);
+        const model = getModelFields(run.request_payload);
+        const cost = getCostFields(run);
+        const targetLabel = `${getPayloadText(
+            run.request_payload,
+            "return_target",
+        )} / ${getPayloadText(run.request_payload, "horizon_days")}d`;
+        const datasetLabel = `${run.market ?? "N/A"} / ${
+            symbols.length ? symbols.join(", ") : "N/A"
+        } / ${dateRange.start} to ${dateRange.end}`;
+
+        return {
+            datasetLabel,
+            datasetSignature: stableStringify({
+                market: run.market,
+                symbols,
+                date_range: dateRange,
+            }),
+            targetLabel,
+            targetSignature: stableStringify({
+                return_target: getPayloadText(
+                    run.request_payload,
+                    "return_target",
+                ),
+                horizon_days: getPayloadText(
+                    run.request_payload,
+                    "horizon_days",
+                ),
+            }),
+            featureLabel: getFeatureLabel(run.request_payload),
+            featureSignature: getFeatureSignature(run.request_payload) || "N/A",
+            modelLabel: model.label,
+            modelSignature: model.signature,
+            costLabel: cost.label,
+            costSignature: cost.signature,
+        };
+    };
+
+    const getComparisonAssessment = (runs: ResearchRunRecord[]) => {
+        const fields = runs.map(getComparisonFields);
+        const findings: ComparisonFinding[] = [];
+
+        if (runs.some((run) => !hasCompleteArtifacts(run))) {
+            findings.push({
+                label: "Missing artifacts",
+                detail: "At least one selected run has only metadata-level results.",
+                severity: "blocker",
+            });
+        }
+        if (
+            runs.some(
+                (run) =>
+                    run.comparison_eligibility ===
+                    "unresolved_event_quarantine",
+            )
+        ) {
+            findings.push({
+                label: "Event quarantine",
+                detail: "At least one selected run has unresolved event state.",
+                severity: "blocker",
+            });
+        }
+        if (uniqueValues(fields.map((field) => field.datasetSignature)).length > 1) {
+            findings.push({
+                label: "Dataset differs",
+                detail: "Market, symbols, or date range are not aligned.",
+                severity: "blocker",
+            });
+        }
+        if (uniqueValues(fields.map((field) => field.targetSignature)).length > 1) {
+            findings.push({
+                label: "Target differs",
+                detail: "Return target or horizon are not aligned.",
+                severity: "blocker",
+            });
+        }
+        if (uniqueValues(fields.map((field) => field.costSignature)).length > 1) {
+            findings.push({
+                label: "Cost basis differs",
+                detail: "Execution cost or price basis versions are not aligned.",
+                severity: "blocker",
+            });
+        }
+        if (uniqueValues(fields.map((field) => field.featureSignature)).length > 1) {
+            findings.push({
+                label: "Feature set differs",
+                detail: "Treat quality deltas as feature-ablation evidence.",
+                severity: "note",
+            });
+        }
+        if (uniqueValues(fields.map((field) => field.modelSignature)).length > 1) {
+            findings.push({
+                label: "Model config differs",
+                detail: "This is a model experiment, not a repeated run.",
+                severity: "note",
+            });
+        }
+
+        const blockers = findings.filter(
+            (finding) => finding.severity === "blocker",
+        );
+
+        return {
+            status: blockers.length
+                ? "Limited comparison"
+                : "Comparable research review",
+            findings,
+        };
+    };
+
     const compareToggle = (runId: string, checked: boolean) => {
         selectedCompareIds = checked
             ? [...new Set([...selectedCompareIds, runId])]
             : selectedCompareIds.filter((item) => item !== runId);
     };
 
-    const getComparableReason = (run: ResearchRunRecord) => {
+    const getComparableReason = (run: ReviewRun) => {
         if (!hasCompleteArtifacts(run)) {
             return "Missing persisted result artifacts.";
         }
@@ -231,6 +466,7 @@
     $: comparisonRuns = recentRuns.filter((run) =>
         selectedCompareIds.includes(run.run_id),
     );
+    $: comparisonAssessment = getComparisonAssessment(comparisonRuns);
     $: if (
         selectedRunId &&
         selectedRunId !== loadedRunId &&
@@ -442,6 +678,33 @@
                         <p class="eyebrow">Comparison</p>
                         <h3>{comparisonRuns.length} selected runs</h3>
                     </div>
+                    <span
+                        class="status-pill"
+                        class:status-pill--limited={comparisonAssessment.findings.some(
+                            (finding) => finding.severity === "blocker",
+                        )}
+                    >
+                        {comparisonAssessment.status}
+                    </span>
+                </div>
+                <div class="comparison-summary">
+                    {#if comparisonAssessment.findings.length}
+                        {#each comparisonAssessment.findings as finding}
+                            <div
+                                class="comparison-finding"
+                                class:comparison-finding--note={finding.severity ===
+                                    "note"}
+                            >
+                                <strong>{finding.label}</strong>
+                                <span>{finding.detail}</span>
+                            </div>
+                        {/each}
+                    {:else}
+                        <p class="muted">
+                            Selected runs share dataset, target, cost basis, and
+                            persisted result artifacts.
+                        </p>
+                    {/if}
                 </div>
                 <div class="table-wrap">
                     <table>
@@ -451,6 +714,8 @@
                                 <th>Dataset</th>
                                 <th>Target</th>
                                 <th>Features</th>
+                                <th>Model</th>
+                                <th>Cost Basis</th>
                                 <th>RMSE</th>
                                 <th>Rank IC</th>
                                 <th>Total Return</th>
@@ -460,35 +725,15 @@
                         </thead>
                         <tbody>
                             {#each comparisonRuns as run}
-                                {@const payload = run.request_payload}
+                                {@const comparison = getComparisonFields(run)}
                                 {@const baseline = summarizeBaselineComparison(run)}
                                 <tr>
                                     <td>{run.run_id}</td>
-                                    <td>
-                                        {run.market ?? "N/A"} /
-                                        {getPayloadArray(payload, "symbols")
-                                            .length
-                                            ? getPayloadArray(
-                                                  payload,
-                                                  "symbols",
-                                              ).join(", ")
-                                            : run.symbols.join(", ")}
-                                    </td>
-                                    <td>
-                                        {getPayloadText(
-                                            payload,
-                                            "return_target",
-                                        )}
-                                        /
-                                        {getPayloadText(
-                                            payload,
-                                            "horizon_days",
-                                        )}
-                                    </td>
-                                    <td>
-                                        {getPayloadArray(payload, "features")
-                                            .length || "N/A"}
-                                    </td>
+                                    <td>{comparison.datasetLabel}</td>
+                                    <td>{comparison.targetLabel}</td>
+                                    <td>{comparison.featureLabel}</td>
+                                    <td>{comparison.modelLabel}</td>
+                                    <td>{comparison.costLabel}</td>
                                     <td>
                                         {formatMetric(
                                             run.model_diagnostics?.rmse,
@@ -752,6 +997,53 @@
         margin: 0;
         color: var(--muted);
         line-height: 1.5;
+    }
+
+    .status-pill {
+        border-radius: 999px;
+        border: 1px solid rgba(45, 212, 191, 0.32);
+        color: #99f6e4;
+        font-size: 0.78rem;
+        font-weight: 700;
+        padding: 0.4rem 0.7rem;
+        white-space: nowrap;
+    }
+
+    .status-pill--limited {
+        border-color: rgba(251, 191, 36, 0.36);
+        color: #fde68a;
+    }
+
+    .comparison-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-bottom: var(--space-4);
+    }
+
+    .comparison-finding {
+        display: grid;
+        gap: 0.25rem;
+        min-width: min(100%, 220px);
+        padding: 0.8rem 0.9rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(251, 191, 36, 0.2);
+        background: rgba(113, 63, 18, 0.18);
+    }
+
+    .comparison-finding--note {
+        border-color: rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.6);
+    }
+
+    .comparison-finding strong {
+        font-size: 0.82rem;
+    }
+
+    .comparison-finding span {
+        color: var(--muted);
+        font-size: 0.82rem;
+        line-height: 1.45;
     }
 
     .advanced-surface summary {
