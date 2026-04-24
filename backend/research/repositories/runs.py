@@ -37,7 +37,69 @@ def _coerce_date(value: Any) -> date | None:
     raise ValueError(f"Unsupported date value: {value!r}")
 
 
-def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
+def _validation_summary_from_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if "method" not in value or "metrics" not in value:
+        return None
+    if value["method"] not in {
+        "holdout",
+        "walk_forward",
+        "rolling_window",
+        "expanding_window",
+    }:
+        return None
+    if not isinstance(value["metrics"], dict):
+        return None
+    for metric_value in value["metrics"].values():
+        if not isinstance(metric_value, int | float):
+            return None
+    return value
+
+
+def _model_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("task") != "regression":
+        return None
+    try:
+        sample_count = int(value.get("sample_count", 0))
+    except (TypeError, ValueError):
+        return None
+
+    payload = {
+        "task": "regression",
+        "sample_count": sample_count,
+        "rmse": value.get("rmse"),
+        "mae": value.get("mae"),
+        "rank_ic": value.get("rank_ic"),
+        "linear_ic": value.get("linear_ic"),
+        "actual_vs_predicted": value.get("actual_vs_predicted", []),
+        "residuals": value.get("residuals", []),
+        "feature_importance": value.get("feature_importance", []),
+    }
+    for key in ("rmse", "mae", "rank_ic", "linear_ic"):
+        if payload[key] is not None and not isinstance(payload[key], int | float):
+            payload[key] = None
+    for key in ("actual_vs_predicted", "residuals", "feature_importance"):
+        if not isinstance(payload[key], list):
+            payload[key] = []
+    return payload
+
+
+def _summarize_model_diagnostics(value: Any) -> dict[str, Any] | None:
+    payload = _model_diagnostics_from_payload(value)
+    if payload is None:
+        return None
+    return {
+        **payload,
+        "actual_vs_predicted": [],
+        "residuals": [],
+        "feature_importance": [],
+    }
+
+
+def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dict[str, Any]:
     effective_strategy = None
     if row.effective_threshold is not None and row.effective_top_n is not None:
         effective_strategy = {
@@ -45,6 +107,8 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
             "top_n": row.effective_top_n,
         }
 
+    validation_outcome = json_loads(row.validation_outcome_json, None)
+    model_diagnostics = json_loads(row.model_diagnostics_json, None)
     payload = {
         "run_id": row.run_id,
         "request_id": row.request_id,
@@ -58,10 +122,19 @@ def _run_row_to_dict(row: ResearchRun) -> dict[str, Any]:
         "allow_proactive_sells": row.allow_proactive_sells,
         "config_sources": json_loads(row.config_sources_json, None),
         "fallback_audit": json_loads(row.fallback_audit_json, None),
-        "validation_outcome": json_loads(row.validation_outcome_json, None),
+        "validation_outcome": validation_outcome,
         "rejection_reason": row.rejection_reason,
         "request_payload": json_loads(row.request_payload_json, None),
         "metrics": json_loads(row.metrics_json, None),
+        "equity_curve": json_loads(row.equity_curve_json, [])
+        if include_artifacts
+        else [],
+        "signals": json_loads(row.signals_json, []) if include_artifacts else [],
+        "validation": _validation_summary_from_payload(validation_outcome),
+        "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
+        if include_artifacts
+        else _summarize_model_diagnostics(model_diagnostics),
+        "baselines": json_loads(row.baselines_json, {}),
         "warnings": json_loads(row.warnings_json, []),
         "factor_catalog_version": row.factor_catalog_version,
         "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
@@ -197,6 +270,12 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             row.rejection_reason = record.get("rejection_reason")
             row.request_payload_json = json_dumps(record.get("request_payload"))
             row.metrics_json = json_dumps(record.get("metrics"))
+            row.equity_curve_json = json_dumps(record.get("equity_curve", []))
+            row.signals_json = json_dumps(record.get("signals", []))
+            row.model_diagnostics_json = json_dumps(
+                record.get("model_diagnostics")
+            )
+            row.baselines_json = json_dumps(record.get("baselines", {}))
             row.warnings_json = json_dumps(record.get("warnings", []))
             row.factor_catalog_version = record.get("factor_catalog_version")
             row.scoring_factor_ids_json = json_dumps(
@@ -370,7 +449,9 @@ def get_research_run_record(run_id: str) -> dict[str, Any]:
         with SessionLocal() as session:
             row = session.get(ResearchRun, run_id)
             if row is not None:
-                return _attach_liquidity_coverages(session, _run_row_to_dict(row))
+                return _attach_liquidity_coverages(
+                    session, _run_row_to_dict(row, include_artifacts=True)
+                )
     except Exception as exc:
         logger.exception("Failed to load research run from DB run_id=%s", run_id)
         raise DataAccessError("Failed to load research run.") from exc
@@ -387,7 +468,9 @@ def list_research_run_records(limit: int = 20) -> list[dict[str, Any]]:
                 .limit(limit)
             )
             return [
-                _attach_liquidity_coverages(session, _run_row_to_dict(row))
+                _attach_liquidity_coverages(
+                    session, _run_row_to_dict(row, include_artifacts=False)
+                )
                 for row in session.execute(stmt).scalars().all()
             ]
     except Exception as exc:

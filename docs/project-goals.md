@@ -2,140 +2,126 @@
 
 ## Purpose
 
-Define why the project exists, what should be prioritized, what is in scope,
-and what should be deferred.
+Define why the v1 product exists, what should be prioritized, what is in scope,
+and what is deliberately hidden or deferred.
 
 ## Owns
 
 - strategic goal hierarchy
-- scope boundaries and non-goals
+- v1 scope boundaries and non-goals
 - cross-goal tradeoff rules
-- goal-to-evidence-to-phase alignment
+- goal-to-evidence alignment for the TW daily research workbench
 
 ## Does Not Own
 
-- runtime or execution semantics
-- persisted field definitions
-- KPI formulas, thresholds, or gate truth conditions
 - local developer workflow
-
-## Consumes
-
-- `docs/plan.md` for phase labels and delivery ordering
-- `docs/validation-gates.md` for KPI and gate identifiers referenced as
-  evidence families
-
-## Produces
-
-- goal IDs `G1` to `G11`
-- project priority order
-- scope and deferral rules used by roadmap and review
+- exact KPI formulas or thresholds
+- endpoint implementation details
+- long-term platform sequencing beyond explicit future notes
 
 ## Decision Rule
 
-Use this document when deciding whether work should exist, whether it belongs
-in the present stage, and which workstream wins when priorities conflict.
+Use this document when deciding whether work belongs in the v1 workbench and
+which workstream wins when priorities conflict.
 
-## Goal Hierarchy
+## Product Direction
 
-The project has four strategic layers:
+V1 is the `TW daily Quant ML Research Workbench`.
 
-1. Data durability
-2. Research reproducibility and comparability
-3. Signal and model expansion
-4. Guarded execution readiness
+The product should make one baseline research loop easy to complete before it
+expands into a broader platform:
 
-Data durability and research reproducibility should outrank model novelty,
-external-signal breadth, and execution-path expansion.
+`Dataset -> Features -> Prediction Task -> Model Diagnostics -> Strategy Backtest -> Experiment Comparison`
 
-## Goal Table
+The workbench should optimize for research clarity, reproducibility, and model
+diagnosis. Strategy performance matters, but it is downstream of model quality
+and should not be the only result surface.
 
-| Goal | Outcome | Why it matters | Evidence family | Primary phases |
-| --- | --- | --- | --- | --- |
-| `G1` | Durable TW-first market-data foundation | Research quality collapses when the raw data layer is fragile or hindsight-cleaned | `KPI-DATA-*` | `P1`, `P2`, `P3` |
-| `G2` | Reproducible and recoverable research outputs | Results should be rebuildable, auditable, and recoverable after failure | `KPI-DATA-*`, `KPI-RESEARCH-*` | `P0`, `P1`, `P4` |
-| `G3` | Defensible backtests and comparisons | Performance claims should rest on comparable definitions and sample floors | `KPI-COMP-*`, `KPI-RESEARCH-*` | `P0`, `P3`, `P4`, `P5` |
-| `G4` | Expand from statistical baselines to ML and DL | Model expansion should happen only after the baseline contract is stable | `KPI-ADOPT-*`, `KPI-COMP-*` | `P6` |
-| `G5` | Configurable feature and factor system | Features should be structured inputs instead of ad hoc experiments | `KPI-RESEARCH-*`, `KPI-FACTOR-*` | `P4`, `P7` |
-| `G6` | Company and market information layers | News and fundamentals should remain timing-auditable | `KPI-EXT-*` | `P7` |
-| `G7` | Clustering and peer-based inference | Peer signals should remain point-in-time correct | `KPI-COMP-*`, `KPI-RESEARCH-*` | `P8` |
-| `G8` | Preserve the path to intraday research | Raw tick preservation should precede formal intraday claims | `KPI-TICK-*` | `P2` |
-| `G9` | Move from paper validation to guarded execution | Execution should remain downstream of controls and readback | `KPI-SIM-*`, `KPI-LIVE-*`, `KPI-LIVEQ-*` | `P3`, `P5`, `P9`, `P10` |
-| `G10` | Explore RL and adaptive methods later | Adaptive methods should remain downstream of a stable baseline stack | `KPI-ADAPT-*` | `P11` |
-| `G11` | Keep US-market support optional | US support should not block the TW-first foundation | descriptive scope rule | optional |
+## V1 Goal Hierarchy
 
-## Goal to Evidence to Phase Matrix
+The project has four v1 strategic layers:
 
-| Goal | Evidence anchor | Delivery anchor |
-| --- | --- | --- |
-| `G1` | `KPI-DATA-*`, `KPI-TICK-*` | `P1`, `P2`, `P3` |
-| `G2` | `KPI-DATA-*`, `KPI-RESEARCH-*` | `P0`, `P1`, `P4` |
-| `G3` | `KPI-COMP-*`, `KPI-RESEARCH-*` | `P0`, `P3`, `P4`, `P5` |
-| `G4` | `KPI-ADOPT-*`, `KPI-COMP-*` | `P6` |
-| `G5` | `KPI-FACTOR-*`, `KPI-RESEARCH-*` | `P4`, `P7` |
-| `G6` | `KPI-EXT-*` | `P7` |
-| `G7` | `KPI-COMP-*`, `KPI-RESEARCH-*` | `P8` |
-| `G8` | `KPI-TICK-*` | `P2` |
-| `G9` | `KPI-SIM-*`, `KPI-LIVE-*`, `KPI-LIVEQ-*` | `P3`, `P5`, `P9`, `P10` |
-| `G10` | `KPI-ADAPT-*` | `P11` |
-| `G11` | descriptive scope rule | optional |
+1. TW daily data readiness
+2. Research reproducibility and persisted artifacts
+3. Model-quality diagnostics and prediction-task clarity
+4. Experiment comparison and offline backtest discipline
+
+Data readiness and reproducibility outrank model novelty, advanced signal
+breadth, and any execution-path expansion.
+
+## V1 Goal Table
+
+| Goal | Outcome | Why it matters | Evidence family |
+| --- | --- | --- | --- |
+| `G1` | Durable TW daily market-data foundation | Research quality collapses when the raw daily data layer is fragile or hindsight-cleaned | `KPI-DATA-*` |
+| `G2` | Reproducible and recoverable research outputs | A persisted experiment must be fully reviewable after reload, including config, diagnostics, predictions, signals, equity, baselines, warnings, and runtime metadata | `KPI-RESEARCH-*` |
+| `G3` | Clear prediction-task semantics | Regression and classification must be explicit task families; first code delivery implements regression diagnostics while classification remains specified | `KPI-ML-*`, `KPI-RESEARCH-*` |
+| `G4` | Model diagnostics before strategy claims | RMSE, MAE, residuals, actual-vs-predicted, rank/IC quality, and feature importance should be visible before backtest interpretation | `KPI-ML-*` |
+| `G5` | Defensible offline backtests | Strategy metrics should use declared target, price, cost, and portfolio assumptions | `KPI-COMP-*`, `KPI-COST-*` |
+| `G6` | Experiment comparison with caveats | The UI must explain which runs are comparable, why, and what changed across dataset, target, features, model config, diagnostics, and strategy metrics | `KPI-COMP-*` |
 
 ## Priority Order
 
-Priority is not flat. The project should be evaluated in this order:
+Priority is not flat. Evaluate work in this order:
 
 1. `G1` and `G2`
-2. `G3`
-3. `G4`, `G5`, `G6`, and `G7`
-4. `G8`, `G9`, and `G10`
-5. `G11` remains optional
+2. `G3` and `G4`
+3. `G5`
+4. `G6`
 
-If a lower-priority feature risks slowing or weakening a higher-priority layer,
-the lower-priority feature should be deferred.
+If a lower-priority feature weakens a higher-priority layer, defer it.
 
 ## Decision Principles
 
 - Research usability should outrank product polish.
 - Raw data recoverability should precede advanced analytics trust.
 - Reproducibility should outrank model novelty.
+- Model-quality diagnosis should precede strategy-performance claims.
 - Comparability should outrank isolated backtest performance.
-- Investability claims should require stricter evidence than research-only
-  claims.
-- Automation should remain auditable.
-- TW-first should remain the operating assumption unless a later phase widens
+- TW daily should remain the operating assumption unless a later plan widens
   scope deliberately.
+- Automation should remain auditable.
 
-## Scope Boundaries
+## V1 Scope Boundaries
 
 ### In Scope
 
-- daily TW market-data ingestion and rebuildability
-- versioned research runs and comparison metadata
-- deterministic backtest semantics
-- reproducible KPI and gate evaluation
-- controlled expansion into factors, news, fundamentals, and model families
+- daily TW market-data readiness and rebuildability signals
+- versioned research-run requests and persisted result artifacts
+- regression prediction diagnostics
+- classification task specification without first-pass implementation
+- deterministic offline backtest semantics
+- experiment registry, search, load, and comparison
+- explicit fallback for old runs that lack complete artifacts
 
-### Deliberately Deferred
+### Hidden Advanced Or Future Modules
 
-- intraday or tick strategy claims before archive and replay are trustworthy
-- broker execution before paper or simulation controls are stable
-- RL or adaptive control layers before the baseline stack is stable
-- heavy real-time infrastructure before the daily research loop is reliable
+- execution simulation and live-control paths
+- adaptive or RL workflows
+- peer inference and clustering
+- factor catalog expansion beyond baseline inputs
+- external-signal breadth
+- tick archive and intraday strategy claims
+- US-market parity
 
-## Non-Goals for This Stage
+These modules may remain in code as internal diagnostics or future foundations,
+but they should not appear in the v1 main research workflow.
 
+## Non-Goals For V1
+
+- broker execution
+- investability claims from research-only runs
+- real-time-first architecture
 - multi-user productization
 - premature microservice decomposition
-- real-time-first architecture
-- claiming investability from research-only runs
-- broad US-market feature parity before the TW-first stack is durable
+- durable operational qualification for advanced modules
 
 ## Conflict Resolution Rule
 
 When a proposal improves one goal but weakens another, resolve the conflict in
 this order:
 
-1. protect data durability and recoverability
-2. protect reproducibility and comparability
-3. protect execution semantics and gating clarity
-4. only then expand model families or external signals
+1. protect TW daily data readiness and recoverability
+2. protect persisted experiment reproducibility
+3. protect prediction-task, target, label, backtest, and comparison semantics
+4. only then expand model families, signals, or advanced platform modules

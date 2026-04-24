@@ -126,6 +126,10 @@ def _build_registry_payload(
     validation_outcome: dict[str, Any] | None = None,
     rejection_reason: str | None = None,
     metrics: dict[str, Any] | None = None,
+    equity_curve: list[dict[str, Any]] | None = None,
+    signals: list[dict[str, Any]] | None = None,
+    model_diagnostics: dict[str, Any] | None = None,
+    baselines: dict[str, dict[str, Any]] | None = None,
     warnings: list[str] | None = None,
     threshold_policy_version: str | None = None,
     price_basis_version: str | None = None,
@@ -207,6 +211,10 @@ def _build_registry_payload(
         validation_outcome=validation_outcome,
         rejection_reason=rejection_reason,
         metrics=metrics,
+        equity_curve=equity_curve,
+        signals=signals,
+        model_diagnostics=model_diagnostics,
+        baselines=baselines,
         warnings=warnings,
         threshold_policy_version=threshold_policy_version
         if threshold_policy_version is not None
@@ -338,6 +346,14 @@ def record_success(
             if validation_summary
             else None,
             metrics=response.metrics.model_dump(mode="json"),
+            equity_curve=[
+                item.model_dump(mode="json") for item in response.equity_curve
+            ],
+            signals=[item.model_dump(mode="json") for item in response.signals],
+            model_diagnostics=response.model_diagnostics.model_dump(mode="json")
+            if response.model_diagnostics
+            else None,
+            baselines=response.baselines,
             warnings=warnings,
             threshold_policy_version=response.threshold_policy_version,
             price_basis_version=response.price_basis_version,

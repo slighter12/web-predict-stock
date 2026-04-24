@@ -12,6 +12,7 @@ from backend.platform.errors import (
 )
 from backend.research.contracts.runs import (
     Metrics,
+    RegressionDiagnostics,
     ResearchRunCreateRequest,
     ResearchRunResponse,
     ValidationSummary,
@@ -156,7 +157,7 @@ def load_symbol_data(
         )
 
     try:
-        X_train, X_test, y_train, _ = model_service.time_series_split(
+        X_train, X_test, y_train, y_test = model_service.time_series_split(
             X, y, test_size=test_size
         )
     except ValueError as exc:
@@ -169,13 +170,18 @@ def load_symbol_data(
         model_params=request.model.params,
     )
     preds = model.predict(X_test)
+    predictions = pd.Series(preds, index=X_test.index, name=symbol)
 
     return {
         "symbol": symbol,
         "df_model": df_model,
         "X": X,
         "y": y,
-        "scores": pd.Series(preds, index=X_test.index, name=symbol),
+        "scores": predictions,
+        "actuals": y_test.rename(symbol),
+        "predictions": predictions,
+        "feature_names": list(X_train.columns),
+        "feature_importance": _extract_feature_importance(model, list(X_train.columns)),
         "open": df_model.loc[X_test.index, "open"].rename(symbol),
         "high": df_model.loc[X_test.index, "high"].rename(symbol),
         "low": df_model.loc[X_test.index, "low"].rename(symbol),
@@ -183,6 +189,106 @@ def load_symbol_data(
         "volume": df_model.loc[X_test.index, "volume"].rename(symbol),
         "factor_materializations": factor_materializations,
     }
+
+
+def _extract_feature_importance(model: object, feature_names: list[str]) -> dict[str, float]:
+    raw_importance = getattr(model, "feature_importances_", None)
+    if raw_importance is None:
+        return {}
+
+    values = list(raw_importance)
+    if len(values) != len(feature_names):
+        return {}
+
+    return {
+        feature: float(importance)
+        for feature, importance in zip(feature_names, values)
+        if pd.notna(importance)
+    }
+
+
+def _clean_metric(value: float) -> float | None:
+    return float(value) if pd.notna(value) else None
+
+
+def build_regression_diagnostics(symbol_data: list[dict]) -> RegressionDiagnostics:
+    frames: list[pd.DataFrame] = []
+    feature_importance: dict[str, list[float]] = {}
+
+    for item in symbol_data:
+        actuals = item.get("actuals", item.get("y"))
+        predictions = item.get("predictions", item.get("scores"))
+        if actuals is None or predictions is None:
+            continue
+        predictions = predictions.reindex(actuals.index)
+        frame = pd.DataFrame(
+            {
+                "actual": actuals,
+                "predicted": predictions,
+            }
+        ).dropna()
+        if frame.empty:
+            continue
+
+        frame["symbol"] = item["symbol"]
+        frame["residual"] = frame["actual"] - frame["predicted"]
+        frames.append(frame)
+
+        for feature, importance in item.get("feature_importance", {}).items():
+            feature_importance.setdefault(feature, []).append(float(importance))
+
+    if not frames:
+        return RegressionDiagnostics()
+
+    diagnostics_frame = pd.concat(frames).sort_index()
+    residuals = diagnostics_frame["residual"]
+    rmse = float((residuals.pow(2).mean()) ** 0.5)
+    mae = float(residuals.abs().mean())
+    rank_ic = None
+    linear_ic = None
+    if len(diagnostics_frame) > 1:
+        rank_ic = _clean_metric(
+            diagnostics_frame["actual"].corr(
+                diagnostics_frame["predicted"], method="spearman"
+            )
+        )
+        linear_ic = _clean_metric(
+            diagnostics_frame["actual"].corr(
+                diagnostics_frame["predicted"], method="pearson"
+            )
+        )
+
+    sample = diagnostics_frame.tail(200)
+    diagnostic_points = [
+        {
+            "date": dt.date() if hasattr(dt, "date") else dt,
+            "symbol": str(row["symbol"]),
+            "actual": float(row["actual"]),
+            "predicted": float(row["predicted"]),
+            "residual": float(row["residual"]),
+        }
+        for dt, row in sample.iterrows()
+    ]
+    importance_points = [
+        {
+            "feature": feature,
+            "importance": float(sum(values) / len(values)),
+        }
+        for feature, values in feature_importance.items()
+        if values
+    ]
+    importance_points.sort(key=lambda item: item["importance"], reverse=True)
+
+    return RegressionDiagnostics(
+        sample_count=int(len(diagnostics_frame)),
+        rmse=rmse,
+        mae=mae,
+        rank_ic=rank_ic,
+        linear_ic=linear_ic,
+        actual_vs_predicted=diagnostic_points,
+        residuals=diagnostic_points,
+        feature_importance=importance_points,
+    )
 
 
 def attach_peer_features_to_frame(
@@ -372,6 +478,7 @@ def execute_research_run(
     validation_summary = compute_validation_summary(
         symbol_data, request, resolved_strategy
     )
+    model_diagnostics = build_regression_diagnostics(symbol_data)
     version_pack = build_version_pack_payload(
         {
             "comparison_review_matrix_version": COMPARISON_REVIEW_MATRIX_VERSION,
@@ -446,6 +553,7 @@ def execute_research_run(
         equity_curve=equity_curve,
         signals=signals,
         validation=validation_summary,
+        model_diagnostics=model_diagnostics,
         baselines=baselines,
         warnings=warnings,
         runtime_mode=request.runtime_mode,

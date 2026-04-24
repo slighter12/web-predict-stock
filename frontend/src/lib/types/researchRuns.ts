@@ -119,6 +119,31 @@ export interface ValidationSummary {
   metrics: Record<string, number>;
 }
 
+export interface RegressionDiagnosticPoint {
+  date: string;
+  symbol: string;
+  actual: number;
+  predicted: number;
+  residual: number;
+}
+
+export interface FeatureImportancePoint {
+  feature: string;
+  importance: number;
+}
+
+export interface RegressionDiagnostics {
+  task: "regression";
+  sample_count: number;
+  rmse: number | null;
+  mae: number | null;
+  rank_ic: number | null;
+  linear_ic: number | null;
+  actual_vs_predicted: RegressionDiagnosticPoint[];
+  residuals: RegressionDiagnosticPoint[];
+  feature_importance: FeatureImportancePoint[];
+}
+
 export interface ResearchRunResponse
   extends VersionPack, P3Summary, GovernanceMetadata, FoundationMetadata {
   run_id: string;
@@ -126,6 +151,7 @@ export interface ResearchRunResponse
   equity_curve: EquityPoint[];
   signals: SignalPoint[];
   validation: ValidationSummary | null;
+  model_diagnostics: RegressionDiagnostics | null;
   baselines: Record<string, Record<string, number>>;
   warnings: string[];
   runtime_mode: RuntimeMode;
@@ -153,6 +179,11 @@ export interface ResearchRunRecord
   rejection_reason: string | null;
   request_payload: Record<string, unknown> | null;
   metrics: Metrics | null;
+  equity_curve: EquityPoint[];
+  signals: SignalPoint[];
+  validation: ValidationSummary | null;
+  model_diagnostics: RegressionDiagnostics | null;
+  baselines: Record<string, Record<string, number>>;
   warnings: string[];
   created_at: string;
 }

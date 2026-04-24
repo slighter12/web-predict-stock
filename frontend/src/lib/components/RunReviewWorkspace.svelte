@@ -13,11 +13,13 @@
         CapabilityReadinessState,
         ComparisonEligibility,
         ResearchCapabilityId,
+        ResearchRunRecord,
         ResearchRunResponse,
         ResearchSubmissionSummary,
     } from "../types";
     import WorkspaceSection from "./layout/WorkspaceSection.svelte";
     import EquityChart from "./EquityChart.svelte";
+    import ResearchRunDiagnostics from "./research-runs/ResearchRunDiagnostics.svelte";
     import ResearchRunMetrics from "./research-runs/ResearchRunMetrics.svelte";
     import ResearchRunSignals from "./research-runs/ResearchRunSignals.svelte";
     import ResearchRunValidation from "./research-runs/ResearchRunValidation.svelte";
@@ -29,7 +31,14 @@
     export let latestResult: ResearchRunResponse | null = null;
     export let latestSubmission: ResearchSubmissionSummary | null = null;
 
+    type SortKey = "created_desc" | "created_asc" | "return_desc" | "rmse_asc";
+    type ReviewRun = ResearchRunRecord | ResearchRunResponse;
+
     let selectedRunId = "";
+    let searchQuery = "";
+    let statusFilter = "all";
+    let sortKey: SortKey = "created_desc";
+    let selectedCompareIds: string[] = [];
 
     const comparisonLabels: Record<ComparisonEligibility, string> = {
         comparison_metadata_only: "Metadata only",
@@ -39,21 +48,15 @@
         unresolved_event_quarantine: "Quarantined",
     };
 
-    const getReadiness = (capabilityId: ResearchCapabilityId) =>
-        capabilityReadiness[capabilityId];
-
-    const getCapabilityLabel = (capabilityId: ResearchCapabilityId) =>
-        getCapabilityDefinition(capabilityId).label;
-
-    let recentRuns: Awaited<ReturnType<typeof fetchResearchRuns>> = [];
-    let selectedRecord: Awaited<ReturnType<typeof fetchResearchRun>> | null =
-        null;
+    let recentRuns: ResearchRunRecord[] = [];
+    let selectedRecord: ResearchRunRecord | null = null;
     let recentRunsError: string | null = null;
     let selectedRunError: string | null = null;
     let isRecentRunsLoading = false;
     let isSelectedRunLoading = false;
     let loadedRunId = "";
     let refreshedForLatestRunId = "";
+    let selectedForLatestRunId = "";
 
     const refreshRecentRuns = async () => {
         isRecentRunsLoading = true;
@@ -104,43 +107,134 @@
         value: ComparisonEligibility | null | undefined,
     ) => (value ? (comparisonLabels[value] ?? value) : "Unknown");
 
+    const getReadiness = (capabilityId: ResearchCapabilityId) =>
+        capabilityReadiness[capabilityId];
+
+    const getCapabilityLabel = (capabilityId: ResearchCapabilityId) =>
+        getCapabilityDefinition(capabilityId).label;
+
     const countCapabilityBlockers = (capabilityIds: ResearchCapabilityId[]) =>
         capabilityIds.filter((capabilityId) => {
             const status = getReadiness(capabilityId)?.status;
             return status === "gated" || status === "not_implemented";
         }).length;
 
+    const hasCompleteArtifacts = (run: ReviewRun | null) =>
+        Boolean(
+            run?.model_diagnostics ||
+                run?.equity_curve?.length ||
+                run?.signals?.length ||
+                Object.keys(run?.baselines ?? {}).length,
+        );
+
+    const formatMetric = (value: number | null | undefined) =>
+        value === null || value === undefined ? "N/A" : value.toFixed(4);
+
+    const getPayloadArray = (
+        payload: Record<string, unknown> | null | undefined,
+        key: string,
+    ) => {
+        const value = payload?.[key];
+        return Array.isArray(value) ? value : [];
+    };
+
+    const getPayloadText = (
+        payload: Record<string, unknown> | null | undefined,
+        key: string,
+    ) => {
+        const value = payload?.[key];
+        return value === null || value === undefined ? "N/A" : String(value);
+    };
+
+    const compareToggle = (runId: string, checked: boolean) => {
+        selectedCompareIds = checked
+            ? [...new Set([...selectedCompareIds, runId])]
+            : selectedCompareIds.filter((item) => item !== runId);
+    };
+
+    const getComparableReason = (run: ResearchRunRecord) => {
+        if (!hasCompleteArtifacts(run)) {
+            return "Missing persisted result artifacts.";
+        }
+        if (run.comparison_eligibility === "comparison_metadata_only") {
+            return "Only metadata-level comparison is available.";
+        }
+        if (run.comparison_eligibility === "unresolved_event_quarantine") {
+            return "Blocked by unresolved event state.";
+        }
+        return "Comparable for research review.";
+    };
+
     onMount(() => {
         void refreshRecentRuns();
     });
 
-    $: if (latestResult?.run_id && !selectedRunId) {
+    $: if (
+        latestResult?.run_id &&
+        latestResult.run_id !== selectedForLatestRunId
+    ) {
+        selectedForLatestRunId = latestResult.run_id;
         selectedRunId = latestResult.run_id;
     }
 
     $: activeRunId = selectedRunId || latestResult?.run_id || "";
+    $: activeRun =
+        latestResult && latestResult.run_id === activeRunId
+            ? latestResult
+            : selectedRecord;
+    $: metadataRun = activeRun;
     $: reviewSummary =
         latestSubmission && latestResult?.run_id === activeRunId
             ? latestSubmission
-            : selectedRecord
-              ? deriveSubmissionSummaryFromRun(selectedRecord)
-              : latestResult
-                ? deriveSubmissionSummaryFromRun(latestResult)
-                : null;
-    $: activeCapabilities = selectedRecord
-        ? deriveCapabilityIdsFromRun(selectedRecord)
-        : latestResult && latestResult.run_id === activeRunId
-          ? (reviewSummary?.capabilityIds ??
-            deriveCapabilityIdsFromRun(latestResult))
-          : [];
-    $: baselineSummary =
-        latestResult && latestResult.run_id === activeRunId
-            ? summarizeBaselineComparison(latestResult)
-            : null;
+            : activeRun
+              ? deriveSubmissionSummaryFromRun(activeRun)
+              : null;
+    $: activeCapabilities = activeRun ? deriveCapabilityIdsFromRun(activeRun) : [];
+    $: baselineSummary = summarizeBaselineComparison(activeRun);
     $: blockerCount = countCapabilityBlockers(activeCapabilities);
+    $: filteredRuns = recentRuns
+        .filter((run) => {
+            const query = searchQuery.trim().toLowerCase();
+            const matchesSearch =
+                !query ||
+                run.run_id.toLowerCase().includes(query) ||
+                (run.market ?? "").toLowerCase().includes(query) ||
+                run.symbols.join(",").toLowerCase().includes(query);
+            const matchesStatus =
+                statusFilter === "all" || run.status === statusFilter;
+            return matchesSearch && matchesStatus;
+        })
+        .sort((a, b) => {
+            if (sortKey === "created_asc") {
+                return (
+                    new Date(a.created_at).getTime() -
+                    new Date(b.created_at).getTime()
+                );
+            }
+            if (sortKey === "return_desc") {
+                return (
+                    (b.metrics?.total_return ?? Number.NEGATIVE_INFINITY) -
+                    (a.metrics?.total_return ?? Number.NEGATIVE_INFINITY)
+                );
+            }
+            if (sortKey === "rmse_asc") {
+                return (
+                    (a.model_diagnostics?.rmse ?? Number.POSITIVE_INFINITY) -
+                    (b.model_diagnostics?.rmse ?? Number.POSITIVE_INFINITY)
+                );
+            }
+            return (
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime()
+            );
+        });
+    $: comparisonRuns = recentRuns.filter((run) =>
+        selectedCompareIds.includes(run.run_id),
+    );
     $: if (
         selectedRunId &&
         selectedRunId !== loadedRunId &&
+        latestResult?.run_id !== selectedRunId &&
         !isSelectedRunLoading
     ) {
         void loadSelectedRun(selectedRunId);
@@ -156,9 +250,9 @@
 
 <WorkspaceSection
     id="run-review-workspace"
-    eyebrow="Run Review"
-    title="Review the outcome as a research decision, not a debug dump."
-    description="Use this surface to understand what ran, whether it beat the baseline, and which capabilities or readiness blockers matter for the next iteration."
+    eyebrow="Experiments"
+    title="Review persisted experiments with the same result surface."
+    description="Use model diagnostics first, then strategy artifacts, baselines, and comparison caveats."
 >
     <div class="review-shell">
         <section class="surface surface--hero">
@@ -167,10 +261,6 @@
                     <p class="eyebrow">Decision Summary</p>
                     <h3>What this run means</h3>
                 </div>
-                <p class="muted">
-                    Load the latest submitted run or pick any persisted run from
-                    the registry summary below.
-                </p>
             </div>
 
             <div class="summary-grid">
@@ -190,47 +280,30 @@
                     </p>
                 </div>
                 <div class="summary-card">
-                    <span>Baseline Verdict</span>
+                    <span>Model Quality</span>
+                    <strong>{formatMetric(activeRun?.model_diagnostics?.rmse)}</strong>
+                    <p>RMSE is shown before strategy interpretation.</p>
+                </div>
+                <div class="summary-card">
+                    <span>Baseline Delta</span>
                     <strong>
                         {#if baselineSummary}
-                            {baselineSummary.verdict === "ahead"
-                                ? "Ahead of Baseline"
-                                : "Behind Baseline"}
+                            {formatMetric(baselineSummary.delta)}
                         {:else}
-                            No live comparison
+                            N/A
                         {/if}
                     </strong>
                     <p>
-                        {#if baselineSummary}
-                            {baselineSummary.baselineName} delta
-                            {baselineSummary.delta.toFixed(3)}
-                        {:else}
-                            Detailed baseline comparison appears for the latest
-                            in-session run.
-                        {/if}
+                        {baselineSummary?.baselineName ??
+                            "No baseline metrics available."}
                     </p>
                 </div>
                 <div class="summary-card">
                     <span>Comparison Eligibility</span>
                     <strong>
-                        {formatEligibility(
-                            selectedRecord?.comparison_eligibility ??
-                                latestResult?.comparison_eligibility,
-                        )}
+                        {formatEligibility(activeRun?.comparison_eligibility)}
                     </strong>
-                    <p>
-                        Runtime and governance metadata decide whether this run
-                        can be treated as a durable comparison candidate.
-                    </p>
-                </div>
-                <div class="summary-card">
-                    <span>Readiness Blockers</span>
-                    <strong>{blockerCount}</strong>
-                    <p>
-                        {activeCapabilities.length
-                            ? `${activeCapabilities.length} capability path(s) active`
-                            : "No capability selection available yet."}
-                    </p>
+                    <p>{activeRun ? getComparableReason(activeRun as ResearchRunRecord) : "No run selected."}</p>
                 </div>
             </div>
         </section>
@@ -241,41 +314,86 @@
                     <p class="eyebrow">Registry</p>
                     <h3>Recent persisted runs</h3>
                 </div>
-                <div class="registry-actions">
-                    {#if activeRunId}
-                        <span class="muted">Selected: {activeRunId}</span>
-                    {/if}
-                    <button
-                        type="button"
-                        class="secondary"
-                        onclick={() => void refreshRecentRuns()}
-                        disabled={isRecentRunsLoading}
-                    >
-                        {isRecentRunsLoading ? "Refreshing..." : "Refresh"}
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    class="secondary"
+                    onclick={() => void refreshRecentRuns()}
+                    disabled={isRecentRunsLoading}
+                >
+                    {isRecentRunsLoading ? "Refreshing..." : "Refresh"}
+                </button>
+            </div>
+
+            <div class="registry-controls">
+                <label>
+                    <span>Search</span>
+                    <input
+                        bind:value={searchQuery}
+                        placeholder="run id, market, or symbol"
+                    />
+                </label>
+                <label>
+                    <span>Status</span>
+                    <select bind:value={statusFilter}>
+                        <option value="all">All</option>
+                        <option value="succeeded">Succeeded</option>
+                        <option value="failed">Failed</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="validation_failed"
+                            >Validation Failed</option
+                        >
+                        <option value="running">Running</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Sort</span>
+                    <select bind:value={sortKey}>
+                        <option value="created_desc">Newest</option>
+                        <option value="created_asc">Oldest</option>
+                        <option value="return_desc">Total Return</option>
+                        <option value="rmse_asc">RMSE</option>
+                    </select>
+                </label>
             </div>
 
             {#if recentRunsError}
                 <p class="muted">{recentRunsError}</p>
             {:else if isRecentRunsLoading && !recentRuns.length}
                 <p class="muted">Loading persisted runs...</p>
-            {:else if recentRuns.length}
+            {:else if filteredRuns.length}
                 <div class="table-wrap">
                     <table>
                         <thead>
                             <tr>
+                                <th>Compare</th>
                                 <th>Run ID</th>
                                 <th>Status</th>
                                 <th>Created</th>
                                 <th>Market</th>
+                                <th>RMSE</th>
+                                <th>Total Return</th>
                                 <th>Eligibility</th>
                                 <th></th>
                             </tr>
                         </thead>
                         <tbody>
-                            {#each recentRuns.slice(0, 6) as run}
+                            {#each filteredRuns as run}
                                 <tr>
+                                    <td>
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedCompareIds.includes(
+                                                run.run_id,
+                                            )}
+                                            onchange={(event) =>
+                                                compareToggle(
+                                                    run.run_id,
+                                                    (
+                                                        event.currentTarget as HTMLInputElement
+                                                    ).checked,
+                                                )}
+                                        />
+                                    </td>
                                     <td>{run.run_id}</td>
                                     <td>{run.status}</td>
                                     <td
@@ -284,6 +402,14 @@
                                         ).toLocaleString()}</td
                                     >
                                     <td>{run.market ?? "N/A"}</td>
+                                    <td>
+                                        {formatMetric(
+                                            run.model_diagnostics?.rmse,
+                                        )}
+                                    </td>
+                                    <td>
+                                        {formatMetric(run.metrics?.total_return)}
+                                    </td>
                                     <td>
                                         {formatEligibility(
                                             run.comparison_eligibility,
@@ -305,46 +431,139 @@
                     </table>
                 </div>
             {:else}
-                <p class="muted">No persisted runs are available yet.</p>
+                <p class="muted">No persisted runs match the current filters.</p>
             {/if}
         </section>
 
-        {#if latestResult && latestResult.run_id === activeRunId}
+        {#if comparisonRuns.length >= 2}
+            <section class="surface">
+                <div class="surface-header">
+                    <div>
+                        <p class="eyebrow">Comparison</p>
+                        <h3>{comparisonRuns.length} selected runs</h3>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Run ID</th>
+                                <th>Dataset</th>
+                                <th>Target</th>
+                                <th>Features</th>
+                                <th>RMSE</th>
+                                <th>Rank IC</th>
+                                <th>Total Return</th>
+                                <th>Baseline Delta</th>
+                                <th>Caveat</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {#each comparisonRuns as run}
+                                {@const payload = run.request_payload}
+                                {@const baseline = summarizeBaselineComparison(run)}
+                                <tr>
+                                    <td>{run.run_id}</td>
+                                    <td>
+                                        {run.market ?? "N/A"} /
+                                        {getPayloadArray(payload, "symbols")
+                                            .length
+                                            ? getPayloadArray(
+                                                  payload,
+                                                  "symbols",
+                                              ).join(", ")
+                                            : run.symbols.join(", ")}
+                                    </td>
+                                    <td>
+                                        {getPayloadText(
+                                            payload,
+                                            "return_target",
+                                        )}
+                                        /
+                                        {getPayloadText(
+                                            payload,
+                                            "horizon_days",
+                                        )}
+                                    </td>
+                                    <td>
+                                        {getPayloadArray(payload, "features")
+                                            .length || "N/A"}
+                                    </td>
+                                    <td>
+                                        {formatMetric(
+                                            run.model_diagnostics?.rmse,
+                                        )}
+                                    </td>
+                                    <td>
+                                        {formatMetric(
+                                            run.model_diagnostics?.rank_ic,
+                                        )}
+                                    </td>
+                                    <td>
+                                        {formatMetric(run.metrics?.total_return)}
+                                    </td>
+                                    <td>{formatMetric(baseline?.delta)}</td>
+                                    <td>{getComparableReason(run)}</td>
+                                </tr>
+                            {/each}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {/if}
+
+        {#if activeRunId}
             <section class="results-shell">
                 <div class="surface">
                     <div class="surface-header">
                         <div>
-                            <p class="eyebrow">Latest Result</p>
-                            <h3>{latestResult.run_id}</h3>
+                            <p class="eyebrow">Selected Result</p>
+                            <h3>{activeRunId}</h3>
                         </div>
-                        <span class="muted">
-                            {reviewSummary?.capabilityIds
-                                .map((capabilityId) =>
-                                    getCapabilityLabel(capabilityId),
-                                )
-                                .join(", ")}
-                        </span>
+                        {#if isSelectedRunLoading}
+                            <span class="muted">Loading...</span>
+                        {/if}
                     </div>
-
-                    <ResearchRunMetrics metrics={latestResult.metrics} />
+                    {#if selectedRunError}
+                        <p class="muted">{selectedRunError}</p>
+                    {:else if activeRun?.metrics}
+                        <ResearchRunMetrics metrics={activeRun.metrics} />
+                    {:else}
+                        <p class="muted">
+                            Strategy metrics are unavailable for this record.
+                        </p>
+                    {/if}
                 </div>
 
-                <div class="surface">
-                    <div class="surface-header">
-                        <div>
-                            <p class="eyebrow">Performance</p>
-                            <h3>Equity Curve</h3>
-                        </div>
-                    </div>
-                    <EquityChart points={latestResult.equity_curve} />
-                </div>
-
-                <ResearchRunValidation
-                    validation={latestResult.validation}
-                    warnings={latestResult.warnings}
+                <ResearchRunDiagnostics
+                    diagnostics={activeRun?.model_diagnostics ?? null}
                 />
 
-                {#if Object.keys(latestResult.baselines).length}
+                {#if activeRun?.equity_curve?.length}
+                    <div class="surface">
+                        <div class="surface-header">
+                            <div>
+                                <p class="eyebrow">Strategy Backtest</p>
+                                <h3>Equity Curve</h3>
+                            </div>
+                        </div>
+                        <EquityChart points={activeRun.equity_curve} />
+                    </div>
+                {:else}
+                    <div class="surface">
+                        <p class="muted">
+                            Equity curve is unavailable for this record. This is
+                            expected for older metadata-only runs.
+                        </p>
+                    </div>
+                {/if}
+
+                <ResearchRunValidation
+                    validation={activeRun?.validation ?? null}
+                    warnings={activeRun?.warnings ?? []}
+                />
+
+                {#if Object.keys(activeRun?.baselines ?? {}).length}
                     <div class="surface">
                         <div class="surface-header">
                             <div>
@@ -364,28 +583,21 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {#each Object.entries(latestResult.baselines) as [baseline, metrics]}
+                                    {#each Object.entries(activeRun?.baselines ?? {}) as [baseline, metrics]}
                                         <tr>
                                             <td>{baseline}</td>
-                                            <td
-                                                >{metrics.total_return?.toFixed(
-                                                    3,
-                                                ) ?? "N/A"}</td
-                                            >
-                                            <td
-                                                >{metrics.sharpe?.toFixed(3) ??
-                                                    "N/A"}</td
-                                            >
-                                            <td
-                                                >{metrics.max_drawdown?.toFixed(
-                                                    3,
-                                                ) ?? "N/A"}</td
-                                            >
-                                            <td
-                                                >{metrics.turnover?.toFixed(
-                                                    3,
-                                                ) ?? "N/A"}</td
-                                            >
+                                            <td>
+                                                {formatMetric(
+                                                    metrics.total_return,
+                                                )}
+                                            </td>
+                                            <td>{formatMetric(metrics.sharpe)}</td>
+                                            <td>
+                                                {formatMetric(
+                                                    metrics.max_drawdown,
+                                                )}
+                                            </td>
+                                            <td>{formatMetric(metrics.turnover)}</td>
                                         </tr>
                                     {/each}
                                 </tbody>
@@ -394,79 +606,32 @@
                     </div>
                 {/if}
 
-                <ResearchRunSignals signals={latestResult.signals} />
-            </section>
-        {:else if activeRunId}
-            <section class="surface">
-                <div class="surface-header">
-                    <div>
-                        <p class="eyebrow">Loaded Record</p>
-                        <h3>{activeRunId}</h3>
-                    </div>
-                    <button
-                        type="button"
-                        class="secondary"
-                        onclick={() => void loadSelectedRun(activeRunId)}
-                        disabled={isSelectedRunLoading}
-                    >
-                        {isSelectedRunLoading ? "Loading..." : "Reload"}
-                    </button>
-                </div>
-
-                {#if isSelectedRunLoading}
-                    <p class="muted">Loading persisted run details...</p>
-                {:else if selectedRunError}
-                    <p class="muted">{selectedRunError}</p>
-                {:else if selectedRecord}
-                    <div class="mini-grid">
-                        <div>
-                            <strong>Status</strong>
-                            <span>{selectedRecord.status}</span>
-                        </div>
-                        <div>
-                            <strong>Runtime Mode</strong>
-                            <span>{selectedRecord.runtime_mode ?? "N/A"}</span>
-                        </div>
-                        <div>
-                            <strong>Tradability State</strong>
-                            <span
-                                >{selectedRecord.tradability_state ??
-                                    "N/A"}</span
-                            >
-                        </div>
-                        <div>
-                            <strong>Execution Ratio</strong>
-                            <span>
-                                {selectedRecord.execution_universe_ratio !==
-                                null
-                                    ? `${(
-                                          selectedRecord.execution_universe_ratio *
-                                          100
-                                      ).toFixed(1)}%`
-                                    : "N/A"}
-                            </span>
-                        </div>
-                    </div>
-                    <p class="muted">
-                        Full curve, signal, and baseline artifacts are only
-                        retained for the latest in-session run. Persisted record
-                        review focuses on governance and run metadata.
-                    </p>
+                {#if activeRun?.signals?.length}
+                    <ResearchRunSignals signals={activeRun.signals} />
                 {:else}
-                    <p class="muted">No record is loaded.</p>
+                    <div class="surface">
+                        <p class="muted">
+                            Signals are unavailable for this record. This is
+                            expected for older metadata-only runs.
+                        </p>
+                    </div>
                 {/if}
+            </section>
+        {:else}
+            <section class="surface">
+                <p class="muted">Submit or load a run to review results.</p>
             </section>
         {/if}
 
         <section class="surface">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Governance</p>
-                    <h3>Capability readiness for this run</h3>
+                    <p class="eyebrow">Readiness Context</p>
+                    <h3>Capability state for this run</h3>
                 </div>
                 <p class="muted">
-                    Active capabilities inherit the current gate and readiness
-                    posture, even when the run itself was created earlier.
+                    Hidden advanced modules remain diagnostic context only.
+                    Current blocker count: {blockerCount}
                 </p>
             </div>
 
@@ -492,46 +657,33 @@
             {/if}
         </section>
 
-        {#if selectedRecord}
+        {#if metadataRun}
             <details class="surface advanced-surface">
                 <summary>Advanced metadata</summary>
                 <div class="metadata-grid">
                     <div>
                         <p class="eyebrow">Config Sources</p>
-                        <pre>{stringifyJson(
-                                selectedRecord.config_sources,
-                            )}</pre>
+                        <pre>{stringifyJson(metadataRun.config_sources)}</pre>
                     </div>
                     <div>
                         <p class="eyebrow">Fallback Audit</p>
-                        <pre>{stringifyJson(
-                                selectedRecord.fallback_audit,
-                            )}</pre>
+                        <pre>{stringifyJson(metadataRun.fallback_audit)}</pre>
                     </div>
                     <div>
                         <p class="eyebrow">Version Pack</p>
                         <pre>
 {stringifyJson({
                                 threshold_policy_version:
-                                    selectedRecord.threshold_policy_version,
+                                    metadataRun.threshold_policy_version,
                                 price_basis_version:
-                                    selectedRecord.price_basis_version,
+                                    metadataRun.price_basis_version,
                                 benchmark_comparability_gate:
-                                    selectedRecord.benchmark_comparability_gate,
+                                    metadataRun.benchmark_comparability_gate,
                                 comparison_eligibility:
-                                    selectedRecord.comparison_eligibility,
-                                factor_catalog_version:
-                                    selectedRecord.factor_catalog_version,
-                                external_lineage_version:
-                                    selectedRecord.external_lineage_version,
-                                cluster_snapshot_version:
-                                    selectedRecord.cluster_snapshot_version,
-                                simulation_adapter_version:
-                                    selectedRecord.simulation_adapter_version,
-                                live_control_version:
-                                    selectedRecord.live_control_version,
-                                adaptive_contract_version:
-                                    selectedRecord.adaptive_contract_version,
+                                    metadataRun.comparison_eligibility,
+                                model_family: metadataRun.model_family,
+                                training_output_contract_version:
+                                    metadataRun.training_output_contract_version,
                             })}
                         </pre>
                     </div>
@@ -544,7 +696,8 @@
 <style lang="scss">
     .review-shell,
     .summary-grid,
-    .governance-grid {
+    .governance-grid,
+    .registry-controls {
         display: grid;
         gap: var(--space-4);
     }
@@ -558,16 +711,16 @@
         flex-direction: column;
     }
 
-    .summary-grid,
-    .governance-grid {
+    .summary-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
-    .registry-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        flex-wrap: wrap;
+    .governance-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .registry-controls {
+        grid-template-columns: 1.4fr repeat(2, minmax(180px, 0.5fr));
     }
 
     .summary-card,
@@ -608,15 +761,9 @@
 
     @media (max-width: 1200px) {
         .summary-grid,
-        .governance-grid {
+        .governance-grid,
+        .registry-controls {
             grid-template-columns: 1fr;
-        }
-    }
-
-    @media (max-width: 720px) {
-        .registry-actions {
-            align-items: flex-start;
-            flex-direction: column;
         }
     }
 </style>

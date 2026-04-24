@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -237,6 +237,31 @@ class ValidationSummary(BaseModel):
     metrics: Dict[str, float]
 
 
+class RegressionDiagnosticPoint(BaseModel):
+    date: date
+    symbol: str
+    actual: float
+    predicted: float
+    residual: float
+
+
+class FeatureImportancePoint(BaseModel):
+    feature: str
+    importance: float
+
+
+class RegressionDiagnostics(BaseModel):
+    task: Literal["regression"] = "regression"
+    sample_count: int = 0
+    rmse: Optional[float] = None
+    mae: Optional[float] = None
+    rank_ic: Optional[float] = None
+    linear_ic: Optional[float] = None
+    actual_vs_predicted: List[RegressionDiagnosticPoint] = Field(default_factory=list)
+    residuals: List[RegressionDiagnosticPoint] = Field(default_factory=list)
+    feature_importance: List[FeatureImportancePoint] = Field(default_factory=list)
+
+
 class ResearchRunResponse(
     VersionPackMixin,
     P3SummaryMixin,
@@ -248,6 +273,7 @@ class ResearchRunResponse(
     equity_curve: List[EquityPoint] = Field(default_factory=list)
     signals: List[SignalPoint] = Field(default_factory=list)
     validation: Optional[ValidationSummary] = None
+    model_diagnostics: Optional[RegressionDiagnostics] = None
     baselines: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
     runtime_mode: RuntimeMode
@@ -279,5 +305,10 @@ class ResearchRunRecordResponse(
     rejection_reason: Optional[str] = None
     request_payload: Optional[Dict[str, object]] = None
     metrics: Optional[Metrics] = None
+    equity_curve: List[EquityPoint] = Field(default_factory=list)
+    signals: List[SignalPoint] = Field(default_factory=list)
+    validation: Optional[ValidationSummary] = None
+    model_diagnostics: Optional[RegressionDiagnostics] = None
+    baselines: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
     created_at: datetime
