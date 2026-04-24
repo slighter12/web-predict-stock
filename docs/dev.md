@@ -292,6 +292,7 @@ Frontend:
 
 - `POSTGRES_HOST=localhost` is the normal host-machine setting
 - `POSTGRES_HOST=db` is the container-network setting
+- the default host-machine PostgreSQL port is `65432`
 - the default frontend API target is `http://127.0.0.1:8000`
 - TWSE tick snapshot fetches use `requests`; prefer `TWSE_MIS_CA_BUNDLE` when a
   local CA chain is available, or configure `TWSE_MIS_CA_AUTO_DOWNLOAD=true`
