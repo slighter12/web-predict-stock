@@ -284,7 +284,7 @@
         {
             id: "universe",
             label: "01",
-            title: "Universe",
+            title: "Dataset",
             summary: `${draft.universe.market} / ${
                 parseSymbols(draft.universe.symbolsInput).length
             } symbol(s)`,
@@ -292,7 +292,7 @@
         {
             id: "signal_sources",
             label: "02",
-            title: "Signal Sources",
+            title: "Features",
             summary: (
                 Object.entries(draft.capabilities) as Array<
                     [ResearchCapabilityId, boolean]
@@ -305,7 +305,7 @@
         {
             id: "model_family",
             label: "03",
-            title: "Model Family",
+            title: "Prediction Task",
             summary: `${getModelFamilyById(draft.modelFamily.familyId).label} / ${
                 getModelVariantById(draft.modelFamily.variantId).label
             }`,
@@ -313,7 +313,7 @@
         {
             id: "evaluation",
             label: "04",
-            title: "Evaluation",
+            title: "Diagnostics and Backtest",
             summary: draft.capabilities.simulation_execution
                 ? `${getOptionLabel(draft.evaluation.executionRoute)} / ${
                       draft.evaluation.enableValidation
@@ -353,21 +353,20 @@
 
 <WorkspaceSection
     id="research-workspace"
-    eyebrow="Research"
-    title="Run the research workflow without editing the backend contract by hand."
-    description="Pick a template, keep the baseline path short, and expand capabilities only when the workflow needs them."
+    eyebrow="Experiment Builder"
+    title="Run a baseline TW daily experiment without editing an API payload."
+    description="Move from dataset and features into prediction task, diagnostics, backtest, and review."
 >
     <div class="research-shell">
         <section class="surface surface--intro">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Templates</p>
-                    <h3>Choose the workflow you want to start from</h3>
+                    <p class="eyebrow">Baseline</p>
+                    <h3>Start from the v1 research loop</h3>
                 </div>
                 <p class="muted">
-                    Baseline Research is the shortest path. The other templates
-                    keep advanced capabilities in the same flow but behind
-                    explicit readiness checks.
+                    Advanced execution, adaptive, peer, factor, and tick
+                    archive modules stay out of the main builder.
                 </p>
             </div>
 
@@ -526,7 +525,7 @@
                         class="submit"
                         onclick={() => moveStage(1)}
                     >
-                        Continue to Signal Sources
+                        Continue to Features
                     </button>
                 </div>
             </section>
@@ -536,16 +535,14 @@
             <section class="surface">
                 <div class="surface-header surface-header--stack">
                     <div>
-                        <p class="eyebrow">02 Signal Sources</p>
-                        <h3>
-                            Keep the baseline path short, then expand when
-                            needed
-                        </h3>
+                        <p class="eyebrow">02 Features</p>
+                        <h3>Choose the baseline feature set</h3>
                     </div>
                     <p class="muted">
-                        {activeTemplate?.label} starts with
+                        {activeTemplate?.label} uses
                         {" "}
-                        {activeTemplateCapabilityLabels.join(", ")}.
+                        {activeTemplateCapabilityLabels.join(", ")} as the
+                        core model input.
                     </p>
                 </div>
 
@@ -677,144 +674,6 @@
                     </CapabilityCard>
                 </div>
 
-                <div class="capability-grid">
-                    {#each getCapabilityIdsByStage("signal_sources").filter((capabilityId) => capabilityId !== "technical_indicators") as capabilityId}
-                        {@const capability =
-                            getCapabilityDefinition(capabilityId)}
-                        {@const readiness = getReadiness(capabilityId)}
-                        <CapabilityCard
-                            {capability}
-                            {readiness}
-                            isEnabled={draft.capabilities[capabilityId]}
-                            isToggleDisabled={isCapabilityToggleDisabled(
-                                capabilityId,
-                            )}
-                            on:change={(event) =>
-                                handleCapabilityToggle(
-                                    capabilityId,
-                                    (event.target as HTMLInputElement).checked,
-                                )}
-                        >
-                            {#if draft.capabilities[capabilityId]}
-                                <div class="module-section">
-                                    {#if capabilityId === "factor_catalog"}
-                                        <div class="form-grid form-grid--two">
-                                            <label>
-                                                <span
-                                                    >Factor Catalog Version</span
-                                                >
-                                                <input
-                                                    bind:value={
-                                                        draft.signalSources
-                                                            .factorCatalogVersion
-                                                    }
-                                                    placeholder="factor_catalog_v1"
-                                                />
-                                                {#if errors.factorCatalogVersion}
-                                                    <small
-                                                        >{errors.factorCatalogVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Scoring Factor IDs</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.signalSources
-                                                            .scoringFactorIdsInput
-                                                    }
-                                                    placeholder="company_listing_age_days_v1, important_event_count_30d_v1"
-                                                />
-                                                <span class="muted">
-                                                    {parseScoringFactorIds(
-                                                        draft.signalSources
-                                                            .scoringFactorIdsInput,
-                                                    ).length} factor(s) selected
-                                                </span>
-                                                {#if errors.scoringFactorIdsInput}
-                                                    <small
-                                                        >{errors.scoringFactorIdsInput}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                        </div>
-                                        {#if errors.factorCatalogGate}
-                                            <small
-                                                >{errors.factorCatalogGate}</small
-                                            >
-                                        {/if}
-                                    {/if}
-
-                                    {#if capabilityId === "external_signals"}
-                                        <label>
-                                            <span>External Signal Policy</span>
-                                            <input
-                                                bind:value={
-                                                    draft.signalSources
-                                                        .externalSignalPolicyVersion
-                                                }
-                                                placeholder="tw_company_event_layer_v1"
-                                            />
-                                            {#if errors.externalSignalPolicyVersion}
-                                                <small
-                                                    >{errors.externalSignalPolicyVersion}</small
-                                                >
-                                            {/if}
-                                        </label>
-                                        {#if errors.externalSignalGate}
-                                            <small
-                                                >{errors.externalSignalGate}</small
-                                            >
-                                        {/if}
-                                    {/if}
-
-                                    {#if capabilityId === "peer_context"}
-                                        <div class="form-grid form-grid--two">
-                                            <label>
-                                                <span
-                                                    >Cluster Snapshot Version</span
-                                                >
-                                                <input
-                                                    bind:value={
-                                                        draft.signalSources
-                                                            .clusterSnapshotVersion
-                                                    }
-                                                    placeholder="peer_cluster_kmeans_v1"
-                                                />
-                                                {#if errors.clusterSnapshotVersion}
-                                                    <small
-                                                        >{errors.clusterSnapshotVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Peer Policy Version</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.signalSources
-                                                            .peerPolicyVersion
-                                                    }
-                                                    placeholder="cluster_nearest_neighbors_v1"
-                                                />
-                                                {#if errors.peerPolicyVersion}
-                                                    <small
-                                                        >{errors.peerPolicyVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                        </div>
-                                        {#if errors.peerContextGate}
-                                            <small
-                                                >{errors.peerContextGate}</small
-                                            >
-                                        {/if}
-                                    {/if}
-                                </div>
-                            {/if}
-                        </CapabilityCard>
-                    {/each}
-                </div>
-
                 <div class="stage-actions">
                     <button
                         type="button"
@@ -828,7 +687,7 @@
                         class="submit"
                         onclick={() => moveStage(1)}
                     >
-                        Continue to Model Family
+                        Continue to Prediction Task
                     </button>
                 </div>
             </section>
@@ -838,16 +697,14 @@
             <section class="surface">
                 <div class="surface-header surface-header--stack">
                     <div>
-                        <p class="eyebrow">03 Model Family</p>
+                        <p class="eyebrow">03 Prediction Task</p>
                         <h3>
-                            Pick the family first, then choose an implemented
-                            variant
+                            Pick the regression model for this baseline study
                         </h3>
                     </div>
                     <p class="muted">
-                        The UI now groups model choices by family, even though
-                        the backend still receives the existing model variant
-                        contract.
+                        Classification is specified for future work. This code
+                        path runs regression diagnostics first.
                     </p>
                 </div>
 
@@ -989,7 +846,7 @@
                         class="submit"
                         onclick={() => moveStage(1)}
                     >
-                        Continue to Evaluation
+                        Continue to Diagnostics
                     </button>
                 </div>
             </section>
@@ -999,15 +856,15 @@
             <section class="surface">
                 <div class="surface-header surface-header--stack">
                     <div>
-                        <p class="eyebrow">04 Evaluation</p>
+                        <p class="eyebrow">04 Diagnostics and Backtest</p>
                         <h3>
-                            Decide how this run should be validated and executed
+                            Decide validation, baselines, and offline backtest
+                            assumptions
                         </h3>
                     </div>
                     <p class="muted">
-                        Research-only remains the default posture. Simulation
-                        and adaptive controls stay in the same flow, but only
-                        open when the capability is enabled.
+                        The run remains research-only. Model diagnostics are
+                        reviewed before strategy metrics.
                     </p>
                 </div>
 
@@ -1093,222 +950,6 @@
                         </label>
                     </div>
                 {/if}
-
-                <div class="capability-grid">
-                    {#each getCapabilityIdsByStage("evaluation") as capabilityId}
-                        {@const capability =
-                            getCapabilityDefinition(capabilityId)}
-                        {@const readiness = getReadiness(capabilityId)}
-                        <CapabilityCard
-                            {capability}
-                            {readiness}
-                            isEnabled={draft.capabilities[capabilityId]}
-                            isToggleDisabled={isCapabilityToggleDisabled(
-                                capabilityId,
-                            )}
-                            on:change={(event) =>
-                                handleCapabilityToggle(
-                                    capabilityId,
-                                    (event.target as HTMLInputElement).checked,
-                                )}
-                        >
-                            {#if draft.capabilities[capabilityId]}
-                                <div class="module-section">
-                                    {#if capabilityId === "simulation_execution"}
-                                        <div class="form-grid form-grid--three">
-                                            <label>
-                                                <span>Execution Route</span>
-                                                <select
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .executionRoute
-                                                    }
-                                                >
-                                                    <option
-                                                        value="simulation_internal_v1"
-                                                    >
-                                                        Internal Simulation
-                                                    </option>
-                                                    <option
-                                                        value="live_stub_v1"
-                                                    >
-                                                        Live Stub
-                                                    </option>
-                                                </select>
-                                            </label>
-                                            <label>
-                                                <span>Simulation Profile</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .simulationProfileId
-                                                    }
-                                                    placeholder="simulation_internal_default_v1"
-                                                />
-                                                {#if errors.simulationProfileId}
-                                                    <small
-                                                        >{errors.simulationProfileId}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Live Control Profile</span
-                                                >
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .liveControlProfileId
-                                                    }
-                                                    placeholder="live_stub_default_v1"
-                                                    disabled={draft.evaluation
-                                                        .executionRoute !==
-                                                        "live_stub_v1"}
-                                                />
-                                                {#if errors.liveControlProfileId}
-                                                    <small
-                                                        >{errors.liveControlProfileId}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Slippage</span>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="0.001"
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .slippage
-                                                    }
-                                                />
-                                            </label>
-                                            <label>
-                                                <span>Fees</span>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    step="0.001"
-                                                    bind:value={
-                                                        draft.evaluation.fees
-                                                    }
-                                                />
-                                            </label>
-                                            <label class="toggle">
-                                                <span
-                                                    >Manual Approval Confirmed</span
-                                                >
-                                                <input
-                                                    type="checkbox"
-                                                    bind:checked={
-                                                        draft.evaluation
-                                                            .manualConfirmed
-                                                    }
-                                                    disabled={draft.evaluation
-                                                        .executionRoute !==
-                                                        "live_stub_v1"}
-                                                />
-                                            </label>
-                                        </div>
-                                        {#if errors.simulationExecution}
-                                            <small
-                                                >{errors.simulationExecution}</small
-                                            >
-                                        {/if}
-                                        {#if errors.execution}<small
-                                                >{errors.execution}</small
-                                            >{/if}
-                                    {/if}
-
-                                    {#if capabilityId === "adaptive_workflow"}
-                                        <div class="form-grid form-grid--two">
-                                            <label>
-                                                <span>Adaptive Mode</span>
-                                                <select
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .adaptiveMode
-                                                    }
-                                                >
-                                                    <option value="shadow"
-                                                        >shadow</option
-                                                    >
-                                                    <option value="candidate">
-                                                        candidate
-                                                    </option>
-                                                </select>
-                                                {#if errors.adaptiveMode}
-                                                    <small
-                                                        >{errors.adaptiveMode}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Adaptive Profile</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .adaptiveProfileId
-                                                    }
-                                                    placeholder="adaptive_shadow_v1"
-                                                />
-                                                {#if errors.adaptiveProfileId}
-                                                    <small
-                                                        >{errors.adaptiveProfileId}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>Reward Version</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .rewardDefinitionVersion
-                                                    }
-                                                    placeholder="reward_daily_active_return_v1"
-                                                />
-                                                {#if errors.rewardDefinitionVersion}
-                                                    <small
-                                                        >{errors.rewardDefinitionVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label>
-                                                <span>State Version</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .stateDefinitionVersion
-                                                    }
-                                                    placeholder="state_market_context_v1"
-                                                />
-                                                {#if errors.stateDefinitionVersion}
-                                                    <small
-                                                        >{errors.stateDefinitionVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                            <label class="form-grid__wide">
-                                                <span>Rollout Control</span>
-                                                <input
-                                                    bind:value={
-                                                        draft.evaluation
-                                                            .rolloutControlVersion
-                                                    }
-                                                    placeholder="rollout_shadow_only_v1"
-                                                />
-                                                {#if errors.rolloutControlVersion}
-                                                    <small
-                                                        >{errors.rolloutControlVersion}</small
-                                                    >
-                                                {/if}
-                                            </label>
-                                        </div>
-                                    {/if}
-                                </div>
-                            {/if}
-                        </CapabilityCard>
-                    {/each}
-                </div>
 
                 <label class="toggle">
                     <span>Save as monitoring run</span>
@@ -1600,10 +1241,6 @@
         gap: var(--space-3);
     }
 
-    .form-grid--two {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
     .form-grid--three {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -1703,7 +1340,6 @@
         .capability-grid,
         .review-grid,
         .review-grid--secondary,
-        .form-grid--two,
         .form-grid--three,
         .form-grid--four,
         .family-grid,

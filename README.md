@@ -1,98 +1,104 @@
-# Personal Quant Research Platform
+# TW Daily Quant ML Research Workbench
 
-This repository is a docs-first quantitative research platform centered on two
-surfaces:
+This repository is a research-first workbench for TW daily quantitative ML
+experiments. The v1 product is intentionally narrow: help a researcher create a
+baseline study, inspect model quality, review the resulting strategy backtest,
+and compare persisted experiments without treating the app as an execution or
+operations platform.
 
-- `Prediction Studio`: a staged prediction workflow for data context, feature
-  selection, model choice, validation, and results
-- `Maintenance`: operational repair and verification tools for replay,
-  recovery, lifecycle correction, important events, tick archives, and control
-  checks
+## V1 Product Flow
 
-Use this file for orientation, current-project status, and document routing.
-Normative rules still live under `docs/`.
+The main workflow is:
+
+1. Dataset and date range
+2. Feature set
+3. Prediction task
+4. Model diagnostics
+5. Strategy backtest
+6. Experiment comparison
+
+Prediction tasks include both regression and classification at the specification
+level. The first implementation pass supports regression diagnostics; the
+classification contract is documented so it can be added without changing the
+research workflow shape.
 
 ## What This Repository Owns
 
-- repository orientation
-- current implementation summary
-- document routing for common questions
-- the shortest local startup path
+- TW daily research-run creation and persisted review
+- feature selection for model-ready daily data
+- tabular regression model diagnostics
+- strategy backtest artifacts derived from model scores
+- experiment registry and comparison context
+- data-readiness diagnostics needed to explain research reliability
 
-## What This Repository Does Not Own
+## What This Repository Does Not Own For V1
 
-- runtime or execution semantics
-- KPI formulas, thresholds, or gate truth conditions
-- phase sequencing or delivery policy
-- local troubleshooting details
+- broker execution or live-order semantics
+- simulation-platform integration as a primary product surface
+- adaptive or RL workflows
+- peer inference, factor expansion, external-signal breadth, or tick archive UX
+  as main-flow requirements
+- multi-user productization or operations-console completeness
+
+Those advanced capabilities may exist as backend foundations or internal
+diagnostics, but they are hidden from the v1 research path unless a future plan
+promotes them deliberately.
 
 ## Current Status At A Glance
 
-| Area | Status | Notes |
+| Area | V1 status | Notes |
 | --- | --- | --- |
-| `P0` research-run core | `implemented` | run creation, run registry, runtime bundle metadata, and research-run inspector exist |
-| `P1` TW daily data durability | `implemented` | ingestion, replay, recovery drills, schedules, lifecycle and important-event records, and ops KPI surfaces exist |
-| `P2` tick archive durability | `implemented with constraints` | archive dispatch, import, replay, KPI, and gate surfaces exist; storage baseline is still provisional |
-| `P3` tradability governance | `implemented` | tradability-state persistence, `GATE-P3-001`, and `GATE-P3-OPS-001` telemetry exist |
-| `P4` to `P6` governance and model foundations | `partial foundation implemented` | comparison/governance metadata and shared tabular model-contract support exist, but these phases are not fully closed |
-| `P7` to `P11` advanced foundations | `structural foundation implemented` | external signals, factor catalog, clustering, execution stubs, and adaptive lifecycle persistence exist |
-| Durable operational qualification | `pending` | long-window ops gates and open `TBD-*` decisions still separate structural completion from durable qualification |
+| Research-run core | implemented | run creation, registry records, runtime metadata, and saved-run lookup exist |
+| TW daily data readiness | implemented with diagnostics | ingestion, replay, lifecycle, important-event, and recovery surfaces support data trust checks |
+| Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
+| Regression diagnostics | in progress | v1 requires persisted model-quality artifacts, not strategy metrics alone |
+| Experiment comparison | in progress | persisted runs must be searchable, loadable, and comparable with clear caveats |
+| Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
 
-For the fuller status breakdown, including implemented, partial, and pending
-areas, use [`docs/implementation-status.md`](docs/implementation-status.md).
+For the fuller implementation inventory, use
+[`docs/implementation-status.md`](docs/implementation-status.md). That file may
+include lower-level or advanced foundations that are not v1 product commitments.
 
 ## Implemented Today
 
 ### Backend
 
-- FastAPI backend with route groups for:
-  - system health
-  - research runs and phase gates
-  - daily data-plane workflows
-  - tick archive workflows
-  - execution simulation and live-stub controls
-- PostgreSQL plus TimescaleDB-backed persistence for research runs, replay and
-  recovery records, tick archive records, lifecycle and important-event data,
-  and P7 to P11 foundation records
-- scripts for scheduled recovery dispatch, scheduled ingestions, official
-  record crawlers, TW company crawling, and tick-archive fixture support
+- FastAPI route groups for system health, research runs, data-readiness
+  diagnostics, and advanced internal foundations
+- PostgreSQL plus TimescaleDB-backed persistence for research-run metadata and
+  market-data support records
+- daily research execution using tabular features, tree-based regressors,
+  backtest metrics, signals, warnings, and registry records
 
 ### Frontend
 
-- `Prediction Studio`
-  - staged flow for `data -> feature -> model -> validation -> results`
-  - same-page result review after submission
-  - advanced details surface for saved-run lookup, health, and readiness gates
-- `Maintenance`
-  - manual data repair and recovery drills
-  - replay and tick-archive verification
-  - lifecycle and important-event correction
-  - factor, peer, execution, and adaptive diagnostics
+- Start surface for the three common tasks:
+  - start a baseline study
+  - open recent experiments
+  - check data readiness
+- Experiment Builder for the baseline TW daily research workflow
+- Experiments surface for persisted run lookup, review, and comparison
+- Data Ops as a secondary diagnostic surface, not the default research path
 
-## Still Partial Or Not Implemented Yet
+## Still Partial Or Deferred
 
-- durable ops qualification for `P1`, `P2`, `P3`, and `P7` to `P11` still
-  depends on observation windows, not just structural artifacts
-- tick archive storage is still local-first; remote object-store backends and
-  storage redundancy are not implemented
-- no dedicated frontend surfaces yet for several backend-only operational
-  endpoints, including benchmark profiles, ingestion watchlist and dispatch,
-  daily ops KPIs, crawler triggers, and TW company profile management
-- simulation-platform baseline policy is still open under `TBD-003`
-- live execution is still a guarded stub path, not a real broker adapter
-- adaptive workflow support persists contracts and training-run lifecycle, but
-  there is still no integrated RL backend
+- persisted runs need complete model diagnostics, predictions/signals, equity
+  curve, baselines, warnings, runtime metadata, and request config available
+  after reload
+- classification is specified but not implemented in the first code pass
+- comparison needs clearer eligibility and reason labels when runs should not be
+  compared
+- execution, adaptive, peer, factor, and tick archive modules are deferred from
+  the v1 main workflow
 
 ## Documentation Map
 
-Use the document that owns the question you are trying to answer.
-
 | Question | Owner |
 | --- | --- |
-| Why does this project exist and what is in or out of scope? | `docs/project-goals.md` |
-| What behavior, fields, and comparison rules must exist? | `docs/research-spec.md` |
+| Why does this project exist and what is in or out of v1 scope? | `docs/project-goals.md` |
+| What behavior, fields, diagnostics, and comparison rules must exist? | `docs/research-spec.md` |
 | What should be built next and in what order? | `docs/plan.md` |
-| How is success measured quantitatively and when does a gate pass? | `docs/validation-gates.md` |
+| How is success measured and what is excluded from v1 gates? | `docs/validation-gates.md` |
 | How do I run the repository locally? | `docs/dev.md` |
 | What is implemented today, what is partial, and what is still pending? | `docs/implementation-status.md` |
 | Which open decisions still block durable policy? | `docs/decision-register.md` |
@@ -103,7 +109,7 @@ Use the document that owns the question you are trying to answer.
 
 1. `README.md`
 2. `docs/project-goals.md`
-3. `docs/implementation-status.md`
+3. `docs/research-spec.md`
 4. `docs/dev.md`
 
 ### Planning The Next Chunk Of Work
@@ -111,14 +117,8 @@ Use the document that owns the question you are trying to answer.
 1. `docs/project-goals.md`
 2. `docs/research-spec.md`
 3. `docs/plan.md`
-4. `docs/decision-register.md`
+4. `docs/validation-gates.md`
 5. `docs/implementation-status.md`
-
-### Checking What Is Missing Before Building
-
-1. `docs/implementation-status.md`
-2. `docs/plan.md`
-3. `docs/decision-register.md`
 
 ## Quickstart
 
@@ -150,7 +150,7 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 ```bash
 .
 ├── backend/                # app, platform, shared, system, research, market_data, signals, execution
-├── frontend/               # Svelte surfaces for prediction workflow and maintenance
+├── frontend/               # Svelte workbench surfaces for builder, experiments, and data diagnostics
 ├── scripts/                # local operational entrypoints and utilities
 ├── docs/                   # goals, spec, plan, validation, dev, status
 ├── tests/                  # domain tests plus script entrypoint coverage

@@ -2,427 +2,239 @@
 
 ## Purpose
 
-Define the normative source of truth for research and execution behavior.
+Define the normative source of truth for the `TW daily Quant ML Research
+Workbench` v1.
 
 ## Owns
 
-- versioned fields
-- runtime modes
-- data-plane rules
-- target semantics
-- execution semantics
-- comparison labels
+- prediction task semantics
+- dataset and feature contracts
+- model diagnostics
+- offline backtest artifacts
+- persisted experiment artifacts
+- comparison labels and caveats
 
 ## Does Not Own
 
 - implementation sequencing
-- KPI formulas, thresholds, or gate truth conditions
 - local developer workflow
-- open `TBD-*` decision definitions
-
-## Consumes
-
-- `docs/validation-gates.md` for thresholds, sample floors, and gate truth
-  conditions
-- `docs/decision-register.md` for open `TBD-*` definitions
-- `docs/plan.md` for delivery ordering
-
-## Produces
-
-- `SPEC-RUNTIME-*`
-- `SPEC-DATA-*`
-- `SPEC-EXEC-*`
-- `SPEC-COMP-*`
+- broker execution semantics
+- live-order controls
+- adaptive or RL policy
+- broad platform operations
 
 ## Decision Rule
 
 Use this document when deciding what metadata must be persisted, what counts as
-a valid research or execution state, what default semantics apply, and when two
-runs are allowed to be compared.
-
-## Spec ID Index
-
-- `SPEC-RUNTIME-*`: runtime mode and default-bundle behavior
-- `SPEC-DATA-*`: data-plane contract and tradability-state rules
-- `SPEC-EXEC-*`: target, benchmark, execution, and portfolio rules
-- `SPEC-COMP-*`: comparison labels and reporting semantics
+a valid research result, and when two experiments can be compared.
 
 ## Normative Layers
 
-The spec has four layers:
+The v1 spec has six layers:
 
-1. Runtime contract:
-   how a run declares its operating mode and effective configuration
-2. Data contract:
-   how raw data, normalized data, and tradability states are defined
-3. Execution contract:
-   how targets, labels, fills, costs, and portfolios are interpreted
-4. Comparison contract:
-   how runs become comparable and what must be reported
+1. Dataset contract
+2. Feature contract
+3. Prediction task contract
+4. Model diagnostics contract
+5. Offline backtest contract
+6. Persisted experiment and comparison contract
 
-## Runtime Contract
+## Dataset Contract
 
-### Runtime Overview
+### SPEC-DATA-001: TW daily default
 
-| Concept | Requirement |
-| --- | --- |
-| Runtime mode | every run must persist it |
-| Default bundle | required for spec-default fallback behavior |
-| Config source | every configurable field must record effective value plus source |
-| Auditability | fallback attempts must be explicit, not implicit |
+- v1 defaults to TW daily research
+- every run must persist:
+  - `market`
+  - `symbols`
+  - `date_range.start`
+  - `date_range.end`
+  - `return_target`
+  - `horizon_days`
 
-### SPEC-RUNTIME-001: Runtime modes
+### SPEC-DATA-002: Raw-source preservation
 
-- `runtime_mode` must be persisted on every run
-- supported modes:
-  - `runtime_compatibility_mode`
-  - `vnext_spec_mode`
-
-### SPEC-RUNTIME-002: Default bundle and config-source persistence
-
-- `default_bundle_version` identifies the active research-spec default bundle
-- every configurable run field must persist both:
-  - effective value
-  - value source:
-    `request_override` or `spec_default`
-
-### SPEC-RUNTIME-003: Compatibility-mode behavior
-
-- in `runtime_compatibility_mode`, missing caller-provided
-  `strategy.top_n` or `strategy.threshold` must be rejected
-
-### SPEC-RUNTIME-004: Vnext default fallback behavior
-
-- in `vnext_spec_mode`, omitted configurable fields may fall back to a
-  `spec_default` only when the run declares the referenced
-  `default_bundle_version`
-
-### SPEC-RUNTIME-005: One-read version field pack
-
-The following fields are part of the normative run-spec surface:
-
-- `runtime_mode`
-- `default_bundle_version`
-- `threshold_policy_version`
-- `price_basis_version`
-- `benchmark_comparability_gate`
-- `comparison_eligibility`
-- `investability_screening_active`
-- `capacity_screening_version`
-- `adv_basis_version`
-- `missing_feature_policy_version`
-- `execution_cost_model_version`
-- `split_policy_version`
-- `bootstrap_policy_version`
-- `ic_overlap_policy_version`
-
-### SPEC-RUNTIME-006: P0 runtime-minimum field subset
-
-The minimum metadata subset required for phase `P0` validation-ready status is:
-
-- `runtime_mode`
-- `default_bundle_version`
-- per-field config-source persistence for request override versus spec default
-- request-validation outcome for missing required runtime inputs
-- explicit fallback audit fields showing whether default fallback was attempted,
-  accepted, or rejected under the active runtime mode
-
-## Data Contract
-
-### Data-Plane Overview
-
-| Topic | Requirement |
-| --- | --- |
-| Raw-source preservation | raw payloads must be saved before normalization |
-| Replayability | raw to normalized flow must remain auditable |
-| Universe logic | research universe and execution universe are distinct |
-| Tradability state | missing, stale, and corporate-event states must be explicit |
-
-### SPEC-DATA-001: Raw-source preservation
-
-- raw source payloads must be persisted before normalization
-- raw payload storage must preserve:
+- raw source payloads must be saved before normalization when data is ingested
+- raw payload storage should preserve:
   - source name
   - fetch timestamp
   - parser version
   - fetch status
   - expected symbol context when applicable
 
-### SPEC-DATA-002: Rebuild order
+### SPEC-DATA-003: Model-ready universe
 
-- rebuild flow is:
-  `raw archive -> parser or versioned transform -> normalized table -> feature generation`
+- symbols with core daily OHLCV gaps remain part of the research request but do
+  not enter the model-ready rows for affected dates
+- missing rows must be explainable through warnings or data-readiness surfaces
+- tradability and liquidity fields are diagnostic for v1, not investability
+  claims
 
-### SPEC-DATA-003: Raw-to-normalized traceability
+## Feature Contract
 
-- every replay unit must remain auditable through:
-  - `raw_payload_id`
-  - archive object reference
-  - parser version
-  - replay start and end timestamp
-  - restore success or abort reason
+### SPEC-FEATURE-001: Feature specification
 
-### SPEC-DATA-004: Research universe and execution universe
+Every feature row must persist:
 
-- research universe target:
-  full-market coverage
-- execution universe:
-  point-in-time executable subset filtered by lifecycle, completeness, event
-  state, and active liquidity or capacity screens
-- universe membership must remain point-in-time aware, including:
-  - listing status
-  - delisting date
-  - ticker change mapping
-  - re-listing state
+- `name`
+- `window`
+- `source`
+- `shift`
 
-### SPEC-DATA-005: Minimum execution readiness
+Feature shifts are part of the leakage-control contract and must remain visible
+in the request config.
 
-- minimum history for execution eligibility:
-  `120` trading days
-- recent completeness requirement:
-  at least `95%` over the latest `20` trading days
-- core market data fields:
-  `date`, `symbol`, `open`, `high`, `low`, `close`, `volume`
+### SPEC-FEATURE-002: Feature lineage
 
-### SPEC-DATA-006: Missing data and stale-price handling
+Advanced factor, peer, and external-signal fields may exist on the request, but
+they are hidden advanced modules in v1. A baseline experiment must not require
+them.
 
-- symbols with core data gaps remain in the research universe but do not enter
-  the model-ready or execution universe for that date
-- held positions with core OHLCV gaps must be marked as a risk state and must
-  not be increased
-- suspended or stale-mark positions may remain marked at the last valid traded
-  price for NAV continuity, but stale-mark periods must be flagged explicitly
+## Prediction Task Contract
 
-### SPEC-DATA-007: Missing non-core feature policy
+### SPEC-TASK-001: Supported task families
 
-- missing non-core features do not block scoring when core OHLCV data is intact
-- direct comparability requires the same `missing_feature_policy_version`
-- model-adoption qualification also requires the same
-  `missing_feature_policy_version`; otherwise any measured uplift is
-  exploratory only
-- tree-based models may rely on native missing handling
-- other model families must declare explicit encoding, masking, imputation, or
-  fallback behavior
+The v1 workbench recognizes two prediction task families:
 
-### SPEC-DATA-008: Corporate-event handling
+- `regression`
+- `classification`
 
-- dividends, splits, capital reduction, delisting, merger, tender, and ticker
-  changes must be handled explicitly
-- explicit handling does not imply that every event family blocks tradability
-- deterministic price-adjustment families must be handled explicitly but do not
-  enter `unresolved_corporate_event` solely because the event exists:
-  - stock split
-  - reverse split
-  - cash dividend
-  - stock dividend
-  - capital reduction
-- the following event families are blocking until point-in-time identity or
-  terminal-state resolution is available:
-  - merger
-  - tender offer
-  - delisting without a matching lifecycle terminal-state record
-  - listing-status change without a matching lifecycle state transition
-  - ticker change without a resolvable successor mapping
-- unknown terminal events move the affected symbol and run into
-  `unresolved_corporate_event` state until conversion terms are resolved
-- `reference_symbol` on lifecycle `ticker_change` records is interpreted as
-  `old -> new`; from `effective_date` onward the old symbol must resolve to the
-  successor symbol for point-in-time execution-universe evaluation
+The first implementation pass supports regression diagnostics. Classification
+is specified here so it can be added later without changing the workbench flow.
 
-### SPEC-DATA-009: Tradability-state required fields
+### SPEC-TASK-002: Regression target
 
-Phase `P3` and later runs must persist:
+Regression predicts a numeric forward return target derived from:
 
-- `tradability_state`
-- `investability_screening_active`
-- `capacity_screening_active`
-- `missing_feature_policy_state`
-- `corporate_event_state`
-- `full_universe_count`
-- `execution_universe_count`
-- `execution_universe_ratio`
-- bucket coverage summaries for at least one persisted liquidity or market-cap
-  schema
-- `tradability_contract_version` must identify the active P3 tradability
-  contract used to qualify the run for governance windows; the current active
-  value is `p3_tradability_monitoring_v1`
-- until `TBD-001` is closed, `investability_screening_active` remains
-  deliberately persisted as `false` for P3 runs; this is a policy lock that
-  prevents durable investability claims, not a runtime inference failure
+- `return_target`
+- `horizon_days`
+- active price basis
 
-### SPEC-DATA-010: Important-event backfill scope
+The active implementation uses tabular tree regressors and produces continuous
+scores used by the strategy backtest.
 
-- `important_event` for `KPI-DATA-006` is limited to event families that affect
-  lifecycle state, symbol identity, or deterministic price-adjustment logic:
-  - listing status change
-  - delisting notice or effective delisting
-  - ticker change or symbol mapping change
-  - stock split or reverse split
-  - cash dividend or stock dividend
-  - capital reduction
-  - merger, swap, or tender event with published conversion terms
-- event-source priority for `event_publication_ts` is:
-  - official exchange or regulator publication timestamp
-  - official issuer filing timestamp when the exchange copy does not expose a
-    timestamp
-  - vendor-published timestamp when no official timestamp is available
-- if none of the above timestamps exist, the event is excluded from
-  `KPI-DATA-006` and must be labeled `event_timestamp_unresolved`
-- `KPI-DATA-006` must persist both `event_publication_ts` and the selected
-  timestamp-source class
+### SPEC-TASK-003: Classification target
 
-## Execution Contract
+Classification must persist, when implemented:
 
-### Liquidity, Capacity, and Investability
+- positive-class definition
+- class horizon
+- label threshold or quantile rule
+- class-balance policy
+- probability calibration policy when probabilities are shown
 
-### SPEC-EXEC-001: ADV basis
+Classification diagnostics should include at least:
 
-- base ADV window:
-  `20` trading days
-- default `adv_basis_version`:
-  `raw_close_x_volume_active_session_v1`
-- under the default basis, traded value is computed as
-  `raw_close * raw_volume`
-  on point-in-time active sessions with valid core OHLCV and no full-session
-  halt
+- confusion matrix
+- precision and recall
+- ROC AUC or PR AUC when sample size supports it
+- calibration summary when probabilities are shown
 
-### SPEC-EXEC-002: Capacity AUM basis
+## Model Diagnostics Contract
 
-- `portfolio_aum` is the run-level market-currency basis for capacity
-  screening
-- if `portfolio_aum` is omitted, ADV-based capacity screening is disabled and
-  must be recorded as inactive
+### SPEC-DIAG-001: Required regression diagnostics
 
-### SPEC-EXEC-003: Capacity screening version
+New regression runs must return and persist `model_diagnostics` with:
 
-- `capacity_screening_version` must encode the ex-ante pricing basis used to
-  value buy-side order notional
-- `capacity_screening_version` may still be persisted when
-  `capacity_screening_active = false`; in that case it identifies the declared
-  contract version for the run and must not be interpreted as evidence that the
-  screen was applied
+- task family
+- sample count
+- RMSE
+- MAE
+- rank IC or Spearman correlation
+- linear IC or Pearson correlation
+- actual-vs-predicted sample points
+- residual sample points
+- feature importance
 
-### SPEC-EXEC-004: Initial capacity defaults
+### SPEC-DIAG-002: Diagnostic samples
 
-- initial max order capacity when active:
-  order notional `<= 0.5%` of `20`-day average traded value
-- minimum average traded value default for v1 research runs:
-  `0`
+Diagnostic samples should be bounded so responses remain usable. Each sample
+point must preserve enough context to debug a run:
 
-### SPEC-EXEC-005: Participation telemetry
+- `date`
+- `symbol`
+- `actual`
+- `predicted`
+- `residual`
 
-- investable runs must persist:
-  - aggregate rebalance-day buy-side participation
-  - aggregate rebalance-day sell-side participation
-  - touched-name count
-  - `max_name_buy_participation`
-  - `max_name_sell_participation`
-  - `p95_name_participation`
+### SPEC-DIAG-003: Feature importance
 
-### SPEC-EXEC-006: Investability semantics
+Feature importance must be associated with the model feature names used during
+training. If a model family cannot expose importance, the run must return an
+empty list and a warning instead of inventing values.
 
-- investability labeling and comparison eligibility are separate
-- if `portfolio_aum` is missing or the traded-value floor remains `0`, the run
-  must be labeled research-only and non-investable
-- execution-universe filtering still applies even when the absolute
-  traded-value floor is disabled
-- investability-based threshold recalibration, benchmark-relative policy
-  review, and benchmark-relative performance claims require
-  `investability_screening_active = true`
+## Offline Backtest Contract
 
-### Target and Label Semantics
+### SPEC-BACKTEST-001: Backtest posture
 
-### SPEC-EXEC-007: Target family
+The strategy backtest is an offline research artifact. It is not broker
+execution and must not imply live-order readiness.
 
-- multiple target definitions are allowed
-- the active target definition must be persisted on every run
+### SPEC-BACKTEST-002: Strategy defaults
 
-### SPEC-EXEC-008: Signal timing
+The default strategy family is threshold plus top-N selection with replacement
+logic. The effective strategy must persist:
 
-- default v1 signal timing:
-  signals are formed after signal-day `S` close
+- `threshold`
+- `top_n`
+- whether the value came from a request override or spec default
 
-### SPEC-EXEC-009: Gross label definition
+### SPEC-BACKTEST-003: Price and cost assumptions
 
-- default label name:
-  `gross_label_v1`
-- entry day `T` is the next trading day after signal-day `S`
-- label formula:
-  `gross_label_v1 = adj_open[T+5_trading_days] / adj_close[T] - 1`
+Every run must persist the versions or effective values that explain:
 
-### SPEC-EXEC-010: Label interpretation
+- label basis
+- entry and exit price proxy
+- fees
+- slippage
+- portfolio construction
 
-- `gross_label_v1` is the supervision target for cross-sectional expected
-  5-trading-day gross-return ranking
-- it is not a promise that every selected name will be held until
-  `T+5_trading_days` open
-- label prices must be corporate-action-aware and fee-free
+### SPEC-BACKTEST-004: Strategy artifacts
 
-### Execution and Price Basis Semantics
+New successful runs must return and persist:
 
-### SPEC-EXEC-011: Daily execution default
+- strategy metrics
+- equity curve
+- predictions or signals
+- baseline metrics
+- warnings
 
-- sell flagged exits at entry-day `T` open
-- keep retained positions through `T`
-- buy new positions before entry-day `T` close
-- daily-mode fill proxies use the official open for exits and official close
-  for entries unless another declared proxy version overrides them
+Strategy metrics remain important, but the result page should show model
+quality first.
 
-### SPEC-EXEC-012: Price-basis versioning
+## Persisted Experiment Contract
 
-- `price_basis_version` must at minimum encode:
-  - label basis
-  - execution entry proxy basis
-  - execution exit proxy basis
-  - benchmark basis
+### SPEC-RUN-001: Persisted artifact completeness
 
-### SPEC-EXEC-013: Benchmark compatibility
+A persisted successful experiment must be reviewable after reload with the same
+core artifacts available in the latest in-session response:
 
-- `benchmark_comparability_gate` may be `true` only when the benchmark version
-  and basis are explicitly compatible with the strategy return basis
-- TW benchmark target is a total-return-compatible benchmark when available
-- if only a price-return proxy is available, the run must persist a distinct
-  benchmark version and must not present it as directly comparable to
-  corporate-action-aware strategy returns
+- request config
+- runtime metadata
+- model diagnostics
+- predictions or signals
+- equity curve
+- baseline metrics
+- strategy metrics
+- warnings
 
-### SPEC-EXEC-014: Cost model versioning
+### SPEC-RUN-002: Old-run fallback
 
-- backtest results are net of configured fees, taxes, slippage, and corporate
-  event handling
-- every run must persist `execution_cost_model_version` together with the
-  effective fee, tax, slippage, and market-impact configuration
+Old runs that lack persisted artifacts must show an explicit fallback message.
+The UI must not imply that missing diagnostics, signals, equity, or baselines
+were evaluated.
 
-### Portfolio Construction Defaults
+### SPEC-RUN-003: Runtime metadata
 
-### SPEC-EXEC-015: Strategy family
+Every run must persist:
 
-- default strategy family:
-  threshold plus top-N with replacement logic
-- default selection settings for the v1 research-spec bundle:
-  - `strategy.top_n = 10`
-  - entry threshold:
-    predicted `gross_label_v1 > 1%`
-  - replacement buffer:
-    candidate exceeds existing holding by `+1%`
-- these are versioned default-bundle values, not universal invariants across
-  all requests or target families
-
-### SPEC-EXEC-016: Threshold policy version
-
-- default threshold-policy version:
-  `static_absolute_gross_label_v1`
-- non-`gross_label_v1` target families must define and persist their own
-  explicit thresholding or ranking rules
-
-### SPEC-EXEC-017: Position construction
-
-- default weighting:
-  equal weight
-- partial cash is allowed
-- `100%` cash is allowed
-- default sell rule:
-  exit when score falls below the active threshold or when replaced by a
-  stronger candidate
+- `runtime_mode`
+- `default_bundle_version`
+- effective strategy values
+- config sources
+- fallback audit
+- version-pack fields that explain target, price, cost, split, bootstrap, and
+  comparison semantics
 
 ## Comparison Contract
 
@@ -430,94 +242,47 @@ Phase `P3` and later runs must persist:
 
 | State | Meaning |
 | --- | --- |
-| `comparison_metadata_only` | metadata exists but final comparison semantics are not ready |
-| `sample_window_pending` | final schema exists but sample floors are not yet met |
+| `comparison_metadata_only` | metadata exists but final comparison semantics or artifacts are incomplete |
+| `sample_window_pending` | artifacts exist but sample floors are not yet met |
 | `strategy_pair_comparable` | directly comparable for strategy-pair analysis |
-| `research_only_comparable` | comparable for research views but not execution-ready claims |
+| `research_only_comparable` | comparable for research views but not investability claims |
 | `unresolved_event_quarantine` | blocked by unresolved corporate-event issues |
 
-### SPEC-COMP-001: Comparison eligibility labels
+### SPEC-COMP-001: Comparison dimensions
 
-- allowed values:
-  - `comparison_metadata_only`
-  - `sample_window_pending`
-  - `strategy_pair_comparable`
-  - `research_only_comparable`
-  - `unresolved_event_quarantine`
+Experiment comparison must expose:
 
-### SPEC-COMP-002: Provisional versus final comparison states
+- dataset and date range
+- target family and horizon
+- features
+- model config
+- model diagnostics
+- strategy metrics
+- baseline deltas
+- comparison eligibility and reasons
 
-- `comparison_metadata_only` is the provisional state used when run-registry
-  metadata exists but execution semantics, sample floors, or both are not yet
-  ready for final comparability classification
-- `sample_window_pending` is the provisional state used after the final
-  comparison metadata schema exists but the required sample windows or
-  observation floors are not yet satisfied
-- `strategy_pair_comparable`, `research_only_comparable`, and
-  `unresolved_event_quarantine` are final comparison states and must not be
-  assigned until the required final semantics and sample-floor checks exist
+### SPEC-COMP-002: Comparable runs
 
-### SPEC-COMP-003: Final comparison gate truth table
+Two runs should be treated as directly comparable only when the comparison view
+can explain their shared and differing assumptions. At minimum, compare:
 
-- a run may be labeled `strategy_pair_comparable` only when:
-  - no unresolved corporate event remains open
-  - `price_basis_version` is present
-  - `threshold_policy_version` is present
-  - `execution_cost_model_version` is present
-  - effective sample floors defined in `docs/validation-gates.md` are satisfied
-- benchmark-relative comparison additionally requires
-  `benchmark_comparability_gate = true`
-- investability or execution-ready views additionally require
-  `investability_screening_active = true`
+- market
+- date range
+- return target
+- horizon
+- feature set
+- model family and variant
+- price basis
+- cost basis
+- missing-feature policy
 
-### SPEC-COMP-004: Comparison review matrix and cadence
+### SPEC-COMP-003: Eligibility is advisory
 
-- governance KPIs that use family-day denominators must rely on a persisted
-  `comparison_review_matrix_version`
-- each matrix version must define:
-  - the mandatory family set
-  - the scheduled review cadence
-  - the denominator construction rule for scheduled family-day observations
-- ad hoc reruns may add exploratory observations but must not expand the
-  denominator of matrix-based governance KPIs
+Comparison eligibility helps the researcher avoid invalid claims. It must not
+hide model diagnostics or persisted artifacts.
 
-### SPEC-COMP-005: Primary comparison surfaces
+## Hidden Advanced Modules
 
-- research-only exploratory strategy-pair views may include
-  `strategy_pair_comparable` runs even when investability screening is inactive
-- benchmark-relative ranking, policy review, threshold recalibration, and
-  execution-ready views require both:
-  - `benchmark_comparability_gate = true`
-  - `investability_screening_active = true`
-- threshold recalibration and benchmark-relative policy review are
-  policy-qualification activities and do not block phase sample-complete status
-
-### SPEC-COMP-006: Reporting fields
-
-- comparable run reports must persist enough metadata to explain:
-  - target definition
-  - execution definition
-  - benchmark definition
-  - universe filters
-  - capacity-screening basis
-  - missing-feature policy
-  - comparison eligibility
-  - investability screening status
-
-### SPEC-COMP-007: Model adoption comparison policy
-
-- cross-model adoption claims must use a persisted
-  `adoption_comparison_policy_version`
-- the compared candidate and baseline runs must share the same:
-  - target definition
-  - execution definition
-  - execution cost basis
-  - `missing_feature_policy_version`
-- the policy must control portfolio-construction confounders through one of the
-  following approaches:
-  - fixed selection-count and weighting rules under the same execution and cost
-    basis
-  - matched-exposure and matched-turnover comparison overlays recorded together
-    with the adoption result
-- raw score-scale differences alone must not be treated as evidence of model
-  adoption value
+Execution, adaptive, peer, factor, external-signal, and tick archive modules
+are hidden advanced or future modules for v1. They may remain in code, but they
+must not be required for the default research loop.

@@ -12,9 +12,9 @@
     import ResearchWorkspace from "./ResearchWorkspace.svelte";
     import RunReviewWorkspace from "./RunReviewWorkspace.svelte";
 
-    type SurfaceId = "research" | "review" | "operations";
+    type SurfaceId = "start" | "builder" | "experiments" | "data_ops";
 
-    let activeSurface: SurfaceId = "research";
+    let activeSurface: SurfaceId = "start";
     let latestResult: ResearchRunResponse | null = null;
     let latestSubmission: ResearchSubmissionSummary | null = null;
 
@@ -54,7 +54,7 @@
     ) => {
         latestResult = event.detail.result;
         latestSubmission = event.detail.summary;
-        activeSurface = "review";
+        activeSurface = "experiments";
     };
 
     onMount(() => {
@@ -79,51 +79,86 @@
 <div class="dashboard-shell">
     <section class="surface shell-hero">
         <div class="shell-hero__copy">
-            <p class="eyebrow">Research Workbench V2</p>
+            <p class="eyebrow">TW Daily Quant ML Research Workbench</p>
             <h2>
-                Build research first, review it as a decision, and only open
-                operations when the data plane actually needs repair.
+                Start with a baseline experiment, inspect model quality, then
+                compare persisted research runs.
             </h2>
             <p class="muted">
-                The new shell separates research workflow, run review, and
-                operations so ML expansion no longer has to live inside a single
-                overloaded page.
+                The default path is Dataset, Features, Prediction Task, Model
+                Diagnostics, Strategy Backtest, and Experiment Comparison.
             </p>
         </div>
 
         <div class="shell-hero__meta">
             <div class="meta-card">
-                <span>Research</span>
-                <strong>Primary path</strong>
-                <p>
-                    Templates, capabilities, model family selection, and run
-                    submission.
-                </p>
+                <span>V1 Focus</span>
+                <strong>TW daily baseline study</strong>
+                <p>Regression diagnostics first, strategy metrics second.</p>
             </div>
             <div class="meta-card">
-                <span>Run Review</span>
-                <strong>Decision view</strong>
-                <p>
-                    Outcome, baseline verdict, comparison eligibility, and
-                    governance context.
-                </p>
+                <span>Artifacts</span>
+                <strong>Persisted review</strong>
+                <p>Config, diagnostics, signals, equity, baselines, warnings.</p>
             </div>
             <div class="meta-card">
-                <span>Operations</span>
-                <strong>Secondary path</strong>
-                <p>
-                    Repair, replay, tick archive, lifecycle correction, and
-                    event fixes.
-                </p>
+                <span>Advanced</span>
+                <strong>Hidden by default</strong>
+                <p>Execution, adaptive, peer, factor, and tick archive modules.</p>
             </div>
         </div>
     </section>
+
+    {#if activeSurface === "start"}
+        <section class="surface task-entry">
+            <div class="surface-header surface-header--stack">
+                <div>
+                    <p class="eyebrow">Start</p>
+                    <h3>Choose the next research task</h3>
+                </div>
+            </div>
+
+            <div class="task-grid">
+                <button
+                    type="button"
+                    class="task-card"
+                    onclick={() => setSurface("builder")}
+                >
+                    <span>Start Baseline Study</span>
+                    <strong>Open the experiment builder</strong>
+                    <p>TW daily dataset, features, model, validation, review.</p>
+                </button>
+                <button
+                    type="button"
+                    class="task-card"
+                    onclick={() => setSurface("experiments")}
+                >
+                    <span>Open Recent Experiment</span>
+                    <strong>
+                        {latestResult
+                            ? `Latest: ${latestResult.run_id}`
+                            : "Load from persisted runs"}
+                    </strong>
+                    <p>Review diagnostics, artifacts, and comparison context.</p>
+                </button>
+                <button
+                    type="button"
+                    class="task-card"
+                    onclick={() => setSurface("data_ops")}
+                >
+                    <span>Check Data Readiness</span>
+                    <strong>{readinessCounts.available} readiness checks available</strong>
+                    <p>Use data diagnostics only when research inputs need inspection.</p>
+                </button>
+            </div>
+        </section>
+    {/if}
 
     <section class="surface shell-nav">
         <div class="surface-header">
             <div>
                 <p class="eyebrow">Navigation</p>
-                <h3>Choose the surface you want</h3>
+                <h3>Workbench surfaces</h3>
             </div>
             <div class="readiness-strip">
                 <span>{readinessCounts.available} available</span>
@@ -140,48 +175,56 @@
             <button
                 type="button"
                 class:surface-nav__button={true}
-                class:surface-nav__button--active={activeSurface === "research"}
-                onclick={() => setSurface("research")}
+                class:surface-nav__button--active={activeSurface === "start"}
+                onclick={() => setSurface("start")}
             >
-                <span>Research</span>
-                <strong>Start from a template and run a workflow</strong>
+                <span>Start</span>
+                <strong>Task entry for the baseline research loop</strong>
             </button>
             <button
                 type="button"
                 class:surface-nav__button={true}
-                class:surface-nav__button--active={activeSurface === "review"}
-                onclick={() => setSurface("review")}
+                class:surface-nav__button--active={activeSurface === "builder"}
+                onclick={() => setSurface("builder")}
             >
-                <span>Run Review</span>
+                <span>Experiment Builder</span>
+                <strong>Dataset, features, prediction task, validation</strong>
+            </button>
+            <button
+                type="button"
+                class:surface-nav__button={true}
+                class:surface-nav__button--active={activeSurface ===
+                    "experiments"}
+                onclick={() => setSurface("experiments")}
+            >
+                <span>Experiments</span>
                 <strong>
                     {latestResult
                         ? `Latest run ${latestResult.run_id} is ready to review`
-                        : "Review the latest result or load a persisted run"}
+                        : "Load, inspect, and compare persisted runs"}
                 </strong>
             </button>
             <button
                 type="button"
                 class:surface-nav__button={true}
                 class:surface-nav__button--active={activeSurface ===
-                    "operations"}
-                onclick={() => setSurface("operations")}
+                    "data_ops"}
+                onclick={() => setSurface("data_ops")}
             >
-                <span>Operations</span>
-                <strong
-                    >Repair, replay, archive, and market-state correction</strong
-                >
+                <span>Data Ops</span>
+                <strong>Secondary diagnostics for data readiness</strong>
             </button>
         </div>
     </section>
 
-    {#if activeSurface === "research"}
+    {#if activeSurface === "builder"}
         <ResearchWorkspace
             {capabilityReadiness}
             on:runcreated={handleRunCreated}
         />
     {/if}
 
-    {#if activeSurface === "review"}
+    {#if activeSurface === "experiments"}
         <RunReviewWorkspace
             {capabilityReadiness}
             {latestResult}
@@ -189,7 +232,7 @@
         />
     {/if}
 
-    {#if activeSurface === "operations"}
+    {#if activeSurface === "data_ops"}
         <OperationsWorkspace />
     {/if}
 </div>
@@ -197,7 +240,8 @@
 <style lang="scss">
     .dashboard-shell,
     .shell-hero__meta,
-    .surface-nav {
+    .surface-nav,
+    .task-grid {
         display: grid;
         gap: var(--space-4);
     }
@@ -230,7 +274,7 @@
     h2 {
         font-size: clamp(2rem, 4vw, 3.3rem);
         line-height: 1.05;
-        letter-spacing: -0.04em;
+        letter-spacing: 0;
     }
 
     .shell-hero__meta {
@@ -267,6 +311,14 @@
         gap: var(--space-4);
     }
 
+    .task-entry {
+        gap: var(--space-4);
+    }
+
+    .task-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
     .readiness-strip {
         display: flex;
         align-items: center;
@@ -292,7 +344,31 @@
     }
 
     .surface-nav {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .task-card {
+        display: grid;
+        gap: 0.55rem;
+        min-height: 8rem;
+        text-align: left;
+        padding: 1.05rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(6, 18, 30, 0.9);
+    }
+
+    .task-card span {
+        color: var(--accent-primary);
+        font-size: 0.76rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+
+    .task-card p {
+        color: var(--muted);
+        line-height: 1.45;
     }
 
     .surface-nav__button--active {
@@ -303,7 +379,8 @@
 
     @media (max-width: 1100px) {
         .shell-hero,
-        .surface-nav {
+        .surface-nav,
+        .task-grid {
             grid-template-columns: 1fr;
         }
     }

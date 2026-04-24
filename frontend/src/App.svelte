@@ -8,10 +8,10 @@
 </script>
 
 <svelte:head>
-    <title>Research Workbench V2</title>
+    <title>TW Daily Quant ML Research Workbench</title>
     <meta
         name="description"
-        content="Research-first workflow for baseline runs, capability expansion, and operational repair."
+        content="Research-first workflow for TW daily baseline experiments, diagnostics, and persisted comparison."
     />
 </svelte:head>
 

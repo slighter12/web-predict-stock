@@ -78,45 +78,10 @@ const capabilityStatusRank: Record<ResearchCapabilityStatus, number> = {
 export const researchTemplates: ResearchTemplatePreset[] = [
   {
     id: "baseline_research",
-    label: "Baseline Research",
+    label: "Baseline Study",
     summary:
-      "Start from the shortest path: technical indicators, tree models, and standard validation.",
+      "TW daily features, tree regression, model diagnostics, baselines, and an offline backtest.",
     defaultCapabilities: ["technical_indicators"],
-    recommendedFamilyId: "tree_ensemble",
-    recommendedVariantId: "xgboost",
-  },
-  {
-    id: "factor_augmented_research",
-    label: "Factor-Augmented Research",
-    summary:
-      "Bring factor catalog and external lineage into the same research flow without leaving the core workspace.",
-    defaultCapabilities: [
-      "technical_indicators",
-      "factor_catalog",
-      "external_signals",
-    ],
-    recommendedFamilyId: "tree_ensemble",
-    recommendedVariantId: "xgboost",
-  },
-  {
-    id: "peer_context_research",
-    label: "Peer Context Research",
-    summary:
-      "Layer peer and cluster context on top of baseline signals to test relative market context.",
-    defaultCapabilities: ["technical_indicators", "peer_context"],
-    recommendedFamilyId: "tree_ensemble",
-    recommendedVariantId: "random_forest",
-  },
-  {
-    id: "adaptive_exploration",
-    label: "Adaptive Exploration",
-    summary:
-      "Keep adaptive work visible in the main flow, but isolated behind explicit readiness and profile requirements.",
-    defaultCapabilities: [
-      "technical_indicators",
-      "simulation_execution",
-      "adaptive_workflow",
-    ],
     recommendedFamilyId: "tree_ensemble",
     recommendedVariantId: "xgboost",
   },
@@ -581,9 +546,11 @@ export const buildCapabilityReadinessMap = (
   ) as Record<ResearchCapabilityId, CapabilityReadinessState>;
 
   for (const gate of gates) {
-    const phaseMatch = Object.keys(gateIdToCapabilityId).find((phase) =>
-      gate.gate_id.includes(phase),
-    );
+    const phaseMatch = (
+      Object.keys(gateIdToCapabilityId) as Array<
+        keyof typeof gateIdToCapabilityId
+      >
+    ).find((phase) => gate.gate_id.includes(phase));
 
     if (!phaseMatch) {
       continue;
@@ -990,13 +957,13 @@ export const deriveSubmissionSummaryFromRun = (
 };
 
 export const summarizeBaselineComparison = (
-  result: ResearchRunResponse | null,
+  result: Partial<ResearchRunRecord & ResearchRunResponse> | null,
 ) => {
-  if (!result) {
+  if (!result?.metrics) {
     return null;
   }
 
-  const baselineEntries = Object.entries(result.baselines).filter(
+  const baselineEntries = Object.entries(result.baselines ?? {}).filter(
     ([, metrics]) => typeof metrics.total_return === "number",
   );
 
