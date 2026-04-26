@@ -7,11 +7,11 @@
         createPeerFeatureRun,
         fetchClusterSnapshots,
         fetchPeerFeatureRuns,
-    } from "../../api";
+    } from "../../../api/legacy";
     import type {
         ClusterSnapshotRecord,
         PeerFeatureRunRecord,
-    } from "../../types";
+    } from "../../../../types";
 
     const createDefaultTradingDate = () => {
         const date = new Date();

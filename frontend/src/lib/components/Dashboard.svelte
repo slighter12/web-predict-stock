@@ -1,12 +1,16 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    import { ApiError, fetchResearchGate } from "../api";
-    import { buildCapabilityReadinessMap } from "../state/researchWorkflow";
+    import { ApiError, fetchTwDailyReadiness } from "../api";
+    import {
+        buildCapabilityReadinessMap,
+        createDefaultResearchWorkflowDraft,
+        parseSymbols,
+    } from "../state/researchWorkflow";
     import type {
-        ResearchPhaseGateResponse,
         ResearchRunResponse,
         ResearchSubmissionSummary,
+        TwDailyReadinessResponse,
     } from "../types";
     import OperationsWorkspace from "./OperationsWorkspace.svelte";
     import ResearchWorkspace from "./ResearchWorkspace.svelte";
@@ -17,29 +21,39 @@
     let activeSurface: SurfaceId = "start";
     let latestResult: ResearchRunResponse | null = null;
     let latestSubmission: ResearchSubmissionSummary | null = null;
+    const builderDefaults = createDefaultResearchWorkflowDraft();
+    let readinessSymbolsInput = builderDefaults.universe.symbolsInput;
+    let readinessStartDate = builderDefaults.universe.startDate;
+    let readinessEndDate = builderDefaults.universe.endDate;
+    let readinessData: TwDailyReadinessResponse | null = null;
+    let readinessLoadError: string | null = null;
 
-    const gatePhases = ["p7", "p8", "p9", "p10", "p11"] as const;
-    let gates: ResearchPhaseGateResponse[] = [];
-    let gateLoadError: string | null = null;
-
-    const loadGateReadiness = async () => {
-        const nextGates: ResearchPhaseGateResponse[] = [];
-        const failures: string[] = [];
-
-        for (const phase of gatePhases) {
-            try {
-                nextGates.push(await fetchResearchGate(phase));
-            } catch (error) {
-                failures.push(
-                    error instanceof ApiError
-                        ? `${phase.toUpperCase()}: ${error.code}`
-                        : `${phase.toUpperCase()}: unavailable`,
-                );
-            }
+    const loadTwDailyReadiness = async () => {
+        const symbols = parseSymbols(readinessSymbolsInput);
+        if (!symbols.length) {
+            readinessLoadError = "Enter at least one symbol to check readiness.";
+            readinessData = null;
+            return;
         }
-
-        gates = nextGates;
-        gateLoadError = failures.length ? failures.join(" / ") : null;
+        try {
+            readinessData = await fetchTwDailyReadiness({
+                market: "TW",
+                symbols,
+                date_range:
+                    readinessStartDate && readinessEndDate
+                        ? {
+                              start: readinessStartDate,
+                              end: readinessEndDate,
+                          }
+                        : undefined,
+            });
+            readinessLoadError = null;
+        } catch (error) {
+            readinessLoadError =
+                error instanceof ApiError
+                    ? `${error.code}: ${error.message}`
+                    : "TW daily readiness is unavailable.";
+        }
     };
 
     const setSurface = (surfaceId: SurfaceId) => {
@@ -58,22 +72,16 @@
     };
 
     onMount(() => {
-        void loadGateReadiness();
+        void loadTwDailyReadiness();
     });
 
-    $: capabilityReadiness = buildCapabilityReadinessMap(gates);
-    $: readinessCounts = Object.values(capabilityReadiness).reduce(
-        (summary, readiness) => {
-            summary[readiness.status] += 1;
-            return summary;
-        },
-        {
-            available: 0,
-            setup_required: 0,
-            gated: 0,
-            not_implemented: 0,
-        },
-    );
+    $: capabilityReadiness = buildCapabilityReadinessMap([]);
+    $: readinessCounts = readinessData?.summary ?? {
+        ready: 0,
+        warning: 0,
+        missing: 0,
+        stale: 0,
+    };
 </script>
 
 <div class="dashboard-shell">
@@ -147,10 +155,57 @@
                     onclick={() => setSurface("data_ops")}
                 >
                     <span>Check Data Readiness</span>
-                    <strong>{readinessCounts.available} readiness checks available</strong>
-                    <p>Use data diagnostics only when research inputs need inspection.</p>
+                    <strong>{readinessCounts.ready} ready symbols</strong>
+                    <p>Review warning and missing/stale symbols before running research.</p>
                 </button>
             </div>
+
+            <div class="readiness-controls">
+                <label>
+                    <span>Requested Symbols</span>
+                    <input
+                        bind:value={readinessSymbolsInput}
+                        placeholder="2330, 2317"
+                    />
+                </label>
+                <label>
+                    <span>Start Date</span>
+                    <input type="date" bind:value={readinessStartDate} />
+                </label>
+                <label>
+                    <span>End Date</span>
+                    <input type="date" bind:value={readinessEndDate} />
+                </label>
+                <button
+                    type="button"
+                    class="secondary"
+                    onclick={() => void loadTwDailyReadiness()}
+                >
+                    Refresh Readiness
+                </button>
+            </div>
+            {#if readinessLoadError}
+                <p class="muted readiness-message">{readinessLoadError}</p>
+            {/if}
+            {#if readinessData?.symbols.length}
+                <div class="readiness-details" aria-label="TW daily readiness details">
+                    {#each readinessData.symbols.slice(0, 4) as symbol}
+                        <article class={`readiness-row readiness-row--${symbol.status}`}>
+                            <div>
+                                <strong>{symbol.symbol}</strong>
+                                <span>{symbol.status}</span>
+                            </div>
+                            <p>
+                                {#if symbol.warnings.length}
+                                    {symbol.warnings[0]}
+                                {:else}
+                                    Latest daily row: {symbol.latest_daily_date ?? "unavailable"}
+                                {/if}
+                            </p>
+                        </article>
+                    {/each}
+                </div>
+            {/if}
         </section>
     {/if}
 
@@ -161,11 +216,11 @@
                 <h3>Workbench surfaces</h3>
             </div>
             <div class="readiness-strip">
-                <span>{readinessCounts.available} available</span>
-                <span>{readinessCounts.setup_required} setup required</span>
-                <span>{readinessCounts.gated} gated</span>
-                {#if gateLoadError}
-                    <span class="readiness-strip__warning">{gateLoadError}</span
+                <span>{readinessCounts.ready} ready</span>
+                <span>{readinessCounts.warning} warning</span>
+                <span>{readinessCounts.missing + readinessCounts.stale} missing/stale</span>
+                {#if readinessLoadError}
+                    <span class="readiness-strip__warning">{readinessLoadError}</span
                     >
                 {/if}
             </div>
@@ -319,6 +374,74 @@
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
+    .readiness-controls {
+        display: grid;
+        gap: var(--space-3);
+        grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)) auto;
+        align-items: end;
+    }
+
+    .readiness-controls label {
+        display: grid;
+        gap: 0.35rem;
+    }
+
+    .readiness-controls span {
+        color: var(--muted);
+        font-size: 0.78rem;
+    }
+
+    .readiness-message {
+        margin: 0;
+    }
+
+    .readiness-details {
+        display: grid;
+        gap: var(--space-2);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .readiness-row {
+        display: grid;
+        gap: 0.5rem;
+        padding: 0.8rem 0.9rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        background: rgba(6, 18, 30, 0.78);
+    }
+
+    .readiness-row div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-2);
+    }
+
+    .readiness-row strong {
+        color: var(--text-primary);
+    }
+
+    .readiness-row span {
+        color: var(--muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+
+    .readiness-row p {
+        color: var(--muted);
+        line-height: 1.45;
+    }
+
+    .readiness-row--warning {
+        border-color: rgba(245, 158, 11, 0.28);
+    }
+
+    .readiness-row--missing {
+        border-color: rgba(248, 113, 113, 0.32);
+    }
+
     .readiness-strip {
         display: flex;
         align-items: center;
@@ -380,7 +503,9 @@
     @media (max-width: 1100px) {
         .shell-hero,
         .surface-nav,
-        .task-grid {
+        .task-grid,
+        .readiness-details,
+        .readiness-controls {
             grid-template-columns: 1fr;
         }
     }

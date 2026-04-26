@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
+from pydantic import Field, confloat, conint, conlist, field_validator
 
 from backend.platform.http.request_context import get_request_id
 from backend.research.contracts.adaptive import (
@@ -17,10 +19,25 @@ from backend.research.contracts.governance import (
 )
 from backend.research.contracts.runs import (
     BacktestRequest,
+    DateRange,
+    ExecutionConfig,
     FeatureRegistryResponse,
+    FeatureSpec,
+    ModelConfig,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
+    StrategyConfig,
+    ValidationConfig,
+)
+from backend.shared.contracts.common import (
+    BaselineName,
+    DefaultBundleVersion,
+    PriceSource,
+    RequestModel,
+    ResearchMonitorProfileId,
+    ReturnTarget,
+    RuntimeMode,
 )
 from backend.research.services.adaptive import (
     create_adaptive_profile_record,
@@ -50,6 +67,62 @@ from backend.shared.analytics.features import (
 router = APIRouter()
 
 
+class PublicResearchRunCreateRequest(RequestModel):
+    runtime_mode: RuntimeMode = "runtime_compatibility_mode"
+    default_bundle_version: DefaultBundleVersion | None = None
+    market: Literal["TW"] = "TW"
+    symbols: conlist(str, min_length=1)  # type: ignore[valid-type]
+    date_range: DateRange
+    return_target: ReturnTarget = "open_to_open"
+    horizon_days: conint(ge=1) = 1  # type: ignore[valid-type]
+    features: list[FeatureSpec]
+    model: ModelConfig = Field(default_factory=ModelConfig)
+    strategy: StrategyConfig
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    validation: ValidationConfig | None = None
+    baselines: list[BaselineName] = Field(default_factory=list)
+    portfolio_aum: confloat(gt=0) | None = None  # type: ignore[valid-type]
+    monitor_profile_id: ResearchMonitorProfileId | None = None
+
+    @field_validator("symbols")
+    @classmethod
+    def symbols_must_be_unique(cls, value: list[str]) -> list[str]:
+        normalized = [symbol.strip() for symbol in value]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("symbols must not contain duplicates")
+        return normalized
+
+    @field_validator("features")
+    @classmethod
+    def features_must_be_unique(cls, value: list[FeatureSpec]) -> list[FeatureSpec]:
+        seen: set[tuple[str, int, PriceSource]] = set()
+        for feature in value:
+            key = (feature.name, feature.window, feature.source)
+            if key in seen:
+                raise ValueError(
+                    "features must not contain duplicates with the same name, window, and source"
+                )
+            seen.add(key)
+        return value
+
+    @field_validator("baselines")
+    @classmethod
+    def baselines_must_be_unique(cls, value: list[BaselineName]) -> list[BaselineName]:
+        if len(value) != len(set(value)):
+            raise ValueError("baselines must not contain duplicates")
+        return value
+
+    @field_validator("date_range")
+    @classmethod
+    def end_after_start(cls, value: DateRange) -> DateRange:
+        if value.end < value.start:
+            raise ValueError("end must be on or after start")
+        return value
+
+    def to_internal_request(self) -> ResearchRunCreateRequest:
+        return ResearchRunCreateRequest(**self.model_dump())
+
+
 def _create_research_run_response(
     http_request: Request, request: ResearchRunCreateRequest
 ) -> ResearchRunResponse:
@@ -66,9 +139,9 @@ def _create_research_run_response(
     "/api/v1/research/runs", tags=["Research Runs"], response_model=ResearchRunResponse
 )
 def create_research_run_endpoint(
-    http_request: Request, request: ResearchRunCreateRequest
+    http_request: Request, request: PublicResearchRunCreateRequest
 ) -> ResearchRunResponse:
-    return _create_research_run_response(http_request, request)
+    return _create_research_run_response(http_request, request.to_internal_request())
 
 
 @router.post(

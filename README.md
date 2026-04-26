@@ -67,7 +67,7 @@ include lower-level or advanced foundations that are not v1 product commitments.
   diagnostics, and advanced internal foundations
 - PostgreSQL plus TimescaleDB-backed persistence for research-run metadata and
   market-data support records
-- daily research execution using tabular features, tree-based regressors,
+- daily research-run creation using tabular features, tree-based regressors,
   backtest metrics, signals, warnings, and registry records
 
 ### Frontend
@@ -102,6 +102,7 @@ include lower-level or advanced foundations that are not v1 product commitments.
 | How do I run the repository locally? | `docs/dev.md` |
 | What is implemented today, what is partial, and what is still pending? | `docs/implementation-status.md` |
 | Which open decisions still block durable policy? | `docs/decision-register.md` |
+| Which removed advanced features are future candidates? | `docs/deferred-feature-plan.md` |
 
 ## Suggested Reading Paths
 

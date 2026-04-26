@@ -48,7 +48,9 @@ drive the default workbench workflow.
 ## Metric Definition Rules
 
 - Trading-day basis: use the active TW exchange trading calendar unless a
-  metric states otherwise.
+  metric states otherwise. The v1 readiness surface is an exception: it reports
+  requested-symbol coverage over currently known TW daily market dates until a
+  calendar-authoritative readiness service is promoted.
 - Missing-sample rule: symbols blocked by lifecycle state, unresolved corporate
   events, missing OHLCV, or missing target availability are excluded from
   model-ready denominators and recorded in warnings when relevant.
@@ -66,7 +68,7 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-DATA-001` | daily data availability | requested TW symbols have daily OHLCV rows in the requested range after exclusions | report |
 | `KPI-DATA-002` | model-ready row count | rows remaining after feature generation, shifting, target alignment, and null filtering | `> 0` per trained symbol |
-| `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics | required |
+| `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics, including symbol-level warning reasons on Start or Data Ops surfaces | required |
 
 ### Model Diagnostics
 

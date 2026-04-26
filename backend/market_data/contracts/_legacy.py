@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, conint
+from pydantic import BaseModel, Field, ValidationInfo, conint, field_validator
 
 from backend.shared.contracts.common import (
     ArchiveBackupBackend,
@@ -68,6 +68,63 @@ class DataIngestionResponse(BaseModel):
     backfill: IngestionStageSummary
     daily_update: IngestionStageSummary
     minute_supplement: MinuteSupplementSummary
+
+
+class TwDailyReadinessDateRange(RequestModel):
+    start: date
+    end: date
+
+    @field_validator("end")
+    @classmethod
+    def end_after_start(cls, value: date, info: ValidationInfo) -> date:
+        start = info.data.get("start")
+        if start and value < start:
+            raise ValueError("end must be on or after start")
+        return value
+
+
+class TwDailyReadinessRequest(RequestModel):
+    market: Literal["TW"] = "TW"
+    symbols: list[str]
+    date_range: Optional[TwDailyReadinessDateRange] = None
+
+    @field_validator("symbols")
+    @classmethod
+    def symbols_must_be_unique(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip().upper() for item in value if item.strip()]
+        if not normalized:
+            raise ValueError("symbols must contain at least one non-empty symbol")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("symbols must not contain duplicates")
+        return normalized
+
+
+class TwDailyReadinessSymbolResponse(BaseModel):
+    symbol: str
+    status: Literal["ready", "warning", "missing"]
+    latest_daily_date: Optional[date] = None
+    latest_raw_fetch_ts: Optional[datetime] = None
+    requested_trading_days: Optional[int] = None
+    covered_trading_days: Optional[int] = None
+    missing_trading_days: Optional[int] = None
+    stale_trading_days: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TwDailyReadinessSummaryResponse(BaseModel):
+    ready: int = 0
+    warning: int = 0
+    missing: int = 0
+    stale: int = 0
+
+
+class TwDailyReadinessResponse(BaseModel):
+    market: Literal["TW"] = "TW"
+    overall_status: Literal["ready", "warning", "missing"]
+    evaluated_at: datetime
+    date_range: Optional[TwDailyReadinessDateRange] = None
+    summary: TwDailyReadinessSummaryResponse
+    symbols: list[TwDailyReadinessSymbolResponse] = Field(default_factory=list)
 
 
 class ReplayRequest(RequestModel):

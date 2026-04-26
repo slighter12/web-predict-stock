@@ -61,13 +61,6 @@ const defaultIndicator = (
   shift: 1,
 });
 
-const gateIdToCapabilityId = {
-  P7: ["factor_catalog", "external_signals"],
-  P8: ["peer_context"],
-  P9: ["simulation_execution"],
-  P11: ["adaptive_workflow"],
-} satisfies Record<string, ResearchCapabilityId[]>;
-
 const capabilityStatusRank: Record<ResearchCapabilityStatus, number> = {
   available: 0,
   setup_required: 1,
@@ -99,88 +92,6 @@ export const researchCapabilityRegistry: ResearchCapabilityDefinition[] = [
     fields: ["indicatorRows"],
     gateRefs: [],
     requestMapping: ["features"],
-  },
-  {
-    id: "factor_catalog",
-    label: "Factor Catalog",
-    stage: "signal_sources",
-    status: "setup_required",
-    summary:
-      "Attach scoring-ready factors and active catalog lineage when the factor surface is ready.",
-    requires: ["technical_indicators"],
-    fields: ["factorCatalogVersion", "scoringFactorIdsInput"],
-    gateRefs: ["P7"],
-    requestMapping: ["factor_catalog_version", "scoring_factor_ids"],
-  },
-  {
-    id: "external_signals",
-    label: "External Signals",
-    stage: "signal_sources",
-    status: "setup_required",
-    summary:
-      "Bring event and non-price lineage into the training frame once the external signal layer is ready.",
-    requires: ["technical_indicators"],
-    fields: ["externalSignalPolicyVersion"],
-    gateRefs: ["P7"],
-    requestMapping: ["external_signal_policy_version"],
-  },
-  {
-    id: "peer_context",
-    label: "Peer Context",
-    stage: "signal_sources",
-    status: "gated",
-    summary:
-      "Use cluster snapshots and peer overlays when point-in-time peer context is qualified.",
-    requires: ["technical_indicators"],
-    fields: ["clusterSnapshotVersion", "peerPolicyVersion"],
-    gateRefs: ["P8"],
-    requestMapping: ["cluster_snapshot_version", "peer_policy_version"],
-  },
-  {
-    id: "simulation_execution",
-    label: "Simulation Execution",
-    stage: "evaluation",
-    status: "setup_required",
-    summary:
-      "Move beyond research-only runs only when simulation adapters and live controls are explicitly ready.",
-    requires: [],
-    fields: [
-      "executionRoute",
-      "simulationProfileId",
-      "liveControlProfileId",
-      "manualConfirmed",
-    ],
-    gateRefs: ["P9", "P10"],
-    requestMapping: [
-      "execution_route",
-      "simulation_profile_id",
-      "live_control_profile_id",
-      "manual_confirmed",
-    ],
-  },
-  {
-    id: "adaptive_workflow",
-    label: "Adaptive Workflow",
-    stage: "evaluation",
-    status: "gated",
-    summary:
-      "Keep adaptive work visible, but do not treat it as baseline-ready until the isolated workflow is explicitly qualified.",
-    requires: ["simulation_execution"],
-    fields: [
-      "adaptiveMode",
-      "adaptiveProfileId",
-      "rewardDefinitionVersion",
-      "stateDefinitionVersion",
-      "rolloutControlVersion",
-    ],
-    gateRefs: ["P11"],
-    requestMapping: [
-      "adaptive_mode",
-      "adaptive_profile_id",
-      "reward_definition_version",
-      "state_definition_version",
-      "rollout_control_version",
-    ],
   },
 ];
 
@@ -302,23 +213,11 @@ export const createDefaultResearchWorkflowDraft = (
     },
     signalSources: {
       indicatorRows: [defaultIndicator(0, "ma"), defaultIndicator(1, "rsi")],
-      factorCatalogVersion:
-        capabilities.factor_catalog || capabilities.external_signals
-          ? "factor_catalog_v1"
-          : "",
-      scoringFactorIdsInput:
-        template.id === "factor_augmented_research"
-          ? "company_listing_age_days_v1, important_event_count_30d_v1"
-          : "",
-      externalSignalPolicyVersion: capabilities.external_signals
-        ? "tw_company_event_layer_v1"
-        : "",
-      clusterSnapshotVersion: capabilities.peer_context
-        ? "peer_cluster_kmeans_v1"
-        : "",
-      peerPolicyVersion: capabilities.peer_context
-        ? "cluster_nearest_neighbors_v1"
-        : "",
+      factorCatalogVersion: "",
+      scoringFactorIdsInput: "",
+      externalSignalPolicyVersion: "",
+      clusterSnapshotVersion: "",
+      peerPolicyVersion: "",
     },
     modelFamily: {
       familyId: template.recommendedFamilyId,
@@ -335,33 +234,19 @@ export const createDefaultResearchWorkflowDraft = (
       validationSplits: 3,
       validationTestSize: 0.2,
       baselines: ["buy_and_hold", "naive_momentum"],
-      executionRoute:
-        capabilities.simulation_execution &&
-        template.id === "adaptive_exploration"
-          ? "simulation_internal_v1"
-          : "research_only",
+      executionRoute: "research_only",
       slippage: 0.001,
       fees: 0.002,
       portfolioAum: null,
       recordAsMonitorRun: false,
-      simulationProfileId: capabilities.simulation_execution
-        ? "simulation_internal_default_v1"
-        : "",
+      simulationProfileId: "",
       liveControlProfileId: "",
       manualConfirmed: false,
-      adaptiveMode: capabilities.adaptive_workflow ? "shadow" : "off",
-      adaptiveProfileId: capabilities.adaptive_workflow
-        ? "adaptive_shadow_v1"
-        : "",
-      rewardDefinitionVersion: capabilities.adaptive_workflow
-        ? "reward_daily_active_return_v1"
-        : "",
-      stateDefinitionVersion: capabilities.adaptive_workflow
-        ? "state_market_context_v1"
-        : "",
-      rolloutControlVersion: capabilities.adaptive_workflow
-        ? "rollout_shadow_only_v1"
-        : "",
+      adaptiveMode: "off",
+      adaptiveProfileId: "",
+      rewardDefinitionVersion: "",
+      stateDefinitionVersion: "",
+      rolloutControlVersion: "",
     },
   };
 };
@@ -545,44 +430,6 @@ export const buildCapabilityReadinessMap = (
     ]),
   ) as Record<ResearchCapabilityId, CapabilityReadinessState>;
 
-  for (const gate of gates) {
-    const phaseMatch = (
-      Object.keys(gateIdToCapabilityId) as Array<
-        keyof typeof gateIdToCapabilityId
-      >
-    ).find((phase) => gate.gate_id.includes(phase));
-
-    if (!phaseMatch) {
-      continue;
-    }
-
-    const statuses = gateIdToCapabilityId[phaseMatch];
-    for (const capabilityId of statuses) {
-      const defaultCapability = getCapabilityDefinition(capabilityId);
-      const nextStatus =
-        gate.overall_status === "pass"
-          ? "available"
-          : defaultCapability.status === "gated"
-            ? "gated"
-            : "setup_required";
-
-      const nextState: CapabilityReadinessState = {
-        capabilityId,
-        status: nextStatus,
-        summary:
-          gate.missing_reasons[0] ??
-          `${defaultCapability.label} is tied to ${phaseMatch} readiness.`,
-        gateId: gate.gate_id,
-        overallStatus: gate.overall_status,
-      };
-
-      readiness[capabilityId] = upgradeStatus(
-        readiness[capabilityId],
-        nextState,
-      );
-    }
-  }
-
   return readiness;
 };
 
@@ -612,7 +459,7 @@ export const buildResearchRunPayloadFromWorkflow = (
     draft.modelFamily.runtimeMode === VNEXT_SPEC_MODE
       ? (draft.modelFamily.defaultBundleVersion ?? undefined)
       : undefined,
-  market: draft.universe.market,
+  market: "TW",
   symbols: parseSymbols(draft.universe.symbolsInput),
   date_range: {
     start: draft.universe.startDate,
@@ -654,49 +501,6 @@ export const buildResearchRunPayloadFromWorkflow = (
   portfolio_aum: draft.evaluation.portfolioAum ?? undefined,
   monitor_profile_id: draft.evaluation.recordAsMonitorRun
     ? DEFAULT_MONITOR_PROFILE_ID
-    : undefined,
-  factor_catalog_version: draft.capabilities.factor_catalog
-    ? draft.signalSources.factorCatalogVersion || undefined
-    : undefined,
-  scoring_factor_ids: draft.capabilities.factor_catalog
-    ? parseScoringFactorIds(draft.signalSources.scoringFactorIdsInput)
-    : undefined,
-  external_signal_policy_version: draft.capabilities.external_signals
-    ? draft.signalSources.externalSignalPolicyVersion || undefined
-    : undefined,
-  cluster_snapshot_version: draft.capabilities.peer_context
-    ? draft.signalSources.clusterSnapshotVersion || undefined
-    : undefined,
-  peer_policy_version: draft.capabilities.peer_context
-    ? draft.signalSources.peerPolicyVersion || undefined
-    : undefined,
-  execution_route: draft.capabilities.simulation_execution
-    ? draft.evaluation.executionRoute
-    : "research_only",
-  simulation_profile_id: draft.capabilities.simulation_execution
-    ? draft.evaluation.simulationProfileId || undefined
-    : undefined,
-  live_control_profile_id:
-    draft.capabilities.simulation_execution &&
-    draft.evaluation.executionRoute === "live_stub_v1"
-      ? draft.evaluation.liveControlProfileId || undefined
-      : undefined,
-  manual_confirmed:
-    draft.capabilities.simulation_execution && draft.evaluation.manualConfirmed,
-  adaptive_mode: draft.capabilities.adaptive_workflow
-    ? draft.evaluation.adaptiveMode
-    : "off",
-  adaptive_profile_id: draft.capabilities.adaptive_workflow
-    ? draft.evaluation.adaptiveProfileId || undefined
-    : undefined,
-  reward_definition_version: draft.capabilities.adaptive_workflow
-    ? draft.evaluation.rewardDefinitionVersion || undefined
-    : undefined,
-  state_definition_version: draft.capabilities.adaptive_workflow
-    ? draft.evaluation.stateDefinitionVersion || undefined
-    : undefined,
-  rollout_control_version: draft.capabilities.adaptive_workflow
-    ? draft.evaluation.rolloutControlVersion || undefined
     : undefined,
 });
 
@@ -755,52 +559,6 @@ export const validateResearchWorkflow = (
     uniqueFeatures.add(featureKey);
   }
 
-  if (draft.capabilities.factor_catalog) {
-    const factorReadiness = readiness.factor_catalog;
-    if (factorReadiness.status !== "available") {
-      errors.factorCatalogGate = factorReadiness.summary;
-    }
-    if (!draft.signalSources.factorCatalogVersion.trim()) {
-      errors.factorCatalogVersion =
-        "Factor catalog version is required when the factor capability is enabled.";
-    }
-    const factorIds = parseScoringFactorIds(
-      draft.signalSources.scoringFactorIdsInput,
-    );
-    if (!factorIds.length) {
-      errors.scoringFactorIdsInput =
-        "Pick at least one scoring factor for factor-augmented research.";
-    } else if (factorIds.length !== new Set(factorIds).size) {
-      errors.scoringFactorIdsInput = "Scoring factor IDs must be unique.";
-    }
-  }
-
-  if (draft.capabilities.external_signals) {
-    const externalReadiness = readiness.external_signals;
-    if (externalReadiness.status !== "available") {
-      errors.externalSignalGate = externalReadiness.summary;
-    }
-    if (!draft.signalSources.externalSignalPolicyVersion.trim()) {
-      errors.externalSignalPolicyVersion =
-        "External signal policy is required when external signals are enabled.";
-    }
-  }
-
-  if (draft.capabilities.peer_context) {
-    const peerReadiness = readiness.peer_context;
-    if (peerReadiness.status !== "available") {
-      errors.peerContextGate = peerReadiness.summary;
-    }
-    if (!draft.signalSources.clusterSnapshotVersion.trim()) {
-      errors.clusterSnapshotVersion =
-        "Cluster snapshot version is required when peer context is enabled.";
-    }
-    if (!draft.signalSources.peerPolicyVersion.trim()) {
-      errors.peerPolicyVersion =
-        "Peer policy version is required when peer context is enabled.";
-    }
-  }
-
   const selectedVariant = getModelVariantById(draft.modelFamily.variantId);
   const selectedFamily = getModelFamilyById(draft.modelFamily.familyId);
   if (
@@ -856,82 +614,14 @@ export const validateResearchWorkflow = (
     }
   }
 
-  if (draft.capabilities.simulation_execution) {
-    const simulationReadiness = readiness.simulation_execution;
-    if (simulationReadiness.status === "gated") {
-      errors.simulationExecution = simulationReadiness.summary;
-    }
-    if (
-      draft.evaluation.executionRoute === "simulation_internal_v1" &&
-      !draft.evaluation.simulationProfileId.trim()
-    ) {
-      errors.simulationProfileId =
-        "Simulation profile is required when simulation execution is enabled.";
-    }
-    if (draft.evaluation.executionRoute === "live_stub_v1") {
-      if (simulationReadiness.status !== "available") {
-        errors.liveControlProfileId =
-          "Live stub cannot be used until the simulation capability is available.";
-      }
-      if (!draft.evaluation.liveControlProfileId.trim()) {
-        errors.liveControlProfileId =
-          "Live control profile is required for live stub mode.";
-      }
-      if (!draft.evaluation.manualConfirmed) {
-        errors.manualConfirmed =
-          "Manual approval must be confirmed before submitting a live stub run.";
-      }
-    }
-  }
-
-  if (draft.capabilities.adaptive_workflow) {
-    const adaptiveReadiness = readiness.adaptive_workflow;
-    if (adaptiveReadiness.status !== "available") {
-      errors.adaptiveMode = adaptiveReadiness.summary;
-    }
-    if (!draft.capabilities.simulation_execution) {
-      errors.adaptiveMode =
-        "Adaptive workflow requires simulation execution to stay enabled.";
-    }
-    if (!draft.evaluation.adaptiveProfileId.trim()) {
-      errors.adaptiveProfileId = "Adaptive profile is required.";
-    }
-    if (!draft.evaluation.rewardDefinitionVersion.trim()) {
-      errors.rewardDefinitionVersion = "Reward version is required.";
-    }
-    if (!draft.evaluation.stateDefinitionVersion.trim()) {
-      errors.stateDefinitionVersion = "State version is required.";
-    }
-    if (!draft.evaluation.rolloutControlVersion.trim()) {
-      errors.rolloutControlVersion = "Rollout control version is required.";
-    }
-  }
-
   return errors;
 };
 
 export const deriveCapabilityIdsFromRun = (
   run: Partial<ResearchRunRecord & ResearchRunResponse>,
 ): ResearchCapabilityId[] => {
-  const capabilityIds: ResearchCapabilityId[] = ["technical_indicators"];
-
-  if (run.factor_catalog_version || run.scoring_factor_ids?.length) {
-    capabilityIds.push("factor_catalog");
-  }
-  if (run.external_signal_policy_version) {
-    capabilityIds.push("external_signals");
-  }
-  if (run.cluster_snapshot_version || run.peer_policy_version) {
-    capabilityIds.push("peer_context");
-  }
-  if (run.execution_route && run.execution_route !== "research_only") {
-    capabilityIds.push("simulation_execution");
-  }
-  if (run.adaptive_mode && run.adaptive_mode !== "off") {
-    capabilityIds.push("adaptive_workflow");
-  }
-
-  return capabilityIds;
+  void run;
+  return ["technical_indicators"];
 };
 
 export const deriveSubmissionSummaryFromRun = (

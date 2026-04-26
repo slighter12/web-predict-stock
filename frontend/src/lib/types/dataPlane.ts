@@ -43,6 +43,44 @@ export interface DataIngestionResponse {
   daily_update: IngestionStageSummary;
 }
 
+export interface TwDailyReadinessRequest {
+  market: "TW";
+  symbols: string[];
+  date_range?: {
+    start: string;
+    end: string;
+  };
+}
+
+export interface TwDailyReadinessSymbolStatus {
+  symbol: string;
+  status: "ready" | "warning" | "missing";
+  latest_daily_date: string | null;
+  latest_raw_fetch_ts: string | null;
+  requested_trading_days: number | null;
+  covered_trading_days: number | null;
+  missing_trading_days: number | null;
+  stale_trading_days: number;
+  warnings: string[];
+}
+
+export interface TwDailyReadinessResponse {
+  market: "TW";
+  overall_status: "ready" | "warning" | "missing";
+  evaluated_at: string;
+  date_range: {
+    start: string;
+    end: string;
+  } | null;
+  summary: {
+    ready: number;
+    warning: number;
+    missing: number;
+    stale: number;
+  };
+  symbols: TwDailyReadinessSymbolStatus[];
+}
+
 export interface ReplayRequest {
   raw_payload_id: number;
   benchmark_profile_id?: string;

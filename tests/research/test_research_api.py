@@ -149,6 +149,16 @@ def test_create_backtest_returns_full_research_run_response(monkeypatch):
     )
 
 
+def test_create_research_run_rejects_non_tw_market():
+    payload = make_payload()
+    payload["market"] = "US"
+
+    response = client.post("/api/v1/research/runs", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_FAILED"
+
+
 def test_create_research_run_validation_failed(monkeypatch):
     captured: dict = {}
 

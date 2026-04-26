@@ -1,362 +1,158 @@
 # Implementation Status
 
-This document is descriptive only. It records the current implementation
-surface and should not be used as the source of truth for normative behavior.
-Use `docs/research-spec.md`, `docs/plan.md`, and `docs/validation-gates.md`
-for rules, sequencing, and gate truth conditions.
+This document is descriptive only. It records the current repository surface
+against the `TW daily Quant ML Research Workbench` v1 direction.
 
-The frontend section below describes implementation surfaces, not the intended
-product information architecture. A listed panel or component should not be
-read as a requirement that the product navigation expose it as a first-class
-entry point.
+Normative product behavior lives in:
+
+- `docs/project-goals.md`
+- `docs/research-spec.md`
+- `docs/plan.md`
+- `docs/validation-gates.md`
+
+Do not use this file to decide whether an advanced backend surface should appear
+in the v1 product navigation.
 
 ## Status Scope
 
-- status date: `2026-03-22`
-- verification evidence in this document is the latest recorded evidence, not a
-  fresh execution performed during this status-only update
-- status terms used below:
-  - `implemented`: usable backend surface exists and the roadmap area is no
-    longer just a placeholder
-  - `implemented structurally`: the structural API and persistence surface
-    exists, but durable operational qualification or external integration is
-    still pending
-  - `partial`: meaningful foundation exists, but the roadmap area is not fully closed
-    or still lacks part of the intended operating surface
-  - `pending`: planned work, durable qualification, or production-hardening
-    still remains open
+- status date: `2026-04-26`
+- status terms:
+  - `implemented`: behavior exists and is usable in the current codebase
+  - `partial`: meaningful foundation exists, but the v1 product expectation is
+    not complete
+  - `hidden advanced`: code exists but is not part of the v1 main workflow
+  - `deferred`: documented future/platform concern
 
-## Roadmap Status Summary
+## V1 Alignment Summary
 
 | Area | Status | Current reading |
 | --- | --- | --- |
-| `P0` | `implemented` | research runs, runtime metadata, config-source persistence, and run registry exist |
-| `P1` | `implemented` | daily ingest, replay, recovery drills, scheduled recovery, and ops KPI surfaces exist |
-| `P2` | `implemented` | tick archive dispatch, import, replay, KPI, and gate surfaces exist, but storage policy is still provisional |
-| `P3` | `implemented` | tradability-state persistence, `GATE-P3-001`, and micro KPI telemetry for `GATE-P3-OPS-001` exist |
-| `P4` | `partial` | comparison-governance metadata exists, but the roadmap area is not fully closed |
-| `P5` | `partial` | execution and comparison-alignment foundations exist, but durable policy qualification is still pending |
-| `P6` | `partial` | shared tabular model-family contract exists for several tree-based families, but broader model expansion is still incomplete |
-| `P7` | `implemented structurally` | external signal, factor catalog, and gate foundations exist |
-| `P8` | `implemented structurally` | clustering, peer inference, and gate foundations exist |
-| `P9` | `implemented structurally` | simulation-order, readback, and gate foundations exist, but platform baseline remains open |
-| `P10` | `implemented structurally` | guarded live-stub controls and gate foundations exist, but no real broker adapter is implemented |
-| `P11` | `implemented structurally` | adaptive profile and training-run lifecycle exists, but no integrated RL backend exists |
+| Workbench product direction | implemented | README, goals, plan, spec, and gates describe the v1 workbench direction |
+| Start / Builder / Experiments / Data Ops shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
+| Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
+| Regression diagnostics contract | partial | backend and frontend types include `model_diagnostics`; validation still needs end-to-end artifact checks |
+| Persisted result artifacts | partial | DB/model/repository support exists for diagnostics, equity, signals, and baselines; old records still need fallback handling |
+| Experiments comparison | partial | search, sort, load, and compare UI foundations exist; comparison explanations still need hardening |
+| Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
+| Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
+| Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
 
-## Implemented Today
+## Current Product Surfaces
 
-### Core Repository Surface
+### Frontend
 
-- Backend stack:
-  - FastAPI on Python `3.12+`
-  - PostgreSQL plus TimescaleDB persistence
-- Frontend stack:
-  - Svelte `5`
-  - Vite
-  - TanStack Svelte Query
-  - ECharts
-- Research execution stack:
-  - VectorBT-based research execution
-  - XGBoost plus scikit-learn based workflows
+- `Start`
+  - task entry for baseline study, recent experiments, and data readiness
+- `Experiment Builder`
+  - baseline TW daily research workflow
+  - currently regression-first; classification remains a documented future task
+- `Experiments`
+  - persisted run lookup, result review, filtering, sorting, and comparison
+- `Data Ops`
+  - secondary diagnostic surface for data readiness and repair workflows
 
-### Implemented Backend Areas
+Legacy components such as `PredictionStudio` and `MaintenanceWorkspace` may
+still exist under `frontend/src/lib/internal/legacy/`, and they are not part
+of the v1 information architecture.
 
-#### System And Research Runs
+### Backend
 
-- `GET /api/v1/health`
-- `GET /api/v1/system/health`
-- `POST /api/v1/backtest`
-- `POST /api/v1/research/runs`
-- `GET /api/v1/research/runs/{run_id}`
-- `GET /api/v1/research/runs`
-- `GET /api/v1/research/gates/p3`
-- `GET /api/v1/research/micro-kpis`
-- `GET /api/v1/research/gates/p7`
-- `GET /api/v1/research/gates/p8`
-- `GET /api/v1/research/gates/p9`
-- `GET /api/v1/research/gates/p10`
-- `GET /api/v1/research/gates/p11`
-- `POST /api/v1/research/adaptive-profiles`
-- `GET /api/v1/research/adaptive-profiles`
-- `POST /api/v1/research/adaptive-training-runs`
-- `GET /api/v1/research/adaptive-training-runs`
+- primary v1 research path:
+  - `POST /api/v1/research/runs`
+  - `GET /api/v1/research/runs`
+  - `GET /api/v1/research/runs/{run_id}`
+  - `GET /api/v1/research/feature-registry`
+  - `GET /api/v1/research/gates/p3`
+  - `GET /api/v1/research/micro-kpis`
+- v1-supporting data path:
+  - `POST /api/v1/data/readiness/tw-daily`
+  - TW daily ingestion and replay foundations
+  - raw ingest audit and normalized daily market-data persistence
+- hidden advanced paths:
+  - execution simulation and live-stub controls
+  - adaptive profile and training-run lifecycle
+  - factor, external-signal, peer, cluster, and tick archive foundations
 
-Implemented behavior:
+Hidden advanced paths may remain reachable for internal diagnostics or legacy
+tooling, but they should not be required to start, understand, or compare a
+baseline experiment.
 
-- research-run requests persist successful, rejected, validation-failed, and
-  failed attempts
-- runtime metadata, config sources, fallback audit, and version-pack fields are
-  persisted on runs
-- tradability summaries now persist on run records and are used by the `P3`
-  gate and micro KPI surfaces
-- research execution supports the shared tabular training-output contract for
-  `xgboost`, `random_forest`, and `extra_trees`
+## Implemented Foundations
 
-#### Data Plane
+### Research Run Core
 
-Daily ingestion and recovery:
+- successful, rejected, validation-failed, and failed run attempts are
+  persisted
+- request payloads, runtime metadata, config sources, fallback audit, warnings,
+  and version-pack fields are persisted
+- tree-based regression model families are available through the shared tabular
+  training path
+- strategy metrics, signals, equity curve, baselines, and validation summaries
+  exist for new successful runs
+- `model_diagnostics` exists in contracts and persistence fields
 
-- `POST /api/v1/data/ingestions`
-- `POST /api/v1/data/replays`
-- `GET /api/v1/data/replays`
-- `POST /api/v1/data/recovery-drills`
-- `GET /api/v1/data/recovery-drills`
-- `POST /api/v1/data/recovery-drill-schedules`
-- `GET /api/v1/data/recovery-drill-schedules`
-- `POST /api/v1/data/benchmark-profiles`
-- `GET /api/v1/data/benchmark-profiles`
-- `POST /api/v1/data/ingestion-watchlist`
-- `GET /api/v1/data/ingestion-watchlist`
-- `POST /api/v1/data/ingestion-dispatches`
-- `GET /api/v1/data/ops/kpis`
-- `POST /api/v1/data/lifecycle-crawls`
-- `POST /api/v1/data/important-event-crawls`
-- `POST /api/v1/data/lifecycle-records`
-- `GET /api/v1/data/lifecycle-records`
-- `POST /api/v1/data/important-events`
-- `GET /api/v1/data/important-events`
+### Data Readiness Foundations
 
-Implemented behavior:
+- TW daily ingestion, replay, lifecycle, important-event, and recovery
+  workflows exist
+- raw payload preservation exists through raw ingest audit records
+- data repair and operational panels exist under secondary data surfaces
 
-- raw-ingest preservation exists through `raw_ingest_audit.payload_body`
-- normalized replay persistence exists through `/api/v1/data/replays`
-- recovery drills persist trigger metadata, including `trigger_mode`,
-  `schedule_id`, and `scheduled_for_date`
-- scheduled monthly recovery dispatch exists through
-  `backend.market_data.services.recovery.dispatch_due_recovery_drills` and
-  `scripts/dispatch_scheduled_recovery_drills.py`
-- scheduled ingestion watchlist and dispatch exist through
-  `/api/v1/data/ingestion-watchlist`,
-  `/api/v1/data/ingestion-dispatches`, and
-  `scripts/dispatch_scheduled_ingestions.py`
-- lifecycle and important-event records support both direct upsert and official
-  crawler ingestion
+### Hidden Advanced Foundations
 
-Tick archive and market-universe support:
+- tick archive dispatch, import, replay, and KPI surfaces exist
+- factor catalog, external-signal, cluster, and peer-feature foundations exist
+- simulation and live-stub execution foundations exist
+- adaptive profile and adaptive training-run lifecycle surfaces exist
 
-- `POST /api/v1/data/tick-archive-dispatches`
-- `GET /api/v1/data/tick-archive-dispatches`
-- `POST /api/v1/data/tick-archive-imports`
-- `GET /api/v1/data/tick-archives`
-- `POST /api/v1/data/tw-company-crawls`
-- `GET /api/v1/data/tw-company-profiles`
-- `POST /api/v1/data/tick-replays`
-- `GET /api/v1/data/tick-replays`
-- `GET /api/v1/data/tick-ops/kpis`
-- `GET /api/v1/data/tick-gates/p2`
+These foundations are implementation inventory, not v1 product scope.
 
-Implemented behavior:
+## Remaining V1 Gaps
 
-- `tick_archive_runs`, `tick_archive_objects`, `tick_restore_runs`, and
-  `tick_observations` persist the P2 data plane
-- manual archive import validates embedded `market` and `trading_date` against
-  submitted metadata before persisting archive metadata
-- tick archive objects can persist optional Google Drive mirror metadata when
-  `GOOGLE_DRIVE_TICK_ARCHIVE_ROOT` is configured
-- active TW company universe snapshots exist through TW company crawl and
-  profile-list surfaces
-- tick symbol resolution prefers `tw_company_profiles`, then lifecycle data,
-  then `daily_ohlcv`
+### Documentation
 
-P7 and P8 foundation data-plane surfaces:
+- no known v1 direction blocker after the current rewrite
+- future edits must keep advanced/platform modules out of the default research
+  path unless `docs/plan.md` promotes them deliberately
 
-- `POST /api/v1/data/external-signal-ingestions`
-- `GET /api/v1/data/external-signals`
-- `POST /api/v1/data/external-signal-audits`
-- `GET /api/v1/data/external-signal-audits`
-- `POST /api/v1/data/factor-catalogs`
-- `GET /api/v1/data/factor-catalogs`
-- `GET /api/v1/data/factor-materializations`
-- `POST /api/v1/data/cluster-snapshots`
-- `GET /api/v1/data/cluster-snapshots`
-- `POST /api/v1/data/peer-feature-runs`
-- `GET /api/v1/data/peer-feature-runs`
+### Frontend
 
-Implemented behavior:
+- legacy `PredictionStudio` and `MaintenanceWorkspace` should be removed once
+  the current workbench surfaces fully replace them
+- residual diagnostics need either a dedicated UI section or an explicit
+  product decision that residuals are represented inside diagnostic sample rows
+- comparison UI needs clearer reason labels for non-comparable or
+  metadata-only runs
 
-- external raw archives, signals, audits, factor catalogs, factor
-  materializations, factor usability observations, cluster snapshots, cluster
-  memberships, peer feature runs, and peer comparison overlays all persist
-- external-signal timing classification supports exact and fallback mappings
-- peer overlays are merged into the tabular training frame used by the baseline
-  backtest path
+### Backend
 
-#### Execution Foundations
+- persisted artifact reload should be verified end to end after migration
+  `0008`
+- old records without artifact JSON need clear fallback responses and UI copy
+- classification remains specification-only
+- hidden advanced foundations may stay reachable for diagnostics and legacy
+  tooling, but should not return to the v1 navigation without a roadmap
+  decision
 
-- `POST /api/v1/execution/simulation-orders`
-- `GET /api/v1/execution/simulation-readbacks`
-- `POST /api/v1/execution/live-orders`
-- `GET /api/v1/execution/live-orders`
-- `POST /api/v1/execution/live-controls/kill-switch`
-- `GET /api/v1/execution/live-controls/kill-switch`
+## Latest Local Verification
 
-Implemented behavior:
-
-- simulation foundations persist orders, order events, fill events, position
-  snapshots, and failure taxonomy records
-- `simulation_internal_v1` writes a complete synthetic order ledger
-- `live_stub_v1` writes accepted-path synthetic completion ledgers and
-  rejection-only ledgers on blocked paths
-- research-run-triggered live-stub orders require explicit
-  `manual_confirmed=true`
-- unknown execution `run_id` values return `404 RESOURCE_NOT_FOUND`
-
-### Implemented Frontend Areas
-
-#### Prediction Studio Surface
-
-- `PredictionStudio`
-- staged draft and mapper for the existing research-run request contract
-- result review in the same surface through:
-  - `ResearchRunMetrics`
-  - `ResearchRunSignals`
-  - `ResearchRunValidation`
-
-Current coverage:
-
-- staged prediction workflow for `data -> feature -> model -> validation`
-- same-page result review after research-run submission
-- advanced details for persisted run lookup, system health, and P7 to P11
-  readiness checks
-
-#### Maintenance Surface
-
-- grouped operational panels for:
-  - manual data ingestion and recovery
-  - replay and tick-archive verification
-  - lifecycle and important-event correction
-  - factor, peer, execution, and adaptive diagnostics
-
-Current coverage:
-
-- manual data ingestion and replay
-- manual and scheduled recovery operations
-- lifecycle and important-event data management
-- tick archive dispatch, import, replay, and KPI display
-- external-signal ingestion and audit workflow
-- factor catalog creation and materialization inspection through the external
-  signal workflow
-- cluster snapshot and peer-feature workflow
-- simulation/live-stub control workflow
-- adaptive profile and adaptive training-run workflow
-
-## Partial Or Constrained Areas
-
-### Cross-Area Constraints
-
-- durable operational qualification is still separate from structural
-  completion for `P1`, `P2`, `P3`, and `P7` to `P11`
-- open decisions still block durable policy in key areas:
-  - `TBD-001`: TW calibrated minimum traded-value floor
-  - `TBD-002`: tick archive storage baseline
-  - `TBD-003`: simulation platform baseline
-  - `TBD-004`: cross-model missing-feature default policy
-
-### `P1` Constraints
-
-- `P1` operational maturity still depends on the longer observation windows
-  required by `GATE-P1-OPS-001`
-- official feed URLs still need runtime configuration for crawler automation
-
-### `P2` Constraints
-
-- `KPI-TICK-*` values remain exploratory telemetry until `TBD-002` is closed
-- archive storage is limited to `local_filesystem` under
-  `backend/var/tick_archives/` with optional Google Drive mirroring; each run
-  also writes a normalized observation sidecar alongside the raw snapshot parts
-- there is no S3, GCS, cross-instance archive sharing, or storage redundancy
-- some operational list endpoints are still optimized for recent inspection
-  rather than large-scale browsing
-- browser-facing date defaults are still local-input driven even though market
-  authority is `Asia/Taipei`
-
-### `P3` Constraints
-
-- the structural gate and ops telemetry exist, but durable operational
-  qualification still depends on longer observation windows
-- investability claims remain intentionally locked until `TBD-001` is resolved
-
-### `P4` To `P6` Constraints
-
-- these phases have important metadata and model-family foundations, but the
-  repository does not yet represent them as fully closed roadmap milestones
-- current model-family expansion is limited to the implemented tree-based
-  contract paths rather than a broader ML and DL surface
-
-### `P7` To `P11` Constraints
-
-- the current repository snapshot reflects structural-complete foundation work,
-  not mature operational qualification
-- `P9` simulation telemetry remains exploratory until `TBD-003` is resolved
-- adaptive workflow support currently stops at contract management, lifecycle
-  persistence, and training-run orchestration
-
-## Not Implemented Yet
-
-- dedicated frontend panels for backend-only operational endpoints:
-  - benchmark profiles
-  - ingestion watchlist and dispatch management
-  - daily ops KPI view
-  - `P2` gate readout
-  - TW company crawl and profile management
-  - lifecycle and important-event crawler triggers
-  - `P3` gate and micro KPI inspection
-- remote object-store archive backends beyond local filesystem plus optional
-  Google Drive mirroring
-- a fixed external simulation-platform baseline that closes `TBD-003`
-- a real broker integration path beyond `live_stub_v1`
-- an integrated RL backend behind the adaptive surfaces
-
-## Version-Pack Status
-
-All normative version-pack fields in `SPEC-RUNTIME-005` are implemented. There
-are currently no placeholder fields left inside that documented subset.
-
-## Current Error Envelope
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_FAILED",
-    "message": "請檢查輸入內容。",
-    "details": {
-      "fields": []
-    }
-  },
-  "meta": {
-    "request_id": "req_abc123",
-    "run_id": "run_abc123"
-  }
-}
-```
-
-## Latest Recorded Verification Snapshot
-
-- last recorded verification date: `2026-03-21`
-- targeted backend tests:
-  - `.venv/bin/python -m pytest tests/services/test_research_run_service.py tests/services/test_research_run_registry_service.py tests/services/test_foundation_service.py tests/services/test_backtest_engine_service.py tests/services/test_foundation_repository.py -q`
-  - result: `15 passed`
-- targeted foundation follow-up tests:
-  - `.venv/bin/python -m pytest tests/services/test_foundation_repository.py tests/services/test_foundation_service.py -q`
-  - result: `6 passed`
 - frontend typecheck:
   - `bun x tsc -p frontend/tsconfig.json --noEmit`
-  - result: `passed`
-- migration acceptance:
-  - strict reset via `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-  - `alembic upgrade head`
-  - `alembic downgrade base`
-  - `alembic upgrade head`
-  - result: `passed`
-- fresh acceptance verification:
-  - clean database reseed plus manual API checks
-  - result: `P7`, `P8`, `P9`, `P10`, and `P11` gates returned `pass`
-- frontend browser verification:
-  - `agent-browser` against `http://127.0.0.1:5173`
-  - result:
-    - page load and both workspaces rendered
-    - P7 to P11 data-plane panels issued live API requests
-    - research-run submit path issued `/api/v1/research/runs` when invoked
-    - default research-run and snapshot form dates do not align with the
-      recorded acceptance dataset, so untouched defaults can still trigger
-      expected `RESOURCE_NOT_FOUND` responses
+  - result: passed
+- public-surface targeted tests:
+  - `.venv/bin/python -m pytest tests/research/test_research_api.py tests/market_data/test_market_data_api.py tests/platform/test_system_api.py tests/market_data/test_tick_archive_api.py -q`
+  - result: `22 passed`
+- advanced-foundation regression:
+  - `.venv/bin/python -m pytest tests/signals tests/research/test_capability_gates.py tests/market_data/test_tick_archive.py -q`
+  - result: `51 passed`
+
+## Next Recommended Stage
+
+Move to the v1 implementation cleanup stage:
+
+1. replace advanced gate counts on the start surface with TW daily data
+   readiness
+2. verify migration `0008` and persisted artifact reload in a real database
+3. close the residual diagnostics UI/spec interpretation gap
+4. deprecate or remove legacy frontend surfaces once the replacement flow is
+   confirmed

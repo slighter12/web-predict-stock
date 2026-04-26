@@ -36,6 +36,8 @@ from backend.market_data.contracts.operations import (
     TwCompanyCrawlerRunResponse,
     TwCompanyCrawlRequest,
     TwCompanyProfileResponse,
+    TwDailyReadinessRequest,
+    TwDailyReadinessResponse,
 )
 from backend.market_data.services.benchmark_profiles import (
     create_benchmark_profile,
@@ -63,6 +65,7 @@ from backend.market_data.services.recovery import (
     list_recovery_drills,
     list_recovery_schedules,
 )
+from backend.market_data.services.readiness import summarize_tw_daily_readiness
 from backend.market_data.services.replay import list_replays, replay_raw_payload
 from backend.market_data.services.scheduled_ingestion import (
     dispatch_due_scheduled_ingestions,
@@ -161,6 +164,17 @@ async def create_tick_archive_import_endpoint(
 )
 def read_tick_archives() -> list[TickArchiveObjectResponse]:
     return [TickArchiveObjectResponse(**item) for item in list_tick_archives()]
+
+
+@router.post(
+    "/api/v1/data/readiness/tw-daily",
+    tags=["Data Plane"],
+    response_model=TwDailyReadinessResponse,
+)
+def read_tw_daily_readiness(
+    request: TwDailyReadinessRequest,
+) -> TwDailyReadinessResponse:
+    return TwDailyReadinessResponse(**summarize_tw_daily_readiness(request))
 
 
 @router.post(

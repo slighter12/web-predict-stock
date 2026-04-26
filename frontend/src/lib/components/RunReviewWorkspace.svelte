@@ -872,11 +872,10 @@
             <div class="surface-header surface-header--stack">
                 <div>
                     <p class="eyebrow">Readiness Context</p>
-                    <h3>Capability state for this run</h3>
+                    <h3>Baseline capability state for this run</h3>
                 </div>
                 <p class="muted">
-                    Hidden advanced modules remain diagnostic context only.
-                    Current blocker count: {blockerCount}
+                    TW daily baseline readiness context. Current blocker count: {blockerCount}
                 </p>
             </div>
 
