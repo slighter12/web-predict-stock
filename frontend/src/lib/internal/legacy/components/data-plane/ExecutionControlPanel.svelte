@@ -9,8 +9,11 @@
         fetchKillSwitchEvents,
         fetchLiveOrders,
         fetchSimulationReadbacks,
-    } from "../../api";
-    import type { ExecutionOrderRecord, KillSwitchRecord } from "../../types";
+    } from "../../../api/legacy";
+    import type {
+        ExecutionOrderRecord,
+        KillSwitchRecord,
+    } from "../../../../types";
 
     let simulationForm = {
         market: "TW",

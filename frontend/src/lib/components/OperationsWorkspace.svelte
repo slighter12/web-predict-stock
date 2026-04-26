@@ -3,7 +3,6 @@
     import DataIngestionPanel from "./data-plane/DataIngestionPanel.svelte";
     import ReplayPanel from "./data-plane/ReplayPanel.svelte";
     import RecoveryDrillPanel from "./data-plane/RecoveryDrillPanel.svelte";
-    import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
     import LifecyclePanel from "./data-plane/LifecyclePanel.svelte";
     import ImportantEventPanel from "./data-plane/ImportantEventPanel.svelte";
 
@@ -13,8 +12,8 @@
             detail: "Manual catch-up and scheduled recovery stay here so the research flow does not turn into an operator console.",
         },
         {
-            title: "Replay And Archive",
-            detail: "Replay, tick archive, and verification remain operational surfaces for data durability work.",
+            title: "Replay Diagnostics",
+            detail: "Raw replay remains available for ingestion troubleshooting without exposing tick archive internals.",
         },
         {
             title: "Lifecycle Repair",
@@ -74,18 +73,17 @@
         <section class="surface">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Replay And Archive</p>
-                    <h3>Verify raw payload and archive durability</h3>
+                    <p class="eyebrow">Replay Diagnostics</p>
+                    <h3>Verify raw payload replay and restoration</h3>
                 </div>
                 <p class="muted">
-                    Replay and tick archive operations remain separate so the
-                    research flow does not become a maintenance console.
+                    Replay operations remain separate so the research flow does
+                    not become a maintenance console.
                 </p>
             </div>
 
             <div class="panel-grid panel-grid--stacked">
                 <ReplayPanel />
-                <TickArchivePanel />
             </div>
         </section>
 

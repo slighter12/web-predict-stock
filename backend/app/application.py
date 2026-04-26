@@ -45,8 +45,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Personal Quantitative Research Platform API",
-    description="Backend API for quantitative research and data-plane operations.",
+    title="TW Daily Quant ML Research Workbench API",
+    description="Public v1 API for TW daily baseline research, experiment review, and data readiness operations.",
     version="1.0.0",
 )
 

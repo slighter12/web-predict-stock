@@ -7,11 +7,11 @@
         createAdaptiveTrainingRun,
         fetchAdaptiveProfiles,
         fetchAdaptiveTrainingRuns,
-    } from "../../api";
+    } from "../../../api/legacy";
     import type {
         AdaptiveProfileRecord,
         AdaptiveTrainingRunRecord,
-    } from "../../types";
+    } from "../../../../types";
 
     let profileForm = {
         id: "adaptive_shadow_v1",

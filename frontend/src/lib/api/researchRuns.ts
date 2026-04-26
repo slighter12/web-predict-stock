@@ -1,5 +1,6 @@
 import type {
   AdaptiveProfileRecord,
+  LegacyResearchRunCreateRequest,
   ResearchFeatureRegistryResponse,
   AdaptiveTrainingRunRecord,
   ResearchPhaseGateResponse,
@@ -16,6 +17,14 @@ export const createResearchRun = (payload: ResearchRunCreateRequest) =>
     body: JSON.stringify(payload),
   });
 
+export const createLegacyResearchRun = (
+  payload: LegacyResearchRunCreateRequest,
+) =>
+  requestJson<ResearchRunResponse>("/api/v1/backtest", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export const fetchResearchRun = (runId: string) =>
   requestJson<ResearchRunRecord>(`/api/v1/research/runs/${runId}`);
 
@@ -25,7 +34,10 @@ export const fetchResearchRuns = () =>
 export const fetchResearchFeatureRegistry = () =>
   requestJson<ResearchFeatureRegistryResponse>("/api/v1/research/feature-registry");
 
-export const fetchResearchGate = (
+export const fetchResearchGate = (phase: "p3") =>
+  requestJson<ResearchPhaseGateResponse>(`/api/v1/research/gates/${phase}`);
+
+export const fetchLegacyResearchGate = (
   phase: "p3" | "p7" | "p8" | "p9" | "p10" | "p11",
 ) => requestJson<ResearchPhaseGateResponse>(`/api/v1/research/gates/${phase}`);
 

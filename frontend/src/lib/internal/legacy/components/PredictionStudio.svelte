@@ -8,7 +8,7 @@
         fetchResearchGate,
         fetchResearchRun,
         fetchSystemHealth,
-    } from "../api";
+    } from "../../api/legacy";
     import {
         DEFAULT_BUNDLE_VERSION,
         DEFAULT_RUNTIME_MODE,
@@ -20,14 +20,14 @@
         parseSymbols,
         predictionFeatureModulePresets,
         withFeatureModuleToggled,
-    } from "../state/predictionPipeline";
+    } from "../../../state/predictionPipeline";
     import {
         createFeatureRegistryQueryOptions,
         createIndicatorRow,
         getAllowedSources,
         getFeatureDefinitions,
         updateIndicatorFeatureName,
-    } from "../state/featureRegistry";
+    } from "../../../state/featureRegistry";
     import type {
         AppError,
         HealthResponse,
@@ -38,12 +38,12 @@
         ResearchRunRecord,
         ResearchRunResponse,
         RuntimeMode,
-    } from "../types";
-    import WorkspaceSection from "./layout/WorkspaceSection.svelte";
-    import EquityChart from "./EquityChart.svelte";
-    import ResearchRunMetrics from "./research-runs/ResearchRunMetrics.svelte";
-    import ResearchRunSignals from "./research-runs/ResearchRunSignals.svelte";
-    import ResearchRunValidation from "./research-runs/ResearchRunValidation.svelte";
+    } from "../../../types";
+    import WorkspaceSection from "../../../components/layout/WorkspaceSection.svelte";
+    import EquityChart from "../../../components/EquityChart.svelte";
+    import ResearchRunMetrics from "../../../components/research-runs/ResearchRunMetrics.svelte";
+    import ResearchRunSignals from "../../../components/research-runs/ResearchRunSignals.svelte";
+    import ResearchRunValidation from "../../../components/research-runs/ResearchRunValidation.svelte";
 
     type StageSummary = {
         id: StageId;

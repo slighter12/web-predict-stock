@@ -1,11 +1,11 @@
 <script lang="ts">
-    import WorkspaceSection from "./layout/WorkspaceSection.svelte";
-    import DataIngestionPanel from "./data-plane/DataIngestionPanel.svelte";
-    import ReplayPanel from "./data-plane/ReplayPanel.svelte";
-    import RecoveryDrillPanel from "./data-plane/RecoveryDrillPanel.svelte";
+    import WorkspaceSection from "../../../components/layout/WorkspaceSection.svelte";
+    import DataIngestionPanel from "../../../components/data-plane/DataIngestionPanel.svelte";
+    import ReplayPanel from "../../../components/data-plane/ReplayPanel.svelte";
+    import RecoveryDrillPanel from "../../../components/data-plane/RecoveryDrillPanel.svelte";
     import TickArchivePanel from "./data-plane/TickArchivePanel.svelte";
-    import LifecyclePanel from "./data-plane/LifecyclePanel.svelte";
-    import ImportantEventPanel from "./data-plane/ImportantEventPanel.svelte";
+    import LifecyclePanel from "../../../components/data-plane/LifecyclePanel.svelte";
+    import ImportantEventPanel from "../../../components/data-plane/ImportantEventPanel.svelte";
     import ExternalSignalPanel from "./data-plane/ExternalSignalPanel.svelte";
     import PeerInferencePanel from "./data-plane/PeerInferencePanel.svelte";
     import ExecutionControlPanel from "./data-plane/ExecutionControlPanel.svelte";

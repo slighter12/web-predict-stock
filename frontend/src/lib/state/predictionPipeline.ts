@@ -5,7 +5,7 @@ import type {
   PredictionFeatureModulePreset,
   PredictionPipelineDraft,
   ResearchFeatureRow,
-  ResearchRunCreateRequest,
+  LegacyResearchRunCreateRequest,
   RuntimeMode,
 } from "../types";
 import { getDefaultFeatureWindow } from "./featureRegistry";
@@ -221,7 +221,7 @@ export const parseScoringFactorIds = (value: string) =>
 
 export const buildResearchRunPayloadFromPipeline = (
   draft: PredictionPipelineDraft,
-): ResearchRunCreateRequest => ({
+): LegacyResearchRunCreateRequest => ({
   runtime_mode: draft.model.runtimeMode,
   default_bundle_version:
     draft.model.runtimeMode === VNEXT_SPEC_MODE

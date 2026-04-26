@@ -52,7 +52,7 @@ export interface ValidationConfig {
 export interface ResearchRunCreateRequest {
   runtime_mode: RuntimeMode;
   default_bundle_version?: DefaultBundleVersion;
-  market: MarketCode;
+  market: "TW";
   symbols: string[];
   date_range: {
     start: string;
@@ -79,6 +79,11 @@ export interface ResearchRunCreateRequest {
   baselines: BaselineName[];
   portfolio_aum?: number;
   monitor_profile_id?: ResearchMonitorProfileId | null;
+}
+
+export interface LegacyResearchRunCreateRequest
+  extends Omit<ResearchRunCreateRequest, "market"> {
+  market: MarketCode;
   factor_catalog_version?: string;
   scoring_factor_ids?: string[];
   external_signal_policy_version?: string;

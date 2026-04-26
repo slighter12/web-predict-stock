@@ -1,9 +1,13 @@
 from datetime import date, datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import backend.market_data.api as data_plane_api
+import backend.market_data.services.readiness as readiness_service
 from backend.app import app
+from backend.database import Base, DailyOHLCV, RawIngestAudit
 
 client = TestClient(app)
 
@@ -98,6 +102,117 @@ def test_replay_and_replay_list(monkeypatch):
     assert create_response.json()["id"] == 9
     assert list_response.status_code == 200
     assert list_response.json()[0]["restore_status"] == "succeeded"
+
+
+def test_tw_daily_readiness_endpoint(monkeypatch):
+    created_at = datetime.now(timezone.utc)
+    monkeypatch.setattr(
+        data_plane_api,
+        "summarize_tw_daily_readiness",
+        lambda request: {
+            "market": "TW",
+            "overall_status": "warning",
+            "evaluated_at": created_at,
+            "date_range": {"start": date(2026, 3, 1), "end": date(2026, 3, 20)},
+            "summary": {
+                "ready": 1,
+                "warning": 1,
+                "missing": 0,
+                "stale": 1,
+            },
+            "symbols": [
+                {
+                    "symbol": "2330",
+                    "status": "ready",
+                    "latest_daily_date": date(2026, 3, 20),
+                    "latest_raw_fetch_ts": created_at,
+                    "requested_trading_days": 14,
+                    "covered_trading_days": 14,
+                    "missing_trading_days": 0,
+                    "stale_trading_days": 0,
+                    "warnings": [],
+                },
+                {
+                    "symbol": "2317",
+                    "status": "warning",
+                    "latest_daily_date": date(2026, 3, 19),
+                    "latest_raw_fetch_ts": created_at,
+                    "requested_trading_days": 14,
+                    "covered_trading_days": 13,
+                    "missing_trading_days": 1,
+                    "stale_trading_days": 1,
+                    "warnings": ["Missing 1 of 14 requested trading days."],
+                },
+            ],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/data/readiness/tw-daily",
+        json={
+            "market": "TW",
+            "symbols": ["2330", "2317"],
+            "date_range": {"start": "2026-03-01", "end": "2026-03-20"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["overall_status"] == "warning"
+    assert response.json()["summary"]["ready"] == 1
+    assert response.json()["summary"]["stale"] == 1
+    assert response.json()["symbols"][1]["symbol"] == "2317"
+
+
+def test_tw_daily_readiness_counts_missing_weekdays(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(
+        bind=engine, tables=[DailyOHLCV.__table__, RawIngestAudit.__table__]
+    )
+    testing_session_local = sessionmaker(bind=engine)
+    monkeypatch.setattr(readiness_service, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                DailyOHLCV(
+                    date=date(2026, 3, 2),
+                    symbol="2330",
+                    source="test",
+                    market="TW",
+                    open=1,
+                    high=1,
+                    low=1,
+                    close=1,
+                    volume=100,
+                ),
+                DailyOHLCV(
+                    date=date(2026, 3, 4),
+                    symbol="2330",
+                    source="test",
+                    market="TW",
+                    open=1,
+                    high=1,
+                    low=1,
+                    close=1,
+                    volume=100,
+                ),
+            ]
+        )
+        session.commit()
+
+    request = data_plane_api.TwDailyReadinessRequest(
+        market="TW",
+        symbols=["2330"],
+        date_range={"start": date(2026, 3, 2), "end": date(2026, 3, 4)},
+    )
+
+    summary = readiness_service.summarize_tw_daily_readiness(request)
+
+    assert summary["overall_status"] == "warning"
+    assert summary["summary"]["warning"] == 1
+    assert summary["symbols"][0]["requested_trading_days"] == 3
+    assert summary["symbols"][0]["covered_trading_days"] == 2
+    assert summary["symbols"][0]["missing_trading_days"] == 1
 
 
 def test_recovery_lifecycle_and_important_event_endpoints(monkeypatch):

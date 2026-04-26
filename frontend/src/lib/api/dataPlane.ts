@@ -25,6 +25,8 @@ import type {
   TickOpsKpiResponse,
   TickReplayRecord,
   TickReplayRequest,
+  TwDailyReadinessRequest,
+  TwDailyReadinessResponse,
 } from "../types";
 
 import { requestJson } from "./client";
@@ -43,6 +45,12 @@ export const createReplay = (payload: ReplayRequest) =>
 
 export const fetchReplays = () =>
   requestJson<ReplayRecord[]>("/api/v1/data/replays");
+
+export const fetchTwDailyReadiness = (payload: TwDailyReadinessRequest) =>
+  requestJson<TwDailyReadinessResponse>("/api/v1/data/readiness/tw-daily", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
 export const createRecoveryDrill = (payload: RecoveryDrillRequest) =>
   requestJson<RecoveryDrillRecord>("/api/v1/data/recovery-drills", {

@@ -10,13 +10,13 @@
         fetchExternalSignals,
         fetchFactorCatalogs,
         fetchFactorMaterializations,
-    } from "../../api";
+    } from "../../../api/legacy";
     import type {
         ExternalSignalAuditRecord,
         ExternalSignalRecord,
         FactorCatalogRecord,
         FactorMaterializationRecord,
-    } from "../../types";
+    } from "../../../../types";
 
     let ingestionForm = {
         market: "TW",

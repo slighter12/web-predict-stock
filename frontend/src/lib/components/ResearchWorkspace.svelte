@@ -448,7 +448,7 @@
                 <div class="surface-header">
                     <div>
                         <p class="eyebrow">01 Universe</p>
-                        <h3>Choose the market and backtest window</h3>
+                        <h3>Choose the TW market backtest window</h3>
                     </div>
                     <button
                         type="button"
@@ -465,16 +465,13 @@
                 <div class="form-grid form-grid--four">
                     <label>
                         <span>Market</span>
-                        <select bind:value={draft.universe.market}>
-                            <option value="TW">TW</option>
-                            <option value="US">US</option>
-                        </select>
+                        <input value="TW" disabled />
                     </label>
                     <label class="form-grid__wide">
                         <span>Symbols</span>
                         <input
                             bind:value={draft.universe.symbolsInput}
-                            placeholder="2330, 2317, AAPL"
+                            placeholder="2330, 2317"
                         />
                         {#if errors.symbolsInput}<small
                                 >{errors.symbolsInput}</small

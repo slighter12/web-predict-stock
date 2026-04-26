@@ -10,14 +10,14 @@
         fetchTickArchives,
         fetchTickOpsKpis,
         fetchTickReplays,
-    } from "../../api";
+    } from "../../../api/legacy";
     import type {
         TickArchiveImportResponse,
         TickArchiveObjectRecord,
         TickArchiveRunRecord,
         TickOpsKpiResponse,
         TickReplayRecord,
-    } from "../../types";
+    } from "../../../../types";
 
     const toLocalDateValue = () => {
         const date = new Date();

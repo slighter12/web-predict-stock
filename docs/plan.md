@@ -60,16 +60,20 @@ inference, broad factor expansion, or tick archive operations.
 | `V1-Diagnostics` | `G3`, `G4` | regression run response and persisted record include model diagnostics | `persisted-reviewable` |
 | `V1-Artifacts` | `G2`, `G5` | persisted run stores request config, diagnostics, predictions/signals, equity curve, baselines, warnings, and runtime metadata | `persisted-reviewable` |
 | `V1-Experiments` | `G6` | experiments can be searched, filtered, sorted, loaded, and compared with caveats | `implemented` |
-| `V1-Classification-Spec` | `G3` | classification task fields and diagnostics are specified but not required in first code delivery | `contract-defined` |
+| `V1-Classification-Spec` | `G3` | classification task fields and diagnostics are specified but not required in first code delivery | `contract-defined as part of V1-Docs` |
 
 ## Delivery Order
 
 1. `V1-Docs`
-2. `V1-IA`
-3. `V1-Diagnostics`
-4. `V1-Artifacts`
-5. `V1-Experiments`
-6. `V1-Classification-Spec`
+2. `V1-Classification-Spec`
+3. `V1-IA`
+4. `V1-Diagnostics`
+5. `V1-Artifacts`
+6. `V1-Experiments`
+
+`V1-Classification-Spec` is listed separately for visibility, but it is part of
+the documentation contract and should be completed with `V1-Docs`, not after
+the implementation milestones.
 
 `V1-Diagnostics` and `V1-Artifacts` should be implemented together when the
 database contract changes, because model diagnostics are not useful if they only
