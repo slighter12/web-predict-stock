@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 import backend.app as backend_app
@@ -133,20 +134,10 @@ def test_create_research_run_success(monkeypatch):
     assert response.json()["metrics"]["total_return"] == 0.12
 
 
-def test_create_backtest_returns_full_research_run_response(monkeypatch):
-    monkeypatch.setattr(
-        research_runs_api, "create_research_run", lambda **kwargs: make_response()
-    )
-
+def test_legacy_backtest_route_is_not_public():
     response = client.post("/api/v1/backtest", json=make_payload())
 
-    assert response.status_code == 200
-    assert response.json()["run_id"] == "run_123"
-    assert response.json()["runtime_mode"] == "runtime_compatibility_mode"
-    assert response.json()["effective_strategy"]["threshold"] == 0.003
-    assert (
-        response.json()["threshold_policy_version"] == "static_absolute_gross_label_v1"
-    )
+    assert response.status_code == 404
 
 
 def test_create_research_run_rejects_non_tw_market():
@@ -375,3 +366,46 @@ def test_read_micro_kpis(monkeypatch):
     assert response.status_code == 200
     assert response.json()["gate_id"] == "GATE-P3-OPS-001"
     assert response.json()["selection_policy"]["market"] == "TW"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/api/v1/research/gates/p7"),
+        ("get", "/api/v1/research/gates/p8"),
+        ("get", "/api/v1/research/gates/p9"),
+        ("get", "/api/v1/research/gates/p10"),
+        ("get", "/api/v1/research/gates/p11"),
+        ("post", "/api/v1/research/adaptive-profiles"),
+        ("get", "/api/v1/research/adaptive-profiles"),
+        ("post", "/api/v1/research/adaptive-training-runs"),
+        ("get", "/api/v1/research/adaptive-training-runs"),
+        ("post", "/api/v1/execution/simulation-orders"),
+        ("get", "/api/v1/execution/simulation-readbacks"),
+        ("post", "/api/v1/execution/live-orders"),
+        ("get", "/api/v1/execution/live-orders"),
+        ("post", "/api/v1/execution/live-controls/kill-switch"),
+        ("get", "/api/v1/execution/live-controls/kill-switch"),
+        ("post", "/api/v1/data/external-signals"),
+        ("get", "/api/v1/data/external-signals"),
+        ("post", "/api/v1/data/external-signal-ingestions"),
+        ("get", "/api/v1/data/external-signal-ingestions"),
+        ("post", "/api/v1/data/external-signal-audits"),
+        ("get", "/api/v1/data/external-signal-audits"),
+        ("post", "/api/v1/data/factor-catalogs"),
+        ("get", "/api/v1/data/factor-catalogs"),
+        ("post", "/api/v1/data/factor-materializations"),
+        ("get", "/api/v1/data/factor-materializations"),
+        ("post", "/api/v1/data/cluster-snapshots"),
+        ("get", "/api/v1/data/cluster-snapshots"),
+        ("post", "/api/v1/data/peer-feature-runs"),
+        ("get", "/api/v1/data/peer-feature-runs"),
+    ],
+)
+def test_advanced_platform_routes_are_not_public(method: str, path: str):
+    request = getattr(client, method)
+    kwargs = {"json": {}} if method == "post" else {}
+
+    response = request(path, **kwargs)
+
+    assert response.status_code == 404

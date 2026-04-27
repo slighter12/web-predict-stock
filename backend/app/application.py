@@ -9,7 +9,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.execution.api import router as execution_router
 from backend.market_data.api import router as market_data_router
 from backend.platform.errors import BacktestError, DataAccessError
 from backend.platform.http.errors import (
@@ -35,7 +34,6 @@ from backend.research.services.registry import (
     record_unexpected_failure,
     record_validation_failure,
 )
-from backend.signals.api import router as signals_router
 from backend.system.api import router as system_router
 
 logging.basicConfig(
@@ -70,8 +68,6 @@ app.add_middleware(
 app.include_router(system_router)
 app.include_router(research_router)
 app.include_router(market_data_router)
-app.include_router(signals_router)
-app.include_router(execution_router)
 
 
 @app.get("/", tags=["Root"])

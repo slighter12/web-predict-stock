@@ -13,7 +13,7 @@
         },
         {
             title: "Replay Diagnostics",
-            detail: "Raw replay remains available for ingestion troubleshooting without exposing tick archive internals.",
+            detail: "Raw replay remains available for ingestion troubleshooting without exposing low-level archival internals.",
         },
         {
             title: "Lifecycle Repair",
@@ -26,7 +26,7 @@
     id="operations-workspace"
     eyebrow="Operations"
     title="Keep repair, replay, and correction workflows out of the main research path."
-    description="Operations is intentionally narrow in v2. Factor, peer, and adaptive setup now start from Research; this surface is only for data repair, replay, and market-state correction."
+    description="Operations is intentionally narrow in v1. This surface is only for TW daily data repair, raw replay, and market-state correction."
 >
     <div class="operations-shell">
         <section class="surface surface--overview">
@@ -95,7 +95,7 @@
                 </div>
                 <p class="muted">
                     Keep manual event and lifecycle repair together so the
-                    execution universe remains point-in-time correct.
+                    eligible universe remains point-in-time correct.
                 </p>
             </div>
 

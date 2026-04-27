@@ -1,16 +1,10 @@
 import type {
-  ArchiveBackupBackend,
-  ArchiveBackupStatus,
   ImportantEventType,
   KpiStatus,
   LifecycleEventType,
   MarketCode,
   RecoveryDrillCadence,
   RecoveryDrillTriggerMode,
-  TickArchiveStatus,
-  TickArchiveTriggerMode,
-  TickCompressionCodec,
-  TickStorageBackend,
   TimestampSourceClass,
 } from "./common";
 
@@ -201,89 +195,6 @@ export interface OpsKpiResponse {
   gate_id: string;
   overall_status: KpiStatus;
   metrics: Record<string, OpsKpiMetricResponse>;
-}
-
-export interface TickArchiveDispatchRequest {
-  market: MarketCode;
-  trading_date: string;
-  mode?: TickArchiveTriggerMode;
-  notes?: string;
-}
-
-export interface TickArchiveRunRecord {
-  id: number;
-  source_name: string;
-  market: MarketCode;
-  trading_date: string;
-  trigger_mode: TickArchiveTriggerMode;
-  scope: string;
-  status: TickArchiveStatus;
-  notes: string | null;
-  symbol_count: number;
-  request_count: number;
-  observation_count: number;
-  started_at: string;
-  completed_at: string | null;
-  abort_reason: string | null;
-  created_at: string;
-}
-
-export interface TickArchiveObjectRecord {
-  id: number;
-  run_id: number;
-  storage_backend: TickStorageBackend;
-  object_key: string;
-  compression_codec: TickCompressionCodec;
-  archive_layout_version: string;
-  compressed_bytes: number;
-  uncompressed_bytes: number;
-  compression_ratio: number;
-  record_count: number;
-  first_observation_ts: string | null;
-  last_observation_ts: string | null;
-  checksum: string;
-  retention_class: string;
-  backup_backend: ArchiveBackupBackend | null;
-  backup_object_key: string | null;
-  backup_status: ArchiveBackupStatus | null;
-  backup_completed_at: string | null;
-  backup_error: string | null;
-  created_at: string;
-}
-
-export interface TickArchiveImportResponse {
-  run: TickArchiveRunRecord;
-  archive_object: TickArchiveObjectRecord;
-}
-
-export interface TickReplayRequest {
-  archive_object_id: number;
-  benchmark_profile_id?: string;
-  notes?: string;
-}
-
-export interface TickReplayRecord {
-  id: number;
-  archive_object_id: number;
-  benchmark_profile_id: string | null;
-  notes: string | null;
-  restore_status: "succeeded" | "failed";
-  restored_row_count: number;
-  restore_started_at: string;
-  restore_completed_at: string | null;
-  elapsed_seconds: number | null;
-  throughput_gb_per_minute: number | null;
-  abort_reason: string | null;
-  created_at: string;
-}
-
-export interface TickOpsKpiResponse {
-  gate_id: string;
-  overall_status: KpiStatus;
-  metrics: Record<string, OpsKpiMetricResponse>;
-  binding_status?: string;
-  binding_reason?: string | null;
-  selection_policy?: Record<string, unknown>;
 }
 
 export interface ResearchGateArtifactResponse {

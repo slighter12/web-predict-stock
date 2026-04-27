@@ -8,12 +8,6 @@
         fetchResearchFeatureRegistry,
     } from "../api";
     import {
-        availableBaselines,
-        DEFAULT_BUNDLE_VERSION,
-        DEFAULT_RUNTIME_MODE,
-        VNEXT_SPEC_MODE,
-    } from "../state/predictionPipeline";
-    import {
         createFeatureRegistryQueryOptions,
         createIndicatorRow,
         getAllowedSources,
@@ -22,19 +16,22 @@
     } from "../state/featureRegistry";
     import {
         applyTemplateToDraft,
+        availableBaselines,
         buildResearchRunPayloadFromWorkflow,
         createDefaultResearchWorkflowDraft,
         createWorkflowSubmissionSummary,
+        DEFAULT_BUNDLE_VERSION,
+        DEFAULT_RUNTIME_MODE,
         getCapabilityDefinition,
         getModelFamilyById,
         getModelVariantById,
         modelFamilies,
-        parseScoringFactorIds,
         parseSymbols,
         researchCapabilityRegistry,
         researchTemplates,
         updateModelFamily,
         validateResearchWorkflow,
+        VNEXT_SPEC_MODE,
         withCapabilityToggled,
     } from "../state/researchWorkflow";
     import type {
@@ -314,13 +311,7 @@
             id: "evaluation",
             label: "04",
             title: "Diagnostics and Backtest",
-            summary: draft.capabilities.simulation_execution
-                ? `${getOptionLabel(draft.evaluation.executionRoute)} / ${
-                      draft.evaluation.enableValidation
-                          ? draft.evaluation.validationMethod
-                          : "validation off"
-                  }`
-                : `${draft.evaluation.validationMethod} / research only`,
+            summary: `${draft.evaluation.validationMethod} / research only`,
         },
         {
             id: "review",
@@ -365,8 +356,8 @@
                     <h3>Start from the v1 research loop</h3>
                 </div>
                 <p class="muted">
-                    Advanced execution, adaptive, peer, factor, and tick
-                    archive modules stay out of the main builder.
+                    The public builder only sends TW daily baseline payloads
+                    with technical indicators and research-only evaluation.
                 </p>
             </div>
 
@@ -1016,11 +1007,7 @@
                     </div>
                     <div class="review-card">
                         <span>Evaluation</span>
-                        <strong
-                            >{getOptionLabel(
-                                draft.evaluation.executionRoute,
-                            )}</strong
-                        >
+                        <strong>Research Only</strong>
                         <p>
                             {draft.evaluation.enableValidation
                                 ? draft.evaluation.validationMethod

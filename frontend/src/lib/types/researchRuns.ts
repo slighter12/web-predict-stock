@@ -1,10 +1,7 @@
 import type {
-  AdaptiveMode,
   BaselineName,
   DefaultBundleVersion,
-  ExecutionRoute,
   FeatureName,
-  MarketCode,
   ModelType,
   PriceSource,
   ReturnTarget,
@@ -79,25 +76,6 @@ export interface ResearchRunCreateRequest {
   baselines: BaselineName[];
   portfolio_aum?: number;
   monitor_profile_id?: ResearchMonitorProfileId | null;
-}
-
-export interface LegacyResearchRunCreateRequest
-  extends Omit<ResearchRunCreateRequest, "market"> {
-  market: MarketCode;
-  factor_catalog_version?: string;
-  scoring_factor_ids?: string[];
-  external_signal_policy_version?: string;
-  cluster_snapshot_version?: string;
-  peer_policy_version?: string;
-  execution_route?: ExecutionRoute;
-  simulation_profile_id?: string;
-  live_control_profile_id?: string;
-  manual_confirmed?: boolean;
-  adaptive_mode?: AdaptiveMode;
-  adaptive_profile_id?: string;
-  reward_definition_version?: string;
-  state_definition_version?: string;
-  rollout_control_version?: string;
 }
 
 export interface Metrics {

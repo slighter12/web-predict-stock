@@ -44,6 +44,9 @@ skills-lock.json
 
 # --- Project ---
 db/
+!backend/platform/db/
+!backend/platform/db/*.py
+backend/platform/db/__pycache__/
 data/
 var/
 Proxy.db
