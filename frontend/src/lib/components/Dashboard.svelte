@@ -75,7 +75,7 @@
         void loadTwDailyReadiness();
     });
 
-    $: capabilityReadiness = buildCapabilityReadinessMap([]);
+    $: capabilityReadiness = buildCapabilityReadinessMap();
     $: readinessCounts = readinessData?.summary ?? {
         ready: 0,
         warning: 0,
@@ -110,9 +110,9 @@
                 <p>Config, diagnostics, signals, equity, baselines, warnings.</p>
             </div>
             <div class="meta-card">
-                <span>Advanced</span>
-                <strong>Hidden by default</strong>
-                <p>Execution, adaptive, peer, factor, and tick archive modules.</p>
+                <span>Scope</span>
+                <strong>Public v1 surface</strong>
+                <p>Baseline builder, experiment review, and TW daily data readiness.</p>
             </div>
         </div>
     </section>

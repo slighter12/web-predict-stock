@@ -7,18 +7,11 @@ from fastapi import APIRouter, Request
 from pydantic import Field, confloat, conint, conlist, field_validator
 
 from backend.platform.http.request_context import get_request_id
-from backend.research.contracts.adaptive import (
-    AdaptiveProfileRequest,
-    AdaptiveProfileResponse,
-    AdaptiveTrainingRunRequest,
-    AdaptiveTrainingRunResponse,
-)
 from backend.research.contracts.governance import (
     ResearchMicroKpiResponse,
     ResearchPhaseGateResponse,
 )
 from backend.research.contracts.runs import (
-    BacktestRequest,
     DateRange,
     ExecutionConfig,
     FeatureRegistryResponse,
@@ -38,19 +31,6 @@ from backend.shared.contracts.common import (
     ResearchMonitorProfileId,
     ReturnTarget,
     RuntimeMode,
-)
-from backend.research.services.adaptive import (
-    create_adaptive_profile_record,
-    create_adaptive_training_run_record,
-    list_adaptive_profile_records,
-    list_adaptive_training_run_records,
-)
-from backend.research.services.capability_gates import (
-    get_p7_phase_gate_summary,
-    get_p8_phase_gate_summary,
-    get_p9_phase_gate_summary,
-    get_p10_phase_gate_summary,
-    get_p11_phase_gate_summary,
 )
 from backend.research.services.governance import get_p3_phase_gate_summary
 from backend.research.services.micro_kpis import get_micro_kpi_summary
@@ -144,15 +124,6 @@ def create_research_run_endpoint(
     return _create_research_run_response(http_request, request.to_internal_request())
 
 
-@router.post(
-    "/api/v1/backtest", tags=["Research Runs"], response_model=ResearchRunResponse
-)
-def create_backtest_endpoint(
-    http_request: Request, request: BacktestRequest
-) -> ResearchRunResponse:
-    return _create_research_run_response(http_request, request)
-
-
 @router.get(
     "/api/v1/research/runs/{run_id}",
     tags=["Research Runs"],
@@ -199,91 +170,3 @@ def read_p3_gate() -> ResearchPhaseGateResponse:
 )
 def read_micro_kpis(market: str = "TW") -> ResearchMicroKpiResponse:
     return ResearchMicroKpiResponse(**get_micro_kpi_summary(market=market))
-
-
-@router.get(
-    "/api/v1/research/gates/p7",
-    tags=["Research Runs"],
-    response_model=ResearchPhaseGateResponse,
-)
-def read_p7_gate() -> ResearchPhaseGateResponse:
-    return ResearchPhaseGateResponse(**get_p7_phase_gate_summary())
-
-
-@router.get(
-    "/api/v1/research/gates/p8",
-    tags=["Research Runs"],
-    response_model=ResearchPhaseGateResponse,
-)
-def read_p8_gate() -> ResearchPhaseGateResponse:
-    return ResearchPhaseGateResponse(**get_p8_phase_gate_summary())
-
-
-@router.get(
-    "/api/v1/research/gates/p9",
-    tags=["Research Runs"],
-    response_model=ResearchPhaseGateResponse,
-)
-def read_p9_gate() -> ResearchPhaseGateResponse:
-    return ResearchPhaseGateResponse(**get_p9_phase_gate_summary())
-
-
-@router.get(
-    "/api/v1/research/gates/p10",
-    tags=["Research Runs"],
-    response_model=ResearchPhaseGateResponse,
-)
-def read_p10_gate() -> ResearchPhaseGateResponse:
-    return ResearchPhaseGateResponse(**get_p10_phase_gate_summary())
-
-
-@router.get(
-    "/api/v1/research/gates/p11",
-    tags=["Research Runs"],
-    response_model=ResearchPhaseGateResponse,
-)
-def read_p11_gate() -> ResearchPhaseGateResponse:
-    return ResearchPhaseGateResponse(**get_p11_phase_gate_summary())
-
-
-@router.post(
-    "/api/v1/research/adaptive-profiles",
-    tags=["Research Runs"],
-    response_model=AdaptiveProfileResponse,
-)
-def create_adaptive_profile_endpoint(
-    request: AdaptiveProfileRequest,
-) -> AdaptiveProfileResponse:
-    return AdaptiveProfileResponse(**create_adaptive_profile_record(request))
-
-
-@router.get(
-    "/api/v1/research/adaptive-profiles",
-    tags=["Research Runs"],
-    response_model=list[AdaptiveProfileResponse],
-)
-def read_adaptive_profiles() -> list[AdaptiveProfileResponse]:
-    return [AdaptiveProfileResponse(**item) for item in list_adaptive_profile_records()]
-
-
-@router.post(
-    "/api/v1/research/adaptive-training-runs",
-    tags=["Research Runs"],
-    response_model=AdaptiveTrainingRunResponse,
-)
-def create_adaptive_training_run_endpoint(
-    request: AdaptiveTrainingRunRequest,
-) -> AdaptiveTrainingRunResponse:
-    return AdaptiveTrainingRunResponse(**create_adaptive_training_run_record(request))
-
-
-@router.get(
-    "/api/v1/research/adaptive-training-runs",
-    tags=["Research Runs"],
-    response_model=list[AdaptiveTrainingRunResponse],
-)
-def read_adaptive_training_runs() -> list[AdaptiveTrainingRunResponse]:
-    return [
-        AdaptiveTrainingRunResponse(**item)
-        for item in list_adaptive_training_run_records()
-    ]

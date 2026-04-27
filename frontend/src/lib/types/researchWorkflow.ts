@@ -1,9 +1,6 @@
 import type {
-  AdaptiveMode,
   BaselineName,
   DefaultBundleVersion,
-  ExecutionRoute,
-  MarketCode,
   RuntimeMode,
   ValidationMethod,
 } from "./common";
@@ -16,19 +13,9 @@ export type ResearchWorkflowStageId =
   | "evaluation"
   | "review";
 
-export type ResearchTemplateId =
-  | "baseline_research"
-  | "factor_augmented_research"
-  | "peer_context_research"
-  | "adaptive_exploration";
+export type ResearchTemplateId = "baseline_research";
 
-export type ResearchCapabilityId =
-  | "technical_indicators"
-  | "factor_catalog"
-  | "external_signals"
-  | "peer_context"
-  | "simulation_execution"
-  | "adaptive_workflow";
+export type ResearchCapabilityId = "technical_indicators";
 
 export type ResearchCapabilityStatus =
   | "available"
@@ -45,7 +32,7 @@ export type ModelVariantId =
   | "lstm";
 
 export interface ResearchUniverseStage {
-  market: MarketCode;
+  market: "TW";
   symbolsInput: string;
   startDate: string;
   endDate: string;
@@ -55,11 +42,6 @@ export interface ResearchUniverseStage {
 
 export interface ResearchSignalSourceStage {
   indicatorRows: ResearchFeatureRow[];
-  factorCatalogVersion: string;
-  scoringFactorIdsInput: string;
-  externalSignalPolicyVersion: string;
-  clusterSnapshotVersion: string;
-  peerPolicyVersion: string;
 }
 
 export interface ResearchModelFamilyStage {
@@ -78,19 +60,10 @@ export interface ResearchEvaluationStage {
   validationSplits: number;
   validationTestSize: number;
   baselines: BaselineName[];
-  executionRoute: ExecutionRoute;
   slippage: number;
   fees: number;
   portfolioAum: number | null;
   recordAsMonitorRun: boolean;
-  simulationProfileId: string;
-  liveControlProfileId: string;
-  manualConfirmed: boolean;
-  adaptiveMode: AdaptiveMode;
-  adaptiveProfileId: string;
-  rewardDefinitionVersion: string;
-  stateDefinitionVersion: string;
-  rolloutControlVersion: string;
 }
 
 export interface ResearchWorkflowDraft {

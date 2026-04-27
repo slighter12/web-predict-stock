@@ -1,5 +1,7 @@
 import type {
+  BaselineName,
   CapabilityReadinessState,
+  DefaultBundleVersion,
   ModelFamilyDefinition,
   ModelFamilyId,
   ModelVariantDefinition,
@@ -7,7 +9,6 @@ import type {
   ResearchCapabilityDefinition,
   ResearchCapabilityId,
   ResearchCapabilityStatus,
-  ResearchPhaseGateResponse,
   ResearchSubmissionSummary,
   ResearchTemplateId,
   ResearchTemplatePreset,
@@ -17,17 +18,21 @@ import type {
   ResearchRunCreateRequest,
   ResearchRunRecord,
   ResearchRunResponse,
+  RuntimeMode,
 } from "../types";
-import {
-  DEFAULT_BUNDLE_VERSION,
-  DEFAULT_MONITOR_PROFILE_ID,
-  DEFAULT_RUNTIME_MODE,
-  DEFAULT_THRESHOLD,
-  DEFAULT_TOP_N,
-  VNEXT_SPEC_MODE,
-  availableBaselines,
-} from "./predictionPipeline";
 import { getDefaultFeatureWindow } from "./featureRegistry";
+
+export const DEFAULT_RUNTIME_MODE: RuntimeMode = "runtime_compatibility_mode";
+export const VNEXT_SPEC_MODE: RuntimeMode = "vnext_spec_mode";
+export const DEFAULT_BUNDLE_VERSION: DefaultBundleVersion = "research_spec_v1";
+export const DEFAULT_THRESHOLD = 0.003;
+export const DEFAULT_TOP_N = 5;
+export const DEFAULT_MONITOR_PROFILE_ID = "p3_monitor_default_v1" as const;
+export const availableBaselines: BaselineName[] = [
+  "buy_and_hold",
+  "naive_momentum",
+  "ma_crossover",
+];
 
 const formatLocalDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
@@ -60,13 +65,6 @@ const defaultIndicator = (
   source,
   shift: 1,
 });
-
-const capabilityStatusRank: Record<ResearchCapabilityStatus, number> = {
-  available: 0,
-  setup_required: 1,
-  gated: 2,
-  not_implemented: 3,
-};
 
 export const researchTemplates: ResearchTemplatePreset[] = [
   {
@@ -150,23 +148,12 @@ const createDefaultCapabilities = (): Record<
   boolean
 > => ({
   technical_indicators: true,
-  factor_catalog: false,
-  external_signals: false,
-  peer_context: false,
-  simulation_execution: false,
-  adaptive_workflow: false,
 });
 
 export const parseSymbols = (symbolsInput: string) =>
   symbolsInput
     .split(",")
     .map((symbol) => symbol.trim())
-    .filter(Boolean);
-
-export const parseScoringFactorIds = (value: string) =>
-  value
-    .split(",")
-    .map((item) => item.trim())
     .filter(Boolean);
 
 const getTemplateById = (templateId: ResearchTemplateId) =>
@@ -213,11 +200,6 @@ export const createDefaultResearchWorkflowDraft = (
     },
     signalSources: {
       indicatorRows: [defaultIndicator(0, "ma"), defaultIndicator(1, "rsi")],
-      factorCatalogVersion: "",
-      scoringFactorIdsInput: "",
-      externalSignalPolicyVersion: "",
-      clusterSnapshotVersion: "",
-      peerPolicyVersion: "",
     },
     modelFamily: {
       familyId: template.recommendedFamilyId,
@@ -234,19 +216,10 @@ export const createDefaultResearchWorkflowDraft = (
       validationSplits: 3,
       validationTestSize: 0.2,
       baselines: ["buy_and_hold", "naive_momentum"],
-      executionRoute: "research_only",
       slippage: 0.001,
       fees: 0.002,
       portfolioAum: null,
       recordAsMonitorRun: false,
-      simulationProfileId: "",
-      liveControlProfileId: "",
-      manualConfirmed: false,
-      adaptiveMode: "off",
-      adaptiveProfileId: "",
-      rewardDefinitionVersion: "",
-      stateDefinitionVersion: "",
-      rolloutControlVersion: "",
     },
   };
 };
@@ -262,41 +235,7 @@ const resetCapabilityFields = (
     evaluation: { ...draft.evaluation },
   };
 
-  if (capabilityId === "factor_catalog") {
-    nextDraft.signalSources.factorCatalogVersion = "";
-    nextDraft.signalSources.scoringFactorIdsInput = "";
-  }
-
-  if (capabilityId === "external_signals") {
-    nextDraft.signalSources.externalSignalPolicyVersion = "";
-  }
-
-  if (capabilityId === "peer_context") {
-    nextDraft.signalSources.clusterSnapshotVersion = "";
-    nextDraft.signalSources.peerPolicyVersion = "";
-  }
-
-  if (capabilityId === "simulation_execution") {
-    nextDraft.evaluation.executionRoute = "research_only";
-    nextDraft.evaluation.simulationProfileId = "";
-    nextDraft.evaluation.liveControlProfileId = "";
-    nextDraft.evaluation.manualConfirmed = false;
-    nextDraft.capabilities.adaptive_workflow = false;
-    nextDraft.evaluation.adaptiveMode = "off";
-    nextDraft.evaluation.adaptiveProfileId = "";
-    nextDraft.evaluation.rewardDefinitionVersion = "";
-    nextDraft.evaluation.stateDefinitionVersion = "";
-    nextDraft.evaluation.rolloutControlVersion = "";
-  }
-
-  if (capabilityId === "adaptive_workflow") {
-    nextDraft.evaluation.adaptiveMode = "off";
-    nextDraft.evaluation.adaptiveProfileId = "";
-    nextDraft.evaluation.rewardDefinitionVersion = "";
-    nextDraft.evaluation.stateDefinitionVersion = "";
-    nextDraft.evaluation.rolloutControlVersion = "";
-  }
-
+  void capabilityId;
   return nextDraft;
 };
 
@@ -320,60 +259,6 @@ export const withCapabilityToggled = (
       return draft;
     }
     return resetCapabilityFields(nextDraft, capabilityId);
-  }
-
-  if (capabilityId === "factor_catalog") {
-    nextDraft.signalSources.factorCatalogVersion =
-      nextDraft.signalSources.factorCatalogVersion || "factor_catalog_v1";
-  }
-
-  if (capabilityId === "external_signals") {
-    nextDraft.signalSources.externalSignalPolicyVersion =
-      nextDraft.signalSources.externalSignalPolicyVersion ||
-      "tw_company_event_layer_v1";
-  }
-
-  if (capabilityId === "peer_context") {
-    nextDraft.signalSources.clusterSnapshotVersion =
-      nextDraft.signalSources.clusterSnapshotVersion ||
-      "peer_cluster_kmeans_v1";
-    nextDraft.signalSources.peerPolicyVersion =
-      nextDraft.signalSources.peerPolicyVersion ||
-      "cluster_nearest_neighbors_v1";
-  }
-
-  if (capabilityId === "simulation_execution") {
-    nextDraft.evaluation.executionRoute =
-      nextDraft.evaluation.executionRoute === "research_only"
-        ? "simulation_internal_v1"
-        : nextDraft.evaluation.executionRoute;
-    nextDraft.evaluation.simulationProfileId =
-      nextDraft.evaluation.simulationProfileId ||
-      "simulation_internal_default_v1";
-  }
-
-  if (capabilityId === "adaptive_workflow") {
-    nextDraft.capabilities.simulation_execution = true;
-    nextDraft.evaluation.executionRoute =
-      nextDraft.evaluation.executionRoute === "research_only"
-        ? "simulation_internal_v1"
-        : nextDraft.evaluation.executionRoute;
-    nextDraft.evaluation.simulationProfileId =
-      nextDraft.evaluation.simulationProfileId ||
-      "simulation_internal_default_v1";
-    nextDraft.evaluation.adaptiveMode =
-      nextDraft.evaluation.adaptiveMode === "off"
-        ? "shadow"
-        : nextDraft.evaluation.adaptiveMode;
-    nextDraft.evaluation.adaptiveProfileId =
-      nextDraft.evaluation.adaptiveProfileId || "adaptive_shadow_v1";
-    nextDraft.evaluation.rewardDefinitionVersion =
-      nextDraft.evaluation.rewardDefinitionVersion ||
-      "reward_daily_active_return_v1";
-    nextDraft.evaluation.stateDefinitionVersion =
-      nextDraft.evaluation.stateDefinitionVersion || "state_market_context_v1";
-    nextDraft.evaluation.rolloutControlVersion =
-      nextDraft.evaluation.rolloutControlVersion || "rollout_shadow_only_v1";
   }
 
   return nextDraft;
@@ -412,17 +297,10 @@ const getFallbackReadiness = (
   };
 };
 
-const upgradeStatus = (
-  current: CapabilityReadinessState,
-  incoming: CapabilityReadinessState,
-) =>
-  capabilityStatusRank[incoming.status] > capabilityStatusRank[current.status]
-    ? incoming
-    : current;
-
-export const buildCapabilityReadinessMap = (
-  gates: ResearchPhaseGateResponse[],
-): Record<ResearchCapabilityId, CapabilityReadinessState> => {
+export const buildCapabilityReadinessMap = (): Record<
+  ResearchCapabilityId,
+  CapabilityReadinessState
+> => {
   const readiness = Object.fromEntries(
     researchCapabilityRegistry.map((capability) => [
       capability.id,
