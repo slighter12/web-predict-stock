@@ -15,7 +15,7 @@ in the v1 product navigation.
 
 ## Status Scope
 
-- status date: `2026-04-26`
+- status date: `2026-05-12`
 - status terms:
   - `implemented`: behavior exists and is usable in the current codebase
   - `partial`: meaningful foundation exists, but the v1 product expectation is
@@ -30,7 +30,7 @@ in the v1 product navigation.
 | Workbench product direction | implemented | README, goals, plan, spec, and gates describe the v1 workbench direction |
 | Start / Builder / Experiments / Data Ops shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
 | Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
-| Regression diagnostics contract | partial | backend and frontend types include `model_diagnostics`; validation still needs end-to-end artifact checks |
+| Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
 | Persisted result artifacts | partial | DB/model/repository support exists for diagnostics, equity, signals, and baselines; old records still need fallback handling |
 | Experiments comparison | partial | search, sort, load, and compare UI foundations exist; comparison explanations still need hardening |
 | Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
@@ -119,8 +119,8 @@ These foundations are implementation inventory, not v1 product scope.
 
 - legacy `PredictionStudio` and `MaintenanceWorkspace` should be removed once
   the current workbench surfaces fully replace them
-- residual diagnostics need either a dedicated UI section or an explicit
-  product decision that residuals are represented inside diagnostic sample rows
+- residual diagnostics now have a dedicated sample section in the persisted run
+  review surface
 - comparison UI needs clearer reason labels for non-comparable or
   metadata-only runs
 
@@ -153,6 +153,7 @@ Move to the v1 implementation cleanup stage:
 1. replace advanced gate counts on the start surface with TW daily data
    readiness
 2. verify migration `0008` and persisted artifact reload in a real database
-3. close the residual diagnostics UI/spec interpretation gap
+3. verify the residual diagnostics UI against persisted records with and without
+   artifact JSON
 4. deprecate or remove legacy frontend surfaces once the replacement flow is
    confirmed

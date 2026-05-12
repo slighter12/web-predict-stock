@@ -430,6 +430,12 @@ def _validate_sql_identifier(identifier: str) -> None:
         raise ValueError(f"Unsafe SQL identifier: {identifier}")
 
 
+def _table_name(model_class: type) -> str:
+    table_name = model_class.__table__.name
+    _validate_sql_identifier(table_name)
+    return table_name
+
+
 def _list_symbol_daily_trading_days(
     *,
     symbol: str,
@@ -440,7 +446,7 @@ def _list_symbol_daily_trading_days(
     query = text(
         f"""
         SELECT DISTINCT date
-        FROM {DailyOHLCV.__tablename__}
+        FROM {_table_name(DailyOHLCV)}
         WHERE symbol = :symbol
           AND market = :market
           AND date >= :start_date
@@ -471,7 +477,7 @@ def _list_symbol_minute_trading_days(
     query = text(
         f"""
         SELECT DISTINCT trading_date
-        FROM {MinuteOHLCV.__tablename__}
+        FROM {_table_name(MinuteOHLCV)}
         WHERE symbol = :symbol
           AND market = :market
           AND trading_date >= :start_date
@@ -1200,7 +1206,7 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                     _create_staging_table(
                         conn,
                         table_name=temp_table_name,
-                        like_table_name=DailyOHLCV.__tablename__,
+                        like_table_name=_table_name(DailyOHLCV),
                     )
                     validated_df.to_sql(
                         temp_table_name, conn, if_exists="append", index=False
@@ -1210,7 +1216,7 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                         text(
                             f"""
                             SELECT COUNT(*)
-                            FROM {DailyOHLCV.__tablename__} existing
+                            FROM {_table_name(DailyOHLCV)} existing
                             INNER JOIN {temp_table_name} incoming
                                 ON existing.date = incoming.date
                                AND existing.symbol = incoming.symbol
@@ -1231,7 +1237,7 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                     result = conn.execute(
                         text(
                             f"""
-                            INSERT INTO {DailyOHLCV.__tablename__} (
+                            INSERT INTO {_table_name(DailyOHLCV)} (
                                 date, symbol, market, source, open, high, low, close, volume,
                                 raw_payload_id, archive_object_reference, parser_version
                             )
@@ -1252,8 +1258,8 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
                             WHERE EXCLUDED.source IN (
                                     {official_source_placeholders}
                                 )
-                               OR {DailyOHLCV.__tablename__}.source IS NULL
-                               OR {DailyOHLCV.__tablename__}.source NOT IN (
+                               OR {_table_name(DailyOHLCV)}.source IS NULL
+                               OR {_table_name(DailyOHLCV)}.source NOT IN (
                                     {official_source_placeholders}
                                 )
                             """
@@ -1320,7 +1326,7 @@ def load_minute_to_db(
                     _create_staging_table(
                         conn,
                         table_name=temp_table_name,
-                        like_table_name=MinuteOHLCV.__tablename__,
+                        like_table_name=_table_name(MinuteOHLCV),
                     )
                     validated_df.to_sql(
                         temp_table_name, conn, if_exists="append", index=False
@@ -1328,7 +1334,7 @@ def load_minute_to_db(
                     result = conn.execute(
                         text(
                             f"""
-                            INSERT INTO {MinuteOHLCV.__tablename__} (
+                            INSERT INTO {_table_name(MinuteOHLCV)} (
                                 market, symbol, bar_ts, trading_date, source,
                                 open, high, low, close, volume,
                                 raw_payload_id, parser_version
