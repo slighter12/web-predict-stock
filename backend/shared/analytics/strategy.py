@@ -13,6 +13,7 @@ VNEXT_SPEC_MODE = "vnext_spec_mode"
 RESEARCH_SPEC_V1 = "research_spec_v1"
 THRESHOLD_POLICY_VERSION = "static_absolute_gross_label_v1"
 COMPARISON_ELIGIBILITY = "comparison_metadata_only"
+RESEARCH_ONLY_COMPARABLE = "research_only_comparable"
 FINAL_COMPARISON_PENDING = "sample_window_pending"
 PRICE_BASIS_VERSION_TEMPLATE = (
     "label_{return_target}__entry_ohlc_default__exit_ohlc_default__benchmark_unset_v1"
@@ -238,15 +239,18 @@ def build_comparison_eligibility(
 ) -> str:
     if corporate_event_state == "unresolved_corporate_event":
         return "unresolved_event_quarantine"
-    # Reserved for a future sample-window gate. Current callers intentionally keep
-    # this disabled until the underlying comparability check is implemented.
-    if sample_window_pending and (
+    has_core_comparison_metadata = (
         price_basis_version is not None
         and threshold_policy_version is not None
         and execution_cost_model_version is not None
-    ):
+    )
+    if not has_core_comparison_metadata:
+        return COMPARISON_ELIGIBILITY
+    # Reserved for a future sample-window gate. Current callers intentionally keep
+    # this disabled until the underlying comparability check is implemented.
+    if sample_window_pending:
         return FINAL_COMPARISON_PENDING
-    return COMPARISON_ELIGIBILITY
+    return RESEARCH_ONLY_COMPARABLE
 
 
 def get_strategy_runner(strategy_type: str) -> StrategyRunner:

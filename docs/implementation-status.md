@@ -31,8 +31,8 @@ in the v1 product navigation.
 | Start / Builder / Experiments / Data Ops shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
 | Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
-| Persisted result artifacts | partial | DB/model/repository support exists for diagnostics, equity, signals, and baselines; old records still need fallback handling |
-| Experiments comparison | partial | search, sort, load, and compare UI foundations exist; comparison explanations still need hardening |
+| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, and runtime metadata; old metadata-only records show explicit fallback copy |
+| Experiments comparison | partial | search, sort, load, and compare UI foundations exist; complete research-review runs no longer appear as metadata-only, while deeper comparison explanations still need hardening |
 | Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
@@ -126,19 +126,45 @@ These foundations are implementation inventory, not v1 product scope.
 
 ### Backend
 
-- persisted artifact reload should be verified end to end after migration
-  `0008`
-- old records without artifact JSON need clear fallback responses and UI copy
 - classification remains specification-only
+- comparison caveat labels still need deeper hardening for non-comparable runs,
+  such as sample-window, target, feature, and cost-basis mismatch cases
 - hidden advanced foundations may stay reachable for diagnostics and legacy
   tooling, but should not return to the v1 navigation without a roadmap
   decision
 
 ## Latest Local Verification
 
+- persisted artifact reload verification:
+  - Docker DB started with the default compose volume
+  - migration applied with `.venv/bin/python -m alembic upgrade head`
+  - deterministic `V1VERIFY` TW daily fixture created and cleaned up
+  - successful run reloaded through `GET /api/v1/research/runs/{run_id}`
+  - result: request config, diagnostics, residuals, equity curve, signals,
+    baselines, warnings, metrics, and runtime metadata reloaded correctly
+- browser smoke:
+  - `agent-browser` verified the Experiments surface for a successful run and a
+    metadata-only fallback record
+  - result: successful run showed diagnostics, residuals, equity, validation,
+    baselines, and signals; metadata-only run showed explicit fallback copy
+- comparison eligibility verification:
+  - two successful `V1COMPARE` runs were created through the API against a
+    Docker DB fixture and reloaded from persisted records
+  - result: both runs returned `research_only_comparable`, appeared as
+    `Research-only comparable` in Experiments, and compared with model-config
+    caveats instead of metadata-only warnings
 - frontend typecheck:
   - `bun x tsc -p frontend/tsconfig.json --noEmit`
   - result: passed
+- frontend build:
+  - `cd frontend && bun run build`
+  - result: passed
+- lockfile check:
+  - `uv lock --check`
+  - result: passed
+- backend regression:
+  - `.venv/bin/python -m pytest -q`
+  - result: `248 passed`
 - public-surface targeted tests:
   - `.venv/bin/python -m pytest tests/research/test_research_api.py tests/market_data/test_market_data_api.py tests/platform/test_system_api.py tests/market_data/test_tick_archive_api.py -q`
   - result: `22 passed`
@@ -150,10 +176,11 @@ These foundations are implementation inventory, not v1 product scope.
 
 Move to the v1 implementation cleanup stage:
 
-1. replace advanced gate counts on the start surface with TW daily data
-   readiness
-2. verify migration `0008` and persisted artifact reload in a real database
-3. verify the residual diagnostics UI against persisted records with and without
-   artifact JSON
+1. verify the full usable loop: Start -> Builder -> Run -> Review -> Reload ->
+   Compare
+2. harden comparison caveats for non-comparable runs across sample-window,
+   target, feature, and cost-basis mismatch cases
+3. keep Data Ops secondary to the main research loop, and remove any remaining
+   advanced/platform language from the default path
 4. deprecate or remove legacy frontend surfaces once the replacement flow is
    confirmed

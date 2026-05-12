@@ -51,8 +51,9 @@ promotes them deliberately.
 | Research-run core | implemented | run creation, registry records, runtime metadata, and saved-run lookup exist |
 | TW daily data readiness | implemented with diagnostics | ingestion, replay, lifecycle, important-event, and recovery surfaces support data trust checks |
 | Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
-| Regression diagnostics | in progress | v1 requires persisted model-quality artifacts, not strategy metrics alone |
-| Experiment comparison | in progress | persisted runs must be searchable, loadable, and comparable with clear caveats |
+| Regression diagnostics | implemented | successful regression runs return and reload model-quality artifacts before strategy interpretation |
+| Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, and runtime metadata |
+| Experiment comparison | in progress | search, load, and compare work; eligibility labels now distinguish complete research-review runs from metadata-only records |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
 
 For the fuller implementation inventory, use
@@ -82,9 +83,6 @@ include lower-level or advanced foundations that are not v1 product commitments.
 
 ## Still Partial Or Deferred
 
-- persisted runs need complete model diagnostics, predictions/signals, equity
-  curve, baselines, warnings, runtime metadata, and request config available
-  after reload
 - classification is specified but not implemented in the first code pass
 - comparison needs clearer eligibility and reason labels when runs should not be
   compared
