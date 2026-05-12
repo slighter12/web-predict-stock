@@ -5,6 +5,10 @@
 
     const formatNumber = (value: number | null | undefined) =>
         value === null || value === undefined ? "N/A" : value.toFixed(4);
+
+    $: recentPredictionSamples =
+        diagnostics?.actual_vs_predicted.slice(-8) ?? [];
+    $: recentResidualSamples = diagnostics?.residuals.slice(-8) ?? [];
 </script>
 
 <section class="surface diagnostics-surface">
@@ -47,7 +51,7 @@
                         <h4>Recent Samples</h4>
                     </div>
                 </div>
-                {#if diagnostics.actual_vs_predicted.length}
+                {#if recentPredictionSamples.length}
                     <div class="table-wrap">
                         <table>
                             <thead>
@@ -59,7 +63,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                {#each diagnostics.actual_vs_predicted.slice(-8) as point}
+                                {#each recentPredictionSamples as point}
                                     <tr>
                                         <td>{point.date}</td>
                                         <td>{point.symbol}</td>
@@ -72,6 +76,39 @@
                     </div>
                 {:else}
                     <p class="muted">No prediction samples were persisted.</p>
+                {/if}
+            </div>
+
+            <div>
+                <div class="surface-header">
+                    <div>
+                        <p class="eyebrow">Residuals</p>
+                        <h4>Recent Errors</h4>
+                    </div>
+                </div>
+                {#if recentResidualSamples.length}
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Symbol</th>
+                                    <th>Residual</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {#each recentResidualSamples as point}
+                                    <tr>
+                                        <td>{point.date}</td>
+                                        <td>{point.symbol}</td>
+                                        <td>{formatNumber(point.residual)}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                {:else}
+                    <p class="muted">No residual samples were persisted.</p>
                 {/if}
             </div>
 
@@ -138,7 +175,9 @@
     }
 
     .diagnostic-columns {
-        grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+        grid-template-columns:
+            minmax(0, 1.1fr) minmax(240px, 0.8fr)
+            minmax(240px, 0.7fr);
     }
 
     @media (max-width: 1100px) {
