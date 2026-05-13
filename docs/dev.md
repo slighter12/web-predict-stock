@@ -119,6 +119,37 @@ Run TW market daily batch ingestion when a broader local dataset is needed:
 .venv/bin/python -m scripts.crawl_tw_daily_batch 2026-03-20 --refresh-universe
 ```
 
+## V1 Usable-Loop Verification
+
+The core manual path is:
+
+```text
+Start -> Builder -> Run -> Review -> Reload -> Compare
+```
+
+For a clean local database, load at least the default TW daily symbol before
+expecting the run path to succeed:
+
+```bash
+INGEST_SYMBOL=2330 INGEST_MARKET=TW INGEST_YEARS=3 \
+  .venv/bin/python -m scripts.market_data_ingestion
+```
+
+The Start readiness panel may report `warning` when some requested trading days
+are missing. That does not automatically block v1 research runs; the blocker is
+insufficient model-ready rows after feature generation, shifting, target
+alignment, and null filtering.
+
+After DB, migrations, backend, frontend, and data are ready, verify:
+
+- Start shows TW daily readiness context for the requested symbol
+- Builder opens from the baseline task and defaults to Extra Trees
+- Run creates a successful research record
+- Review shows diagnostics, equity, validation, baselines, and signals
+- Reload plus Load restores the persisted result
+- Compare can select two complete runs and shows dataset, target, feature,
+  model, cost-basis, metrics, baseline delta, and caveat fields
+
 ## Frontend
 
 The frontend lives in `frontend/` and uses `bun`.

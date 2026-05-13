@@ -31,6 +31,7 @@ stable across multiple implementation tasks.
 | `DEC-V1-007` | advanced/platform modules are hidden by default | accepted | execution, adaptive, peer, factor, external-signal, and tick archive modules are not default workflow requirements |
 | `DEC-V1-008` | v1 readiness denominator is requested-symbol coverage | accepted | readiness reports requested symbols over the requested date range using currently known TW daily market dates; exchange-calendar authority is deferred |
 | `DEC-V1-009` | advanced APIs remain available as internal foundations | accepted | advanced routes may stay reachable for diagnostics and legacy tooling, but they must stay out of v1 navigation and baseline workflow requirements |
+| `DEC-V1-010` | v1 baseline builder defaults to Extra Trees | accepted | the default research loop avoids requiring the XGBoost native runtime while keeping XGBoost and Random Forest selectable variants |
 
 ## Open V1 Decisions
 

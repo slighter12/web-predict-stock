@@ -53,7 +53,7 @@ promotes them deliberately.
 | Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
 | Regression diagnostics | implemented | successful regression runs return and reload model-quality artifacts before strategy interpretation |
 | Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, and runtime metadata |
-| Experiment comparison | in progress | search, load, and compare work; eligibility labels now distinguish complete research-review runs from metadata-only records |
+| Experiment comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; non-comparable reason labels still need taxonomy hardening |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
 
 For the fuller implementation inventory, use
@@ -84,8 +84,8 @@ include lower-level or advanced foundations that are not v1 product commitments.
 ## Still Partial Or Deferred
 
 - classification is specified but not implemented in the first code pass
-- comparison needs clearer eligibility and reason labels when runs should not be
-  compared
+- comparison reason taxonomy still needs hardening for runs that should not be
+  compared, but the core persisted comparison loop is usable
 - execution, adaptive, peer, factor, and tick archive modules are deferred from
   the v1 main workflow
 
