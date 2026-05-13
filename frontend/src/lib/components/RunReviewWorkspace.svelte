@@ -50,6 +50,11 @@
         modelSignature: string;
         costLabel: string;
         costSignature: string;
+        priceBasisLabel: string;
+        priceBasisSignature: string;
+        missingFeaturePolicyLabel: string;
+        missingFeaturePolicySignature: string;
+        missingDimensions: string[];
     };
 
     let selectedRunId = "";
@@ -187,6 +192,21 @@
 
     const uniqueValues = (values: string[]) => [...new Set(values)];
 
+    const isMissingComparisonValue = (value: unknown) =>
+        value === null ||
+        value === undefined ||
+        (typeof value === "string" && (!value.trim() || value === "N/A"));
+
+    const addMissingDimension = (
+        missingDimensions: string[],
+        label: string,
+        values: unknown[],
+    ) => {
+        if (values.some(isMissingComparisonValue)) {
+            missingDimensions.push(label);
+        }
+    };
+
     const getPayloadObject = (
         payload: Record<string, unknown> | null | undefined,
         key: string,
@@ -261,12 +281,13 @@
         const fees = getPayloadText(execution, "fees");
         const version = run.execution_cost_model_version ?? "N/A";
         return {
-            label: `fee ${fees} / slip ${slippage}`,
+            label: `fee ${fees} / slip ${slippage} / ${version}`,
             signature: stableStringify({
-                execution,
+                fees,
+                slippage,
                 execution_cost_model_version: version,
-                price_basis_version: run.price_basis_version,
             }),
+            missingValues: [fees, slippage, version],
         };
     };
 
@@ -275,13 +296,40 @@
         const dateRange = getDateRangeParts(run.request_payload);
         const model = getModelFields(run.request_payload);
         const cost = getCostFields(run);
-        const targetLabel = `${getPayloadText(
+        const returnTarget = getPayloadText(
             run.request_payload,
             "return_target",
-        )} / ${getPayloadText(run.request_payload, "horizon_days")}d`;
+        );
+        const horizonDays = getPayloadText(run.request_payload, "horizon_days");
+        const targetLabel = `${returnTarget} / ${horizonDays}d`;
         const datasetLabel = `${run.market ?? "N/A"} / ${
             symbols.length ? symbols.join(", ") : "N/A"
         } / ${dateRange.start} to ${dateRange.end}`;
+        const featureSignature = getFeatureSignature(run.request_payload);
+        const priceBasisLabel = run.price_basis_version ?? "N/A";
+        const missingFeaturePolicyLabel = `${
+            run.missing_feature_policy_state ?? "N/A"
+        } / ${run.missing_feature_policy_version ?? "N/A"}`;
+        const missingDimensions: string[] = [];
+
+        addMissingDimension(missingDimensions, "dataset", [
+            run.market,
+            symbols.length ? symbols.join(",") : null,
+            dateRange.start,
+            dateRange.end,
+        ]);
+        addMissingDimension(missingDimensions, "target", [
+            returnTarget,
+            horizonDays,
+        ]);
+        addMissingDimension(missingDimensions, "features", [featureSignature]);
+        addMissingDimension(missingDimensions, "model config", [model.signature]);
+        addMissingDimension(missingDimensions, "cost basis", cost.missingValues);
+        addMissingDimension(missingDimensions, "price basis", [priceBasisLabel]);
+        addMissingDimension(missingDimensions, "missing-feature policy", [
+            run.missing_feature_policy_state,
+            run.missing_feature_policy_version,
+        ]);
 
         return {
             datasetLabel,
@@ -292,21 +340,24 @@
             }),
             targetLabel,
             targetSignature: stableStringify({
-                return_target: getPayloadText(
-                    run.request_payload,
-                    "return_target",
-                ),
-                horizon_days: getPayloadText(
-                    run.request_payload,
-                    "horizon_days",
-                ),
+                return_target: returnTarget,
+                horizon_days: horizonDays,
             }),
             featureLabel: getFeatureLabel(run.request_payload),
-            featureSignature: getFeatureSignature(run.request_payload) || "N/A",
+            featureSignature: featureSignature || "N/A",
             modelLabel: model.label,
             modelSignature: model.signature,
             costLabel: cost.label,
             costSignature: cost.signature,
+            priceBasisLabel,
+            priceBasisSignature: priceBasisLabel,
+            missingFeaturePolicyLabel,
+            missingFeaturePolicySignature: stableStringify({
+                missing_feature_policy_state: run.missing_feature_policy_state,
+                missing_feature_policy_version:
+                    run.missing_feature_policy_version,
+            }),
+            missingDimensions,
         };
     };
 
@@ -324,6 +375,29 @@
         if (
             runs.some(
                 (run) =>
+                    run.comparison_eligibility === "comparison_metadata_only",
+            )
+        ) {
+            findings.push({
+                label: "Metadata-only eligibility",
+                detail: "At least one selected run lacks final comparison semantics or persisted artifacts.",
+                severity: "blocker",
+            });
+        }
+        if (
+            runs.some(
+                (run) => run.comparison_eligibility === "sample_window_pending",
+            )
+        ) {
+            findings.push({
+                label: "Sample window pending",
+                detail: "At least one selected run has artifacts, but sample floors are not yet met.",
+                severity: "blocker",
+            });
+        }
+        if (
+            runs.some(
+                (run) =>
                     run.comparison_eligibility ===
                     "unresolved_event_quarantine",
             )
@@ -331,6 +405,23 @@
             findings.push({
                 label: "Event quarantine",
                 detail: "At least one selected run has unresolved event state.",
+                severity: "blocker",
+            });
+        }
+        if (runs.some((run) => !run.comparison_eligibility)) {
+            findings.push({
+                label: "Eligibility unavailable",
+                detail: "At least one selected run is missing comparison_eligibility metadata.",
+                severity: "blocker",
+            });
+        }
+        const missingDimensions = uniqueValues(
+            fields.flatMap((field) => field.missingDimensions),
+        );
+        if (missingDimensions.length) {
+            findings.push({
+                label: "Comparison metadata incomplete",
+                detail: `Missing ${missingDimensions.join(", ")} fields in at least one selected run.`,
                 severity: "blocker",
             });
         }
@@ -351,7 +442,27 @@
         if (uniqueValues(fields.map((field) => field.costSignature)).length > 1) {
             findings.push({
                 label: "Cost basis differs",
-                detail: "Execution cost or price basis versions are not aligned.",
+                detail: "Fees, slippage, or execution cost model versions are not aligned.",
+                severity: "blocker",
+            });
+        }
+        if (
+            uniqueValues(fields.map((field) => field.priceBasisSignature)).length > 1
+        ) {
+            findings.push({
+                label: "Price basis differs",
+                detail: "Label, entry, exit, or benchmark price-basis versions are not aligned.",
+                severity: "blocker",
+            });
+        }
+        if (
+            uniqueValues(
+                fields.map((field) => field.missingFeaturePolicySignature),
+            ).length > 1
+        ) {
+            findings.push({
+                label: "Missing-feature policy differs",
+                detail: "Missing-feature policy state or version is not aligned.",
                 severity: "blocker",
             });
         }
@@ -377,6 +488,8 @@
         return {
             status: blockers.length
                 ? "Limited comparison"
+                : findings.length
+                  ? "Comparable with caveats"
                 : "Comparable research review",
             findings,
         };
@@ -393,10 +506,19 @@
             return "Missing persisted result artifacts.";
         }
         if (run.comparison_eligibility === "comparison_metadata_only") {
-            return "Only metadata-level comparison is available.";
+            return "Metadata exists, but final comparison semantics or artifacts are incomplete.";
+        }
+        if (run.comparison_eligibility === "sample_window_pending") {
+            return "Artifacts exist, but sample floors are not yet met.";
         }
         if (run.comparison_eligibility === "unresolved_event_quarantine") {
             return "Blocked by unresolved event state.";
+        }
+        if (run.comparison_eligibility === "strategy_pair_comparable") {
+            return "Comparable for strategy-pair analysis.";
+        }
+        if (!run.comparison_eligibility) {
+            return "Comparison eligibility is unavailable.";
         }
         return "Comparable for research review.";
     };
@@ -468,6 +590,15 @@
         selectedCompareIds.includes(run.run_id),
     );
     $: comparisonAssessment = getComparisonAssessment(comparisonRuns);
+    $: if (selectedCompareIds.length) {
+        const recentRunIds = new Set(recentRuns.map((run) => run.run_id));
+        const prunedCompareIds = selectedCompareIds.filter((runId) =>
+            recentRunIds.has(runId),
+        );
+        if (prunedCompareIds.length !== selectedCompareIds.length) {
+            selectedCompareIds = prunedCompareIds;
+        }
+    }
     $: if (
         selectedRunId &&
         selectedRunId !== loadedRunId &&
@@ -702,8 +833,9 @@
                         {/each}
                     {:else}
                         <p class="muted">
-                            Selected runs share dataset, target, cost basis, and
-                            persisted result artifacts.
+                            Selected runs share dataset, target, feature set,
+                            model config, cost basis, price basis, and persisted
+                            result artifacts.
                         </p>
                     {/if}
                 </div>
@@ -717,6 +849,8 @@
                                 <th>Features</th>
                                 <th>Model</th>
                                 <th>Cost Basis</th>
+                                <th>Price Basis</th>
+                                <th>Missing Policy</th>
                                 <th>RMSE</th>
                                 <th>Rank IC</th>
                                 <th>Total Return</th>
@@ -735,6 +869,10 @@
                                     <td>{comparison.featureLabel}</td>
                                     <td>{comparison.modelLabel}</td>
                                     <td>{comparison.costLabel}</td>
+                                    <td>{comparison.priceBasisLabel}</td>
+                                    <td>
+                                        {comparison.missingFeaturePolicyLabel}
+                                    </td>
                                     <td>
                                         {formatMetric(
                                             run.model_diagnostics?.rmse,
