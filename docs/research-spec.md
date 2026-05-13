@@ -113,6 +113,10 @@ Regression predicts a numeric forward return target derived from:
 The active implementation uses tabular tree regressors and produces continuous
 scores used by the strategy backtest.
 
+The v1 baseline builder defaults to Extra Trees so the common local research
+loop does not require the XGBoost native runtime. XGBoost and Random Forest
+remain selectable tree-regression variants.
+
 ### SPEC-TASK-003: Classification target
 
 Classification must persist, when implemented:

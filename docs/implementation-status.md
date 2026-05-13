@@ -15,7 +15,7 @@ in the v1 product navigation.
 
 ## Status Scope
 
-- status date: `2026-05-12`
+- status date: `2026-05-13`
 - status terms:
   - `implemented`: behavior exists and is usable in the current codebase
   - `partial`: meaningful foundation exists, but the v1 product expectation is
@@ -32,7 +32,7 @@ in the v1 product navigation.
 | Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
 | Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, and runtime metadata; old metadata-only records show explicit fallback copy |
-| Experiments comparison | partial | search, sort, load, and compare UI foundations exist; complete research-review runs no longer appear as metadata-only, while deeper comparison explanations still need hardening |
+| Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; deeper non-comparable reason taxonomy still needs hardening |
 | Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
@@ -111,7 +111,9 @@ These foundations are implementation inventory, not v1 product scope.
 
 ### Documentation
 
-- no known v1 direction blocker after the current rewrite
+- v1 direction is current after the usable-loop verification
+- developer-facing docs should keep the local data-prep caveat visible: a clean
+  DB needs TW daily data loaded before the run path is useful
 - future edits must keep advanced/platform modules out of the default research
   path unless `docs/plan.md` promotes them deliberately
 
@@ -121,8 +123,8 @@ These foundations are implementation inventory, not v1 product scope.
   the current workbench surfaces fully replace them
 - residual diagnostics now have a dedicated sample section in the persisted run
   review surface
-- comparison UI needs clearer reason labels for non-comparable or
-  metadata-only runs
+- comparison UI supports the v1 complete-run path; reason labels still need
+  hardening for non-comparable or metadata-only runs
 
 ### Backend
 
@@ -135,6 +137,22 @@ These foundations are implementation inventory, not v1 product scope.
 
 ## Latest Local Verification
 
+- usable-loop verification:
+  - `main` was synced to `origin/main` at `5b042e0`
+  - Docker DB started, migrations applied, backend and frontend started
+  - `2330` TW daily data was loaded through the existing ingestion path because
+    a clean DB had no daily rows
+  - `agent-browser` verified Start -> Builder -> Run -> Review -> Reload ->
+    Compare
+  - result: the builder defaulted to Extra Trees, a successful run showed
+    diagnostics, equity, validation, baselines, and signals, reload restored the
+    persisted result, and two comparable runs showed aligned dataset, target,
+    feature, model, and cost-basis fields
+- focused verification:
+  - `.venv/bin/python -m pytest -q tests/research tests/market_data/test_market_data_api.py`
+  - result: `86 passed`
+  - `bun x tsc -p frontend/tsconfig.json --noEmit`
+  - result: passed
 - persisted artifact reload verification:
   - Docker DB started with the default compose volume
   - migration applied with `.venv/bin/python -m alembic upgrade head`
@@ -174,13 +192,13 @@ These foundations are implementation inventory, not v1 product scope.
 
 ## Next Recommended Stage
 
-Move to the v1 implementation cleanup stage:
+Move from usable-loop verification to documentation and comparison cleanup:
 
-1. verify the full usable loop: Start -> Builder -> Run -> Review -> Reload ->
-   Compare
-2. harden comparison caveats for non-comparable runs across sample-window,
+1. harden comparison caveats for non-comparable runs across sample-window,
    target, feature, and cost-basis mismatch cases
-3. keep Data Ops secondary to the main research loop, and remove any remaining
+2. keep Data Ops secondary to the main research loop, and remove any remaining
    advanced/platform language from the default path
+3. document a clean-environment data-prep checklist for v1 demos and manual
+   verification
 4. deprecate or remove legacy frontend surfaces once the replacement flow is
    confirmed
