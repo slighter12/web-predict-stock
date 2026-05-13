@@ -103,6 +103,7 @@
         }
 
         isSelectedRunLoading = true;
+        selectedRecord = null;
         try {
             selectedRecord = await fetchResearchRun(runId);
             selectedRunError = null;

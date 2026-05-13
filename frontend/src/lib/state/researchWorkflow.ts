@@ -74,7 +74,7 @@ export const researchTemplates: ResearchTemplatePreset[] = [
       "TW daily features, tree regression, model diagnostics, baselines, and an offline backtest.",
     defaultCapabilities: ["technical_indicators"],
     recommendedFamilyId: "tree_ensemble",
-    recommendedVariantId: "xgboost",
+    recommendedVariantId: "extra_trees",
   },
 ];
 
@@ -98,7 +98,7 @@ export const modelVariants: ModelVariantDefinition[] = [
     id: "xgboost",
     label: "XGBoost",
     summary:
-      "Default gradient-boosted tree path and the fastest way to a valid baseline run.",
+      "Gradient-boosted tree path. Requires the local XGBoost native runtime to be available.",
     status: "available",
   },
   {
@@ -112,7 +112,7 @@ export const modelVariants: ModelVariantDefinition[] = [
     id: "extra_trees",
     label: "Extra Trees",
     summary:
-      "A higher-randomness tree ensemble for quick comparison against the default boosted path.",
+      "Default no-native-runtime tree baseline for quick local research loops.",
     status: "available",
   },
   {
@@ -505,12 +505,24 @@ export const deriveCapabilityIdsFromRun = (
 export const deriveSubmissionSummaryFromRun = (
   run: Partial<ResearchRunRecord & ResearchRunResponse>,
 ): ResearchSubmissionSummary => {
+  const requestModel = run.request_payload?.model;
+  const requestModelType =
+    typeof requestModel === "object" &&
+    requestModel !== null &&
+    "type" in requestModel &&
+    typeof requestModel.type === "string"
+      ? requestModel.type
+      : null;
   const modelVariantId = (
-    run.model_family === "gradient_boosted_trees"
-      ? "xgboost"
-      : run.model_family === "bagging_trees"
-        ? "random_forest"
-        : "xgboost"
+    requestModelType === "extra_trees" ||
+    requestModelType === "random_forest" ||
+    requestModelType === "xgboost"
+      ? requestModelType
+      : run.model_family === "gradient_boosted_trees"
+        ? "xgboost"
+        : run.model_family === "bagging_trees"
+          ? "random_forest"
+          : "xgboost"
   ) as ModelVariantId;
 
   return {
