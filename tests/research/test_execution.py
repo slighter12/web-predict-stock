@@ -301,4 +301,5 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
     assert artifacts.response.peer_policy_version == "cluster_nearest_neighbors_v1"
     assert artifacts.response.adaptive_mode == "shadow"
     assert artifacts.response.reward_definition_version == "reward_v1"
+    assert artifacts.response.comparison_eligibility == "research_only_comparable"
     assert exclusion_calls == ["run_foundation_response"]
