@@ -85,45 +85,17 @@
 </script>
 
 <div class="dashboard-shell">
-    <section class="surface shell-hero">
-        <div class="shell-hero__copy">
-            <p class="eyebrow">TW Daily Quant ML Research Workbench</p>
-            <h2>
-                Start with a baseline experiment, inspect model quality, then
-                compare persisted research runs.
-            </h2>
-            <p class="muted">
-                The default path is Dataset, Features, Prediction Task, Model
-                Diagnostics, Strategy Backtest, and Experiment Comparison.
-            </p>
-        </div>
-
-        <div class="shell-hero__meta">
-            <div class="meta-card">
-                <span>V1 Focus</span>
-                <strong>TW daily baseline study</strong>
-                <p>Regression diagnostics first, strategy metrics second.</p>
-            </div>
-            <div class="meta-card">
-                <span>Artifacts</span>
-                <strong>Persisted review</strong>
-                <p>Config, diagnostics, signals, equity, baselines, warnings.</p>
-            </div>
-            <div class="meta-card">
-                <span>Scope</span>
-                <strong>Public v1 surface</strong>
-                <p>Baseline builder, experiment review, and TW daily data readiness.</p>
-            </div>
-        </div>
-    </section>
-
     {#if activeSurface === "start"}
         <section class="surface task-entry">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Start</p>
-                    <h3>Choose the next research task</h3>
+                    <p class="eyebrow">TW Daily Quant ML Research Workbench</p>
+                    <h2>What do you want to do next?</h2>
                 </div>
+                <p class="muted">
+                    Start a baseline run, review a saved run, or check whether
+                    the requested TW daily data is ready.
+                </p>
             </div>
 
             <div class="task-grid">
@@ -133,8 +105,8 @@
                     onclick={() => setSurface("builder")}
                 >
                     <span>Start Baseline Study</span>
-                    <strong>Open the experiment builder</strong>
-                    <p>TW daily dataset, features, model, validation, review.</p>
+                    <strong>Build and run a TW daily experiment</strong>
+                    <p>Dataset, features, model, validation, and review.</p>
                 </button>
                 <button
                     type="button"
@@ -147,7 +119,7 @@
                             ? `Latest: ${latestResult.run_id}`
                             : "Load from persisted runs"}
                     </strong>
-                    <p>Review diagnostics, artifacts, and comparison context.</p>
+                    <p>Reload a saved result, inspect it, then compare.</p>
                 </button>
                 <button
                     type="button"
@@ -156,64 +128,89 @@
                 >
                     <span>Check Data Readiness</span>
                     <strong>{readinessCounts.ready} ready symbols</strong>
-                    <p>Review warning and missing/stale symbols before running research.</p>
+                    <p>Troubleshoot warning or missing symbols before a run.</p>
                 </button>
             </div>
 
-            <div class="readiness-controls">
-                <label>
-                    <span>Requested Symbols</span>
-                    <input
-                        bind:value={readinessSymbolsInput}
-                        placeholder="2330, 2317"
-                    />
-                </label>
-                <label>
-                    <span>Start Date</span>
-                    <input type="date" bind:value={readinessStartDate} />
-                </label>
-                <label>
-                    <span>End Date</span>
-                    <input type="date" bind:value={readinessEndDate} />
-                </label>
-                <button
-                    type="button"
-                    class="secondary"
-                    onclick={() => void loadTwDailyReadiness()}
-                >
-                    Refresh Readiness
-                </button>
-            </div>
-            {#if readinessLoadError}
-                <p class="muted readiness-message">{readinessLoadError}</p>
-            {/if}
-            {#if readinessData?.symbols.length}
-                <div class="readiness-details" aria-label="TW daily readiness details">
-                    {#each readinessData.symbols.slice(0, 4) as symbol}
-                        <article class={`readiness-row readiness-row--${symbol.status}`}>
-                            <div>
-                                <strong>{symbol.symbol}</strong>
-                                <span>{symbol.status}</span>
-                            </div>
-                            <p>
-                                {#if symbol.warnings.length}
-                                    {symbol.warnings[0]}
-                                {:else}
-                                    Latest daily row: {symbol.latest_daily_date ?? "unavailable"}
-                                {/if}
-                            </p>
-                        </article>
-                    {/each}
+            <details class="readiness-support">
+                <summary>
+                    Data readiness support:
+                    {readinessCounts.ready} ready,
+                    {readinessCounts.warning} warning,
+                    {readinessCounts.missing + readinessCounts.stale}
+                    missing or stale
+                </summary>
+
+                <div class="readiness-controls">
+                    <label>
+                        <span>Requested Symbols</span>
+                        <input
+                            bind:value={readinessSymbolsInput}
+                            placeholder="2330, 2317"
+                        />
+                    </label>
+                    <label>
+                        <span>Start Date</span>
+                        <input type="date" bind:value={readinessStartDate} />
+                    </label>
+                    <label>
+                        <span>End Date</span>
+                        <input type="date" bind:value={readinessEndDate} />
+                    </label>
+                    <button
+                        type="button"
+                        class="secondary"
+                        onclick={() => void loadTwDailyReadiness()}
+                    >
+                        Refresh
+                    </button>
                 </div>
-            {/if}
+                {#if readinessLoadError}
+                    <p class="muted readiness-message">{readinessLoadError}</p>
+                {/if}
+                {#if readinessData?.symbols.length}
+                    <div
+                        class="readiness-details"
+                        aria-label="TW daily readiness details"
+                    >
+                        {#each readinessData.symbols.slice(0, 4) as symbol}
+                            <article
+                                class={`readiness-row readiness-row--${symbol.status}`}
+                            >
+                                <div>
+                                    <strong>{symbol.symbol}</strong>
+                                    <span>{symbol.status}</span>
+                                </div>
+                                <p>
+                                    {#if symbol.warnings.length}
+                                        {symbol.warnings[0]}
+                                    {:else}
+                                        Latest daily row: {symbol.latest_daily_date ?? "unavailable"}
+                                    {/if}
+                                </p>
+                            </article>
+                        {/each}
+                    </div>
+                {/if}
+            </details>
+
+            <div class="workflow-strip" aria-label="Core workflow">
+                <span>Start</span>
+                <span>Builder</span>
+                <span>Run</span>
+                <span>Review</span>
+                <span>Reload</span>
+                <span>Compare</span>
+            </div>
         </section>
     {/if}
 
-    <section class="surface shell-nav">
+    {#if activeSurface !== "start"}
+        <section class="surface shell-nav">
         <div class="surface-header">
             <div>
                 <p class="eyebrow">Navigation</p>
-                <h3>Workbench surfaces</h3>
+                <h3>Research workflow</h3>
             </div>
             <div class="readiness-strip">
                 <span>{readinessCounts.ready} ready</span>
@@ -234,7 +231,7 @@
                 onclick={() => setSurface("start")}
             >
                 <span>Start</span>
-                <strong>Task entry for the baseline research loop</strong>
+                <strong>Choose the next task</strong>
             </button>
             <button
                 type="button"
@@ -243,7 +240,7 @@
                 onclick={() => setSurface("builder")}
             >
                 <span>Experiment Builder</span>
-                <strong>Dataset, features, prediction task, validation</strong>
+                <strong>Dataset, features, model, validation</strong>
             </button>
             <button
                 type="button"
@@ -255,8 +252,8 @@
                 <span>Experiments</span>
                 <strong>
                     {latestResult
-                        ? `Latest run ${latestResult.run_id} is ready to review`
-                        : "Load, inspect, and compare persisted runs"}
+                        ? `Latest run ${latestResult.run_id} is ready`
+                        : "Reload, inspect, and compare runs"}
                 </strong>
             </button>
             <button
@@ -266,11 +263,12 @@
                     "data_ops"}
                 onclick={() => setSurface("data_ops")}
             >
-                <span>Data Ops</span>
-                <strong>Secondary diagnostics for data readiness</strong>
+                <span>Data Readiness</span>
+                <strong>Support checks for requested TW symbols</strong>
             </button>
         </div>
-    </section>
+        </section>
+    {/if}
 
     {#if activeSurface === "builder"}
         <ResearchWorkspace
@@ -294,30 +292,10 @@
 
 <style lang="scss">
     .dashboard-shell,
-    .shell-hero__meta,
     .surface-nav,
     .task-grid {
         display: grid;
         gap: var(--space-4);
-    }
-
-    .shell-hero {
-        grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
-        align-items: stretch;
-        gap: var(--space-5);
-        background:
-            linear-gradient(
-                135deg,
-                rgba(10, 31, 44, 0.96),
-                rgba(8, 20, 34, 0.94)
-            ),
-            var(--surface-1);
-    }
-
-    .shell-hero__copy {
-        display: grid;
-        gap: var(--space-3);
-        align-content: start;
     }
 
     h2,
@@ -327,16 +305,11 @@
     }
 
     h2 {
-        font-size: clamp(2rem, 4vw, 3.3rem);
-        line-height: 1.05;
+        font-size: clamp(1.7rem, 3vw, 2.55rem);
+        line-height: 1.08;
         letter-spacing: 0;
     }
 
-    .shell-hero__meta {
-        grid-template-columns: 1fr;
-    }
-
-    .meta-card,
     .surface-nav__button {
         display: grid;
         gap: 0.45rem;
@@ -347,7 +320,6 @@
         background: rgba(6, 18, 30, 0.84);
     }
 
-    .meta-card span,
     .surface-nav__button span {
         color: var(--accent-primary);
         font-size: 0.76rem;
@@ -356,7 +328,6 @@
         text-transform: uppercase;
     }
 
-    .meta-card p,
     .surface-nav__button strong {
         color: var(--text-secondary);
         line-height: 1.45;
@@ -368,6 +339,43 @@
 
     .task-entry {
         gap: var(--space-4);
+    }
+
+    .readiness-support {
+        display: grid;
+        gap: var(--space-3);
+        padding: 0.95rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(6, 18, 30, 0.58);
+    }
+
+    .readiness-support summary {
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-weight: 600;
+    }
+
+    .readiness-support[open] summary {
+        margin-bottom: var(--space-3);
+    }
+
+    .workflow-strip {
+        display: flex;
+        gap: 0.55rem;
+        flex-wrap: wrap;
+    }
+
+    .workflow-strip span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(15, 35, 54, 0.72);
+        color: var(--muted);
+        font-size: 0.8rem;
     }
 
     .task-grid {
@@ -501,7 +509,6 @@
     }
 
     @media (max-width: 1100px) {
-        .shell-hero,
         .surface-nav,
         .task-grid,
         .readiness-details,

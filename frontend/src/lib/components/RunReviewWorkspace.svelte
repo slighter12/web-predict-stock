@@ -64,10 +64,10 @@
     let selectedCompareIds: string[] = [];
 
     const comparisonLabels: Record<ComparisonEligibility, string> = {
-        comparison_metadata_only: "Metadata only",
-        sample_window_pending: "Sample window pending",
+        comparison_metadata_only: "Old record only",
+        sample_window_pending: "Not enough samples yet",
         strategy_pair_comparable: "Comparable",
-        research_only_comparable: "Research-only comparable",
+        research_only_comparable: "Comparable for research",
         unresolved_event_quarantine: "Quarantined",
     };
 
@@ -367,8 +367,8 @@
 
         if (runs.some((run) => !hasCompleteArtifacts(run))) {
             findings.push({
-                label: "Missing artifacts",
-                detail: "At least one selected run has only metadata-level results.",
+                label: "Old record only",
+                detail: "At least one selected run does not have saved diagnostics or backtest artifacts.",
                 severity: "blocker",
             });
         }
@@ -379,8 +379,8 @@
             )
         ) {
             findings.push({
-                label: "Metadata-only eligibility",
-                detail: "At least one selected run lacks final comparison semantics or persisted artifacts.",
+                label: "Old record only",
+                detail: "At least one selected run only has the old saved record format.",
                 severity: "blocker",
             });
         }
@@ -390,8 +390,8 @@
             )
         ) {
             findings.push({
-                label: "Sample window pending",
-                detail: "At least one selected run has artifacts, but sample floors are not yet met.",
+                label: "Not enough samples yet",
+                detail: "At least one selected run has artifacts, but needs more samples before comparison is strong.",
                 severity: "blocker",
             });
         }
@@ -404,14 +404,14 @@
         ) {
             findings.push({
                 label: "Event quarantine",
-                detail: "At least one selected run has unresolved event state.",
+                detail: "At least one selected run is blocked by unresolved corporate-event data.",
                 severity: "blocker",
             });
         }
         if (runs.some((run) => !run.comparison_eligibility)) {
             findings.push({
                 label: "Eligibility unavailable",
-                detail: "At least one selected run is missing comparison_eligibility metadata.",
+                detail: "At least one selected run is missing comparison status.",
                 severity: "blocker",
             });
         }
@@ -420,29 +420,29 @@
         );
         if (missingDimensions.length) {
             findings.push({
-                label: "Comparison metadata incomplete",
-                detail: `Missing ${missingDimensions.join(", ")} fields in at least one selected run.`,
+                label: "Comparison details incomplete",
+                detail: `Missing ${missingDimensions.join(", ")} in at least one selected run.`,
                 severity: "blocker",
             });
         }
         if (uniqueValues(fields.map((field) => field.datasetSignature)).length > 1) {
             findings.push({
                 label: "Dataset differs",
-                detail: "Market, symbols, or date range are not aligned.",
+                detail: "Market, symbols, or date range do not match.",
                 severity: "blocker",
             });
         }
         if (uniqueValues(fields.map((field) => field.targetSignature)).length > 1) {
             findings.push({
                 label: "Target differs",
-                detail: "Return target or horizon are not aligned.",
+                detail: "Return target or horizon does not match.",
                 severity: "blocker",
             });
         }
         if (uniqueValues(fields.map((field) => field.costSignature)).length > 1) {
             findings.push({
-                label: "Cost basis differs",
-                detail: "Fees, slippage, or execution cost model versions are not aligned.",
+                label: "Backtest assumptions differ",
+                detail: "Fees, slippage, or cost model versions do not match.",
                 severity: "blocker",
             });
         }
@@ -450,8 +450,8 @@
             uniqueValues(fields.map((field) => field.priceBasisSignature)).length > 1
         ) {
             findings.push({
-                label: "Price basis differs",
-                detail: "Label, entry, exit, or benchmark price-basis versions are not aligned.",
+                label: "Backtest assumptions differ",
+                detail: "Label, entry, exit, or benchmark price basis does not match.",
                 severity: "blocker",
             });
         }
@@ -462,14 +462,14 @@
         ) {
             findings.push({
                 label: "Missing-feature policy differs",
-                detail: "Missing-feature policy state or version is not aligned.",
+                detail: "Missing-feature handling does not match.",
                 severity: "blocker",
             });
         }
         if (uniqueValues(fields.map((field) => field.featureSignature)).length > 1) {
             findings.push({
                 label: "Feature set differs",
-                detail: "Treat quality deltas as feature-ablation evidence.",
+                detail: "Treat quality changes as feature-set evidence.",
                 severity: "note",
             });
         }
@@ -487,10 +487,10 @@
 
         return {
             status: blockers.length
-                ? "Limited comparison"
+                ? "Compare with caution"
                 : findings.length
-                  ? "Comparable with caveats"
-                : "Comparable research review",
+                  ? "Compare with notes"
+                  : "Comparable",
             findings,
         };
     };
@@ -503,24 +503,24 @@
 
     const getComparableReason = (run: ReviewRun) => {
         if (!hasCompleteArtifacts(run)) {
-            return "Missing persisted result artifacts.";
+            return "Old record only. Saved diagnostics or backtest artifacts are unavailable.";
         }
         if (run.comparison_eligibility === "comparison_metadata_only") {
-            return "Metadata exists, but final comparison semantics or artifacts are incomplete.";
+            return "Old record only. Comparison details or artifacts are incomplete.";
         }
         if (run.comparison_eligibility === "sample_window_pending") {
-            return "Artifacts exist, but sample floors are not yet met.";
+            return "Not enough samples yet.";
         }
         if (run.comparison_eligibility === "unresolved_event_quarantine") {
-            return "Blocked by unresolved event state.";
+            return "Blocked by unresolved corporate-event data.";
         }
         if (run.comparison_eligibility === "strategy_pair_comparable") {
-            return "Comparable for strategy-pair analysis.";
+            return "Comparable.";
         }
         if (!run.comparison_eligibility) {
-            return "Comparison eligibility is unavailable.";
+            return "Comparison status is unavailable.";
         }
-        return "Comparable for research review.";
+        return "Comparable for research.";
     };
 
     onMount(() => {
@@ -619,21 +619,21 @@
 <WorkspaceSection
     id="run-review-workspace"
     eyebrow="Experiments"
-    title="Review persisted experiments with the same result surface."
-    description="Use model diagnostics first, then strategy artifacts, baselines, and comparison caveats."
+    title="Reload, review, and compare saved runs."
+    description="Pick a run, inspect model diagnostics and backtest artifacts, then compare two or more runs."
 >
     <div class="review-shell">
         <section class="surface surface--hero">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Decision Summary</p>
-                    <h3>What this run means</h3>
+                    <p class="eyebrow">Run Summary</p>
+                    <h3>{activeRunId ? "Selected run" : "Choose a run to review"}</h3>
                 </div>
             </div>
 
             <div class="summary-grid">
                 <div class="summary-card">
-                    <span>Research Setup</span>
+                    <span>Setup</span>
                     <strong
                         >{reviewSummary?.templateLabel ??
                             "No run selected"}</strong
@@ -643,14 +643,14 @@
                             {reviewSummary.modelFamilyLabel} /
                             {reviewSummary.modelVariantLabel}
                         {:else}
-                            Submit or load a run to populate the setup summary.
+                            Load a run to populate the setup summary.
                         {/if}
                     </p>
                 </div>
                 <div class="summary-card">
                     <span>Model Quality</span>
                     <strong>{formatMetric(activeRun?.model_diagnostics?.rmse)}</strong>
-                    <p>RMSE is shown before strategy interpretation.</p>
+                    <p>Lower RMSE is better for this regression view.</p>
                 </div>
                 <div class="summary-card">
                     <span>Baseline Delta</span>
@@ -667,7 +667,7 @@
                     </p>
                 </div>
                 <div class="summary-card">
-                    <span>Comparison Eligibility</span>
+                    <span>Compare Status</span>
                     <strong>
                         {formatEligibility(activeRun?.comparison_eligibility)}
                     </strong>
@@ -679,8 +679,8 @@
         <section class="surface">
             <div class="surface-header">
                 <div>
-                    <p class="eyebrow">Registry</p>
-                    <h3>Recent persisted runs</h3>
+                    <p class="eyebrow">Select Run</p>
+                    <h3>Saved runs</h3>
                 </div>
                 <button
                     type="button"
@@ -688,7 +688,7 @@
                     onclick={() => void refreshRecentRuns()}
                     disabled={isRecentRunsLoading}
                 >
-                    {isRecentRunsLoading ? "Refreshing..." : "Refresh"}
+                    {isRecentRunsLoading ? "Refreshing..." : "Refresh List"}
                 </button>
             </div>
 
@@ -724,6 +724,11 @@
                 </label>
             </div>
 
+            <div class="registry-help">
+                <span>Review: use the row button to load one run.</span>
+                <span>Compare: check two or more rows.</span>
+            </div>
+
             {#if recentRunsError}
                 <p class="muted">{recentRunsError}</p>
             {:else if isRecentRunsLoading && !recentRuns.length}
@@ -733,7 +738,7 @@
                     <table>
                         <thead>
                             <tr>
-                                <th>Compare</th>
+                                <th>Select</th>
                                 <th>Run ID</th>
                                 <th>Status</th>
                                 <th>Created</th>
@@ -749,6 +754,7 @@
                                 <tr>
                                     <td>
                                         <input
+                                            aria-label={`Compare ${run.run_id}`}
                                             type="checkbox"
                                             checked={selectedCompareIds.includes(
                                                 run.run_id,
@@ -790,7 +796,7 @@
                                             onclick={() =>
                                                 (selectedRunId = run.run_id)}
                                         >
-                                            Load
+                                            Review
                                         </button>
                                     </td>
                                 </tr>
@@ -833,66 +839,70 @@
                         {/each}
                     {:else}
                         <p class="muted">
-                            Selected runs share dataset, target, feature set,
-                            model config, cost basis, price basis, and persisted
-                            result artifacts.
+                            Selected runs share the key dataset, target,
+                            feature, model, and backtest assumptions.
                         </p>
                     {/if}
                 </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Run ID</th>
-                                <th>Dataset</th>
-                                <th>Target</th>
-                                <th>Features</th>
-                                <th>Model</th>
-                                <th>Cost Basis</th>
-                                <th>Price Basis</th>
-                                <th>Missing Policy</th>
-                                <th>RMSE</th>
-                                <th>Rank IC</th>
-                                <th>Total Return</th>
-                                <th>Baseline Delta</th>
-                                <th>Caveat</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#each comparisonRuns as run}
-                                {@const comparison = getComparisonFields(run)}
-                                {@const baseline = summarizeBaselineComparison(run)}
+                <details class="comparison-details">
+                    <summary>Show detailed comparison table</summary>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
                                 <tr>
-                                    <td>{run.run_id}</td>
-                                    <td>{comparison.datasetLabel}</td>
-                                    <td>{comparison.targetLabel}</td>
-                                    <td>{comparison.featureLabel}</td>
-                                    <td>{comparison.modelLabel}</td>
-                                    <td>{comparison.costLabel}</td>
-                                    <td>{comparison.priceBasisLabel}</td>
-                                    <td>
-                                        {comparison.missingFeaturePolicyLabel}
-                                    </td>
-                                    <td>
-                                        {formatMetric(
-                                            run.model_diagnostics?.rmse,
-                                        )}
-                                    </td>
-                                    <td>
-                                        {formatMetric(
-                                            run.model_diagnostics?.rank_ic,
-                                        )}
-                                    </td>
-                                    <td>
-                                        {formatMetric(run.metrics?.total_return)}
-                                    </td>
-                                    <td>{formatMetric(baseline?.delta)}</td>
-                                    <td>{getComparableReason(run)}</td>
+                                    <th>Run ID</th>
+                                    <th>Dataset</th>
+                                    <th>Target</th>
+                                    <th>Features</th>
+                                    <th>Model</th>
+                                    <th>Cost Basis</th>
+                                    <th>Price Basis</th>
+                                    <th>Missing Policy</th>
+                                    <th>RMSE</th>
+                                    <th>Rank IC</th>
+                                    <th>Total Return</th>
+                                    <th>Baseline Delta</th>
+                                    <th>Caveat</th>
                                 </tr>
-                            {/each}
-                        </tbody>
-                    </table>
-                </div>
+                            </thead>
+                            <tbody>
+                                {#each comparisonRuns as run}
+                                    {@const comparison = getComparisonFields(run)}
+                                    {@const baseline = summarizeBaselineComparison(run)}
+                                    <tr>
+                                        <td>{run.run_id}</td>
+                                        <td>{comparison.datasetLabel}</td>
+                                        <td>{comparison.targetLabel}</td>
+                                        <td>{comparison.featureLabel}</td>
+                                        <td>{comparison.modelLabel}</td>
+                                        <td>{comparison.costLabel}</td>
+                                        <td>{comparison.priceBasisLabel}</td>
+                                        <td>
+                                            {comparison.missingFeaturePolicyLabel}
+                                        </td>
+                                        <td>
+                                            {formatMetric(
+                                                run.model_diagnostics?.rmse,
+                                            )}
+                                        </td>
+                                        <td>
+                                            {formatMetric(
+                                                run.model_diagnostics?.rank_ic,
+                                            )}
+                                        </td>
+                                        <td>
+                                            {formatMetric(
+                                                run.metrics?.total_return,
+                                            )}
+                                        </td>
+                                        <td>{formatMetric(baseline?.delta)}</td>
+                                        <td>{getComparableReason(run)}</td>
+                                    </tr>
+                                {/each}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
             </section>
         {/if}
 
@@ -901,7 +911,7 @@
                 <div class="surface">
                     <div class="surface-header">
                         <div>
-                            <p class="eyebrow">Selected Result</p>
+                            <p class="eyebrow">Review Run</p>
                             <h3>{activeRunId}</h3>
                         </div>
                         {#if isSelectedRunLoading}
@@ -937,7 +947,7 @@
                     <div class="surface">
                         <p class="muted">
                             Equity curve is unavailable for this record. This is
-                            expected for older metadata-only runs.
+                            expected for older saved runs.
                         </p>
                     </div>
                 {/if}
@@ -996,27 +1006,24 @@
                     <div class="surface">
                         <p class="muted">
                             Signals are unavailable for this record. This is
-                            expected for older metadata-only runs.
+                            expected for older saved runs.
                         </p>
                     </div>
                 {/if}
             </section>
         {:else}
             <section class="surface">
-                <p class="muted">Submit or load a run to review results.</p>
+                <p class="muted">Load a run to review results.</p>
             </section>
         {/if}
 
-        <section class="surface">
-            <div class="surface-header surface-header--stack">
-                <div>
-                    <p class="eyebrow">Readiness Context</p>
-                    <h3>Baseline capability state for this run</h3>
-                </div>
-                <p class="muted">
-                    TW daily baseline readiness context. Current blocker count: {blockerCount}
-                </p>
-            </div>
+        <details class="surface support-surface">
+            <summary>
+                Readiness context
+                {#if activeCapabilities.length}
+                    ({blockerCount} blocker{blockerCount === 1 ? "" : "s"})
+                {/if}
+            </summary>
 
             {#if activeCapabilities.length}
                 <div class="governance-grid">
@@ -1034,15 +1041,14 @@
                 </div>
             {:else}
                 <p class="muted">
-                    Capability readiness will appear after you submit or load a
-                    run.
+                    Readiness context will appear after you load a run.
                 </p>
             {/if}
-        </section>
+        </details>
 
         {#if metadataRun}
             <details class="surface advanced-surface">
-                <summary>Advanced metadata</summary>
+                <summary>Advanced run metadata</summary>
                 <div class="metadata-grid">
                     <div>
                         <p class="eyebrow">Config Sources</p>
@@ -1104,6 +1110,24 @@
 
     .registry-controls {
         grid-template-columns: 1.4fr repeat(2, minmax(180px, 0.5fr));
+    }
+
+    .registry-help {
+        display: flex;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+    }
+
+    .registry-help span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.2rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        color: var(--muted);
+        background: rgba(15, 35, 54, 0.72);
+        font-size: 0.8rem;
     }
 
     .summary-card,
@@ -1184,9 +1208,23 @@
         line-height: 1.45;
     }
 
+    .comparison-details,
+    .support-surface,
+    .advanced-surface {
+        gap: var(--space-3);
+    }
+
+    .comparison-details summary,
+    .support-surface summary,
     .advanced-surface summary {
         cursor: pointer;
         font-weight: 600;
+    }
+
+    .comparison-details[open] summary,
+    .support-surface[open] summary,
+    .advanced-surface[open] summary {
+        margin-bottom: var(--space-3);
     }
 
     @media (max-width: 1200px) {
