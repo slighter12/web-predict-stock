@@ -98,7 +98,7 @@ export const modelVariants: ModelVariantDefinition[] = [
     id: "xgboost",
     label: "XGBoost",
     summary:
-      "Gradient-boosted tree path. Requires the local XGBoost native runtime to be available.",
+      "Boosted-tree option for environments where XGBoost is installed.",
     status: "available",
   },
   {
@@ -111,8 +111,7 @@ export const modelVariants: ModelVariantDefinition[] = [
   {
     id: "extra_trees",
     label: "Extra Trees",
-    summary:
-      "Default no-native-runtime tree baseline for quick local research loops.",
+    summary: "Default quick baseline for local research loops.",
     status: "available",
   },
   {
@@ -128,8 +127,7 @@ export const modelFamilies: ModelFamilyDefinition[] = [
   {
     id: "tree_ensemble",
     label: "Tree Ensemble",
-    summary:
-      "Current production-ready family that maps cleanly to the existing backend run contract.",
+    summary: "Tree-based models for baseline TW daily research.",
     status: "available",
     variantIds: ["xgboost", "random_forest", "extra_trees"],
   },

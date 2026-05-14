@@ -27,12 +27,10 @@
         getModelVariantById,
         modelFamilies,
         parseSymbols,
-        researchCapabilityRegistry,
         researchTemplates,
         updateModelFamily,
         validateResearchWorkflow,
         VNEXT_SPEC_MODE,
-        withCapabilityToggled,
     } from "../state/researchWorkflow";
     import type {
         AppError,
@@ -45,7 +43,6 @@
         ResearchRunResponse,
     } from "../types";
     import WorkspaceSection from "./layout/WorkspaceSection.svelte";
-    import CapabilityCard from "./research/CapabilityCard.svelte";
 
     export let capabilityReadiness: Record<
         ResearchCapabilityId,
@@ -127,33 +124,8 @@
     const getOptionLabel = (value: string) => optionLabels[value] ?? value;
     const featureRegistry = () => featureRegistryQuery.data?.features;
 
-    const getReadiness = (capabilityId: ResearchCapabilityId) =>
-        capabilityReadiness[capabilityId] ?? {
-            capabilityId,
-            status: "not_implemented",
-            summary: "Capability readiness is unavailable.",
-            gateId: null,
-            overallStatus: null,
-        };
-
     const getCapabilityLabel = (capabilityId: ResearchCapabilityId) =>
         getCapabilityDefinition(capabilityId).label;
-
-    const getCapabilityIdsByStage = (stageId: ResearchWorkflowStageId) =>
-        researchCapabilityRegistry
-            .filter((capability) => capability.stage === stageId)
-            .map((capability) => capability.id);
-
-    const isCapabilityToggleDisabled = (capabilityId: ResearchCapabilityId) => {
-        const readiness = getReadiness(capabilityId);
-        if (capabilityId === "technical_indicators") {
-            return true;
-        }
-        return (
-            readiness.status === "gated" ||
-            readiness.status === "not_implemented"
-        );
-    };
 
     const addIndicator = () => {
         draft = {
@@ -217,17 +189,6 @@
         errors = {};
         submitError = null;
         activeStage = "universe";
-    };
-
-    const handleCapabilityToggle = (
-        capabilityId: ResearchCapabilityId,
-        checked: boolean,
-    ) => {
-        draft = withCapabilityToggled(draft, capabilityId, checked);
-        errors = {
-            ...errors,
-            [`${capabilityId}Gate`]: "",
-        };
     };
 
     const handleModelFamilySelect = (
@@ -302,7 +263,7 @@
         {
             id: "model_family",
             label: "03",
-            title: "Prediction Task",
+            title: "Model",
             summary: `${getModelFamilyById(draft.modelFamily.familyId).label} / ${
                 getModelVariantById(draft.modelFamily.variantId).label
             }`,
@@ -310,7 +271,7 @@
         {
             id: "evaluation",
             label: "04",
-            title: "Diagnostics and Backtest",
+            title: "Validation and Backtest",
             summary: `${draft.evaluation.validationMethod} / research only`,
         },
         {
@@ -320,7 +281,7 @@
             summary:
                 Object.keys(errors).length > 0
                     ? `${Object.keys(errors).length} issue(s) to resolve`
-                    : "Ready to submit the workflow",
+                    : "Ready to start the run",
         },
     ] satisfies StageSummary[];
 
@@ -336,6 +297,12 @@
         (template) => template.id === draft.templateId,
     );
     $: activeModelFamily = getModelFamilyById(draft.modelFamily.familyId);
+    $: availableModelFamilies = modelFamilies.filter(
+        (family) => family.status === "available",
+    );
+    $: availableModelVariants = activeModelFamily.variantIds
+        .map((variantId) => getModelVariantById(variantId))
+        .filter((variant) => variant.status === "available");
     $: activeTemplateCapabilityLabels =
         activeTemplate?.defaultCapabilities.map((capabilityId) =>
             getCapabilityLabel(capabilityId),
@@ -345,42 +312,43 @@
 <WorkspaceSection
     id="research-workspace"
     eyebrow="Experiment Builder"
-    title="Run a baseline TW daily experiment without editing an API payload."
-    description="Move from dataset and features into prediction task, diagnostics, backtest, and review."
+    title="Build a baseline TW daily run."
+    description="Choose the dataset, feature rows, model, validation settings, then start the run."
 >
     <div class="research-shell">
         <section class="surface surface--intro">
             <div class="surface-header surface-header--stack">
                 <div>
                     <p class="eyebrow">Baseline</p>
-                    <h3>Start from the v1 research loop</h3>
+                    <h3>Defaults are already selected</h3>
                 </div>
                 <p class="muted">
-                    The public builder only sends TW daily baseline payloads
-                    with technical indicators and research-only evaluation.
+                    The baseline path uses TW daily data, technical indicators,
+                    tree regression, model diagnostics, and an offline backtest.
                 </p>
             </div>
-
-            <div class="template-grid">
-                {#each researchTemplates as template}
-                    <button
-                        type="button"
-                        class:template-card={true}
-                        class:template-card--active={template.id ===
-                            draft.templateId}
-                        onclick={() => handleTemplateSelect(template.id)}
-                    >
-                        <span>{template.label}</span>
-                        <strong>{template.summary}</strong>
-                    </button>
-                {/each}
-            </div>
+            {#if researchTemplates.length > 1}
+                <div class="template-grid">
+                    {#each researchTemplates as template}
+                        <button
+                            type="button"
+                            class:template-card={true}
+                            class:template-card--active={template.id ===
+                                draft.templateId}
+                            onclick={() => handleTemplateSelect(template.id)}
+                        >
+                            <span>{template.label}</span>
+                            <strong>{template.summary}</strong>
+                        </button>
+                    {/each}
+                </div>
+            {/if}
         </section>
 
         <section class="surface surface--stages">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Workflow</p>
+                    <p class="eyebrow">Steps</p>
                     <h3>
                         {stageSummaries.find(
                             (stage) => stage.id === activeStage,
@@ -426,10 +394,10 @@
 
         {#if mutation.isPending}
             <div class="surface status-surface" aria-live="polite">
-                <strong>Compiling research workflow</strong>
+                <strong>Starting the run</strong>
                 <span class="muted">
-                    The current workflow is being translated into the existing
-                    research run contract.
+                    The selected settings are being sent to the research run
+                    service.
                 </span>
             </div>
         {/if}
@@ -439,7 +407,7 @@
                 <div class="surface-header">
                     <div>
                         <p class="eyebrow">01 Universe</p>
-                        <h3>Choose the TW market backtest window</h3>
+                        <h3>Choose the TW daily window</h3>
                     </div>
                     <button
                         type="button"
@@ -524,7 +492,7 @@
                 <div class="surface-header surface-header--stack">
                     <div>
                         <p class="eyebrow">02 Features</p>
-                        <h3>Choose the baseline feature set</h3>
+                        <h3>Choose the feature rows</h3>
                     </div>
                     <p class="muted">
                         {activeTemplate?.label} uses
@@ -534,132 +502,114 @@
                     </p>
                 </div>
 
-                <div class="capability-grid capability-grid--full">
-                    <CapabilityCard
-                        capability={getCapabilityDefinition(
-                            "technical_indicators",
-                        )}
-                        readiness={getReadiness("technical_indicators")}
-                        isEnabled={true}
-                        isToggleDisabled={true}
-                        titleSuffix=" (Core)"
-                    >
-                        <div class="module-section">
-                            <div class="surface-header">
-                                <div>
-                                    <p class="eyebrow">Core Inputs</p>
-                                    <h4>Indicator rows</h4>
-                                </div>
+                <div class="surface surface--nested">
+                    <div class="surface-header">
+                        <div>
+                            <p class="eyebrow">Core Inputs</p>
+                            <h4>Technical indicator rows</h4>
+                        </div>
+                        <button
+                            type="button"
+                            class="secondary"
+                            onclick={addIndicator}
+                        >
+                            Add Indicator
+                        </button>
+                    </div>
+                    <div class="feature-list">
+                        {#each draft.signalSources.indicatorRows as feature}
+                            <div class="feature-row">
+                                <label>
+                                    <span>Name</span>
+                                    <select
+                                        value={feature.name}
+                                        onchange={(event) =>
+                                            updateIndicator(
+                                                feature.id,
+                                                "name",
+                                                (
+                                                    event.currentTarget as HTMLSelectElement
+                                                )
+                                                    .value as ResearchFeatureRow["name"],
+                                            )}
+                                    >
+                                        {#each getFeatureDefinitions(featureRegistry()) as definition}
+                                            <option value={definition.name}
+                                                >{definition.name}</option
+                                            >
+                                        {/each}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Window</span>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={feature.window}
+                                        onchange={(event) =>
+                                            updateIndicator(
+                                                feature.id,
+                                                "window",
+                                                Number(
+                                                    (
+                                                        event.currentTarget as HTMLInputElement
+                                                    ).value,
+                                                ),
+                                            )}
+                                    />
+                                </label>
+                                <label>
+                                    <span>Source</span>
+                                    <select
+                                        value={feature.source}
+                                        onchange={(event) =>
+                                            updateIndicator(
+                                                feature.id,
+                                                "source",
+                                                (
+                                                    event.currentTarget as HTMLSelectElement
+                                                )
+                                                    .value as ResearchFeatureRow["source"],
+                                            )}
+                                    >
+                                        {#each getAllowedSources(feature.name, featureRegistry()) as source}
+                                            <option value={source}>{source}</option>
+                                        {/each}
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Shift</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={feature.shift}
+                                        onchange={(event) =>
+                                            updateIndicator(
+                                                feature.id,
+                                                "shift",
+                                                Number(
+                                                    (
+                                                        event.currentTarget as HTMLInputElement
+                                                    ).value,
+                                                ),
+                                            )}
+                                    />
+                                </label>
                                 <button
                                     type="button"
-                                    class="secondary"
-                                    onclick={addIndicator}
+                                    class="danger"
+                                    onclick={() => removeIndicator(feature.id)}
                                 >
-                                    Add Indicator
+                                    Remove
                                 </button>
+                                {#if errors[`feature-${feature.id}`]}
+                                    <small class="form-grid__wide">
+                                        {errors[`feature-${feature.id}`]}
+                                    </small>
+                                {/if}
                             </div>
-                            <div class="feature-list">
-                                {#each draft.signalSources.indicatorRows as feature}
-                                    <div class="feature-row">
-                                        <label>
-                                            <span>Name</span>
-                                            <select
-                                                value={feature.name}
-                                                onchange={(event) =>
-                                                    updateIndicator(
-                                                        feature.id,
-                                                        "name",
-                                                        (
-                                                            event.currentTarget as HTMLSelectElement
-                                                        )
-                                                            .value as ResearchFeatureRow["name"],
-                                                    )}
-                                            >
-                                                {#each getFeatureDefinitions(featureRegistry()) as definition}
-                                                    <option
-                                                        value={definition.name}
-                                                        >{definition.name}</option
-                                                    >
-                                                {/each}
-                                            </select>
-                                        </label>
-                                        <label>
-                                            <span>Window</span>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                value={feature.window}
-                                                onchange={(event) =>
-                                                    updateIndicator(
-                                                        feature.id,
-                                                        "window",
-                                                        Number(
-                                                            (
-                                                                event.currentTarget as HTMLInputElement
-                                                            ).value,
-                                                        ),
-                                                    )}
-                                            />
-                                        </label>
-                                        <label>
-                                            <span>Source</span>
-                                            <select
-                                                value={feature.source}
-                                                onchange={(event) =>
-                                                    updateIndicator(
-                                                        feature.id,
-                                                        "source",
-                                                        (
-                                                            event.currentTarget as HTMLSelectElement
-                                                        )
-                                                            .value as ResearchFeatureRow["source"],
-                                                    )}
-                                            >
-                                                {#each getAllowedSources(feature.name, featureRegistry()) as source}
-                                                    <option value={source}
-                                                        >{source}</option
-                                                    >
-                                                {/each}
-                                            </select>
-                                        </label>
-                                        <label>
-                                            <span>Shift</span>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                value={feature.shift}
-                                                onchange={(event) =>
-                                                    updateIndicator(
-                                                        feature.id,
-                                                        "shift",
-                                                        Number(
-                                                            (
-                                                                event.currentTarget as HTMLInputElement
-                                                            ).value,
-                                                        ),
-                                                    )}
-                                            />
-                                        </label>
-                                        <button
-                                            type="button"
-                                            class="danger"
-                                            onclick={() =>
-                                                removeIndicator(feature.id)}
-                                        >
-                                            Remove
-                                        </button>
-                                        {#if errors[`feature-${feature.id}`]}
-                                            <small class="form-grid__wide">
-                                                {errors[
-                                                    `feature-${feature.id}`
-                                                ]}
-                                            </small>
-                                        {/if}
-                                    </div>
-                                {/each}
-                            </div>
-                        </div>
-                    </CapabilityCard>
+                        {/each}
+                    </div>
                 </div>
 
                 <div class="stage-actions">
@@ -675,7 +625,7 @@
                         class="submit"
                         onclick={() => moveStage(1)}
                     >
-                        Continue to Prediction Task
+                        Continue to Model
                     </button>
                 </div>
             </section>
@@ -685,19 +635,17 @@
             <section class="surface">
                 <div class="surface-header surface-header--stack">
                     <div>
-                        <p class="eyebrow">03 Prediction Task</p>
-                        <h3>
-                            Pick the regression model for this baseline study
-                        </h3>
+                        <p class="eyebrow">03 Model</p>
+                        <h3>Pick the model for this baseline study</h3>
                     </div>
                     <p class="muted">
-                        Classification is specified for future work. This code
-                        path runs regression diagnostics first.
+                        Results will show model diagnostics before backtest
+                        metrics.
                     </p>
                 </div>
 
                 <div class="family-grid">
-                    {#each modelFamilies as family}
+                    {#each availableModelFamilies as family}
                         <button
                             type="button"
                             class:family-card={true}
@@ -706,11 +654,7 @@
                             disabled={family.status !== "available"}
                             onclick={() => handleModelFamilySelect(family.id)}
                         >
-                            <span
-                                >{family.status === "available"
-                                    ? "Available"
-                                    : "Future"}</span
-                            >
+                            <span>Available</span>
                             <strong>{family.label}</strong>
                             <p>{family.summary}</p>
                         </button>
@@ -718,7 +662,7 @@
                 </div>
 
                 <div class="variant-grid">
-                    {#each activeModelFamily.variantIds.map( (variantId) => getModelVariantById(variantId), ) as variant}
+                    {#each availableModelVariants as variant}
                         <button
                             type="button"
                             class:variant-card={true}
@@ -734,11 +678,7 @@
                                     },
                                 })}
                         >
-                            <span
-                                >{variant.status === "available"
-                                    ? "Supported"
-                                    : "Blocked"}</span
-                            >
+                            <span>Supported</span>
                             <strong>{variant.label}</strong>
                             <p>{variant.summary}</p>
                         </button>
@@ -749,10 +689,10 @@
                     >{/if}
 
                 <details class="advanced-config">
-                    <summary>Research policy and selection controls</summary>
+                    <summary>Advanced strategy controls</summary>
                     <div class="form-grid form-grid--four">
                         <label>
-                            <span>Selection Mode</span>
+                            <span>Run Mode</span>
                             <select bind:value={draft.modelFamily.runtimeMode}>
                                 <option value={DEFAULT_RUNTIME_MODE}>
                                     {getOptionLabel(DEFAULT_RUNTIME_MODE)}
@@ -765,7 +705,7 @@
                                 >{/if}
                         </label>
                         <label>
-                            <span>Default Bundle</span>
+                            <span>Default Settings</span>
                             <select
                                 value={draft.modelFamily.defaultBundleVersion ??
                                     ""}
@@ -834,7 +774,7 @@
                         class="submit"
                         onclick={() => moveStage(1)}
                     >
-                        Continue to Diagnostics
+                        Continue to Validation
                     </button>
                 </div>
             </section>
@@ -844,21 +784,20 @@
             <section class="surface">
                 <div class="surface-header surface-header--stack">
                     <div>
-                        <p class="eyebrow">04 Diagnostics and Backtest</p>
+                        <p class="eyebrow">04 Validation and Backtest</p>
                         <h3>
-                            Decide validation, baselines, and offline backtest
-                            assumptions
+                            Choose validation and baseline comparisons
                         </h3>
                     </div>
                     <p class="muted">
-                        The run remains research-only. Model diagnostics are
-                        reviewed before strategy metrics.
+                        This remains an offline research run. It does not imply
+                        live-order readiness.
                     </p>
                 </div>
 
                 <div class="form-grid form-grid--three">
                     <label class="toggle">
-                        <span>Validation Enabled</span>
+                    <span>Use validation split</span>
                         <input
                             type="checkbox"
                             bind:checked={draft.evaluation.enableValidation}
@@ -878,7 +817,7 @@
                         </select>
                     </label>
                     <label>
-                        <span>Baselines</span>
+                        <span>Compare Against</span>
                         <div class="baseline-list">
                             {#each availableBaselines as baseline}
                                 <label class="checkbox">
@@ -900,7 +839,7 @@
                 {#if draft.evaluation.enableValidation}
                     <div class="form-grid form-grid--three">
                         <label>
-                            <span>Validation Splits</span>
+                            <span>Split Count</span>
                             <input
                                 type="number"
                                 min="1"
@@ -911,7 +850,7 @@
                             {/if}
                         </label>
                         <label>
-                            <span>Validation Test Size</span>
+                            <span>Test Size</span>
                             <input
                                 type="number"
                                 min="0.01"
@@ -939,13 +878,16 @@
                     </div>
                 {/if}
 
-                <label class="toggle">
-                    <span>Save as monitoring run</span>
-                    <input
-                        type="checkbox"
-                        bind:checked={draft.evaluation.recordAsMonitorRun}
-                    />
-                </label>
+                <details class="advanced-config">
+                    <summary>Advanced run metadata</summary>
+                    <label class="toggle">
+                        <span>Save as monitoring run</span>
+                        <input
+                            type="checkbox"
+                            bind:checked={draft.evaluation.recordAsMonitorRun}
+                        />
+                    </label>
+                </details>
 
                 <div class="stage-actions">
                     <button
@@ -971,12 +913,11 @@
                 <div class="surface-header surface-header--stack">
                     <div>
                         <p class="eyebrow">05 Review</p>
-                        <h3>Check the workflow before submitting it</h3>
+                        <h3>Check the run before starting it</h3>
                     </div>
                     <p class="muted">
-                        The workflow will still submit to the current
-                        `/api/v1/research/runs` contract. This screen turns the
-                        contract details into a research-facing checklist.
+                        Confirm the key choices. Advanced request details are
+                        available below if you need to inspect them.
                     </p>
                 </div>
 
@@ -995,7 +936,7 @@
                         </p>
                     </div>
                     <div class="review-card">
-                        <span>Capabilities</span>
+                        <span>Feature Sets</span>
                         <strong>{activeCapabilities.length}</strong>
                         <p>
                             {activeCapabilities
@@ -1036,19 +977,14 @@
                             </ul>
                         {:else}
                             <p class="muted">
-                                No blocking issues detected. This workflow is
-                                ready to submit.
+                                No blocking issues detected. This run is ready
+                                to start.
                             </p>
                         {/if}
                     </div>
 
-                    <div class="surface surface--nested">
-                        <div class="surface-header">
-                            <div>
-                                <p class="eyebrow">Payload Summary</p>
-                                <h4>What the backend will receive</h4>
-                            </div>
-                        </div>
+                    <details class="surface surface--nested advanced-config">
+                        <summary>Advanced request summary</summary>
                         <div class="mini-grid">
                             <div>
                                 <strong>Symbols</strong>
@@ -1059,7 +995,7 @@
                                 >
                             </div>
                             <div>
-                                <strong>Signal Sources</strong>
+                                <strong>Feature Sources</strong>
                                 <span>{activeCapabilities.join(", ")}</span>
                             </div>
                             <div>
@@ -1079,7 +1015,7 @@
                                 >
                             </div>
                         </div>
-                    </div>
+                    </details>
                 </div>
 
                 <div class="stage-actions">
@@ -1110,7 +1046,6 @@
     .research-shell,
     .template-grid,
     .stage-strip,
-    .capability-grid,
     .feature-list,
     .review-grid {
         display: grid;
@@ -1237,14 +1172,6 @@
         grid-column: 1 / -1;
     }
 
-    .capability-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .capability-grid--full {
-        grid-template-columns: 1fr;
-    }
-
     .feature-row {
         grid-template-columns: repeat(5, minmax(0, 1fr));
         align-items: end;
@@ -1321,7 +1248,6 @@
     @media (max-width: 1200px) {
         .template-grid,
         .stage-strip,
-        .capability-grid,
         .review-grid,
         .review-grid--secondary,
         .form-grid--three,
