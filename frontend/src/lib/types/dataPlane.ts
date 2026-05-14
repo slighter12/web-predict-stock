@@ -35,6 +35,40 @@ export interface DataIngestionResponse {
   market: string;
   backfill: IngestionStageSummary;
   daily_update: IngestionStageSummary;
+  minute_supplement: MinuteSupplementSummary;
+}
+
+export interface MinuteSupplementSummary {
+  status: string;
+  window_start: string | null;
+  window_end: string | null;
+  segment_count: number;
+  segments_succeeded: number;
+  segments_failed: number;
+  covered_trading_days: number;
+  input_rows: number;
+  upserted_rows: number;
+  duplicates_removed: number;
+  skipped_reason: string | null;
+}
+
+export interface TwCompanyProfile {
+  id: number;
+  symbol: string;
+  market: MarketCode;
+  exchange: string;
+  board: string;
+  company_name: string;
+  isin_code: string | null;
+  industry_category: string | null;
+  listing_date: string | null;
+  trading_status: string;
+  source_name: string;
+  raw_payload_id: number | null;
+  archive_object_reference: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TwDailyReadinessRequest {

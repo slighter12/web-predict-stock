@@ -154,6 +154,12 @@
     const formatMetric = (value: number | null | undefined) =>
         value === null || value === undefined ? "N/A" : value.toFixed(4);
 
+    const shortRunId = (runId: string) =>
+        runId.length > 12 ? `${runId.slice(0, 8)}...${runId.slice(-4)}` : runId;
+
+    const formatRunSymbols = (run: ResearchRunRecord) =>
+        run.symbols.length ? run.symbols.join(", ") : "N/A";
+
     const getPayloadArray = (
         payload: Record<string, unknown> | null | undefined,
         key: string,
@@ -734,75 +740,75 @@
             {:else if isRecentRunsLoading && !recentRuns.length}
                 <p class="muted">Loading persisted runs...</p>
             {:else if filteredRuns.length}
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Select</th>
-                                <th>Run ID</th>
-                                <th>Status</th>
-                                <th>Created</th>
-                                <th>Market</th>
-                                <th>RMSE</th>
-                                <th>Total Return</th>
-                                <th>Eligibility</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {#each filteredRuns as run}
-                                <tr>
-                                    <td>
-                                        <input
-                                            aria-label={`Compare ${run.run_id}`}
-                                            type="checkbox"
-                                            checked={selectedCompareIds.includes(
-                                                run.run_id,
-                                            )}
-                                            onchange={(event) =>
-                                                compareToggle(
-                                                    run.run_id,
-                                                    (
-                                                        event.currentTarget as HTMLInputElement
-                                                    ).checked,
-                                                )}
-                                        />
-                                    </td>
-                                    <td>{run.run_id}</td>
-                                    <td>{run.status}</td>
-                                    <td
-                                        >{new Date(
-                                            run.created_at,
-                                        ).toLocaleString()}</td
-                                    >
-                                    <td>{run.market ?? "N/A"}</td>
-                                    <td>
-                                        {formatMetric(
-                                            run.model_diagnostics?.rmse,
+                <div class="run-list">
+                    {#each filteredRuns as run}
+                        <article class="run-list-row">
+                            <label class="compare-check">
+                                <input
+                                    aria-label={`Compare ${run.run_id}`}
+                                    type="checkbox"
+                                    checked={selectedCompareIds.includes(
+                                        run.run_id,
+                                    )}
+                                    onchange={(event) =>
+                                        compareToggle(
+                                            run.run_id,
+                                            (
+                                                event.currentTarget as HTMLInputElement
+                                            ).checked,
                                         )}
-                                    </td>
-                                    <td>
-                                        {formatMetric(run.metrics?.total_return)}
-                                    </td>
-                                    <td>
-                                        {formatEligibility(
-                                            run.comparison_eligibility,
-                                        )}
-                                    </td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            class="secondary"
-                                            onclick={() =>
-                                                (selectedRunId = run.run_id)}
-                                        >
-                                            Review
-                                        </button>
-                                    </td>
-                                </tr>
-                            {/each}
-                        </tbody>
-                    </table>
+                                />
+                                <span>Compare</span>
+                            </label>
+
+                            <div class="run-id-block">
+                                <strong title={run.run_id}
+                                    >{shortRunId(run.run_id)}</strong
+                                >
+                                <span>
+                                    {new Date(run.created_at).toLocaleString()}
+                                </span>
+                            </div>
+
+                            <div class="run-meta">
+                                <span class="status-pill">
+                                    <span class="sr-only">Status </span>
+                                    {run.status}
+                                </span>
+                                <span>
+                                    <span class="sr-only">Market </span>
+                                    {run.market ?? "N/A"}
+                                </span>
+                                <span>
+                                    <span class="sr-only">Symbols </span>
+                                    {formatRunSymbols(run)}
+                                </span>
+                            </div>
+
+                            <div class="run-metrics">
+                                <span>
+                                    RMSE {formatMetric(run.model_diagnostics?.rmse)}
+                                </span>
+                                <span>
+                                    Return {formatMetric(run.metrics?.total_return)}
+                                </span>
+                            </div>
+
+                            <div class="run-eligibility">
+                                <span class="sr-only">Eligibility </span>
+                                {formatEligibility(run.comparison_eligibility)}
+                            </div>
+
+                            <button
+                                type="button"
+                                class="secondary"
+                                aria-label={`Review run ${run.run_id}`}
+                                onclick={() => (selectedRunId = run.run_id)}
+                            >
+                                Review
+                            </button>
+                        </article>
+                    {/each}
                 </div>
             {:else}
                 <p class="muted">No persisted runs match the current filters.</p>
@@ -1130,6 +1136,78 @@
         font-size: 0.8rem;
     }
 
+    .run-list {
+        display: grid;
+        gap: var(--space-2);
+    }
+
+    .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .run-list-row {
+        display: grid;
+        grid-template-columns: minmax(90px, 0.55fr) minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(220px, 1fr) minmax(180px, 0.9fr) auto;
+        gap: var(--space-3);
+        align-items: center;
+        padding: 0.85rem 0.95rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(6, 18, 30, 0.78);
+    }
+
+    .compare-check {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+    }
+
+    .run-id-block,
+    .run-meta,
+    .run-metrics {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .run-id-block {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .run-id-block span,
+    .run-meta span,
+    .run-metrics span,
+    .run-eligibility {
+        color: var(--muted);
+        font-size: 0.82rem;
+    }
+
+    .run-id-block strong {
+        color: var(--text-primary);
+    }
+
+    .run-meta span:not(.status-pill),
+    .run-metrics span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 2rem;
+        padding: 0.2rem 0.65rem;
+        border-radius: 999px;
+        background: rgba(15, 35, 54, 0.72);
+    }
+
     .summary-card,
     .governance-card {
         display: grid;
@@ -1230,7 +1308,8 @@
     @media (max-width: 1200px) {
         .summary-grid,
         .governance-grid,
-        .registry-controls {
+        .registry-controls,
+        .run-list-row {
             grid-template-columns: 1fr;
         }
     }

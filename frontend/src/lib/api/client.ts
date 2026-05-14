@@ -66,3 +66,28 @@ export async function requestJson<T>(
   }
   return (await response.json()) as T;
 }
+
+export async function requestJsonWithHeaders<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T; headers: Headers }> {
+  const bodyIsFormData =
+    typeof FormData !== "undefined" && init?.body instanceof FormData;
+  const hasBody = init?.body !== undefined && init?.body !== null;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(hasBody && !bodyIsFormData
+        ? { "Content-Type": "application/json" }
+        : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return {
+    data: (await response.json()) as T,
+    headers: response.headers,
+  };
+}

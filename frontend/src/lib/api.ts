@@ -14,6 +14,7 @@ export {
   createRecoveryDrill,
   createRecoveryDrillSchedule,
   createReplay,
+  fetchTwCompanyProfiles,
   fetchTwDailyReadiness,
   fetchImportantEvents,
   fetchLifecycleRecords,

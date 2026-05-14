@@ -62,7 +62,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Request-Id"],
+    expose_headers=["X-Request-Id", "X-Total-Count"],
 )
 
 app.include_router(system_router)
