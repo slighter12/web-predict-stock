@@ -1,6 +1,7 @@
 <script lang="ts">
     import { ApiError, createDataIngestion } from "../../api";
     import type { DataIngestionResponse, MarketCode } from "../../types";
+    import SymbolSelector from "../SymbolSelector.svelte";
 
     let form: {
         symbol: string;
@@ -15,8 +16,17 @@
     };
     let result: DataIngestionResponse | null = null;
     let errorMessage: string | null = null;
+    let symbolSelector: { commitPending: () => void } | null = null;
+
+    const setSymbol = (symbols: string[]) => {
+        form.symbol = symbols[0] ?? "";
+    };
+
+    const formatSummary = (data: DataIngestionResponse) =>
+        `Backfill ${data.backfill.upserted_rows} rows, daily update ${data.daily_update.upserted_rows} rows, minute supplement ${data.minute_supplement.status}.`;
 
     const submit = async () => {
+        symbolSelector?.commitPending();
         try {
             result = await createDataIngestion({
                 symbol: form.symbol.trim(),
@@ -38,12 +48,20 @@
     <div class="surface-header">
         <div>
             <p class="eyebrow">Data Plane</p>
-            <h3>Ingestions</h3>
+            <h3>Sync Market Data</h3>
         </div>
     </div>
 
     <div class="form-grid">
-        <label><span>Symbol</span><input bind:value={form.symbol} /></label>
+        <SymbolSelector
+            bind:this={symbolSelector}
+            label="Symbol"
+            market={form.market}
+            value={form.symbol ? [form.symbol] : []}
+            placeholder="Search 2330 or enter ticker"
+            maxSelections={1}
+            on:change={(event) => setSymbol(event.detail.value)}
+        />
         <label>
             <span>Market</span>
             <select bind:value={form.market}>
@@ -66,9 +84,24 @@
         >
     </div>
 
-    <button type="button" onclick={submit}>Create Ingestion</button>
+    <button type="button" class="submit" onclick={submit}>
+        Sync Market Data
+    </button>
     {#if errorMessage}<p class="muted">{errorMessage}</p>{/if}
-    {#if result}<pre>{JSON.stringify(result, null, 2)}</pre>{/if}
+    {#if result}
+        <div class="sync-summary">
+            <strong>{formatSummary(result)}</strong>
+            <span>
+                Raw payloads:
+                {result.backfill.raw_payload_id ?? "N/A"} /
+                {result.daily_update.raw_payload_id ?? "N/A"}
+            </span>
+        </div>
+        <details>
+            <summary>Advanced sync payload</summary>
+            <pre>{JSON.stringify(result, null, 2)}</pre>
+        </details>
+    {/if}
 </div>
 
 <style lang="scss">
@@ -127,6 +160,26 @@
         word-break: break-word;
         font-family: var(--mono);
         font-size: 0.78rem;
+    }
+    .sync-summary {
+        display: grid;
+        gap: 0.35rem;
+        padding: 0.9rem;
+        border-radius: var(--radius-md);
+        background: rgba(20, 184, 166, 0.12);
+        border: 1px solid rgba(45, 212, 191, 0.22);
+    }
+    .sync-summary span,
+    details summary {
+        color: var(--muted);
+    }
+    details {
+        display: grid;
+        gap: 0.75rem;
+    }
+    details summary {
+        cursor: pointer;
+        font-weight: 600;
     }
     @media (max-width: 720px) {
         .form-grid {

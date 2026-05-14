@@ -42,6 +42,7 @@
         ResearchWorkflowStageId,
         ResearchRunResponse,
     } from "../types";
+    import SymbolSelector from "./SymbolSelector.svelte";
     import WorkspaceSection from "./layout/WorkspaceSection.svelte";
 
     export let capabilityReadiness: Record<
@@ -76,6 +77,9 @@
     let submitError: AppError | null = null;
     let activeStage: ResearchWorkflowStageId = "universe";
     let lastSubmittedSummary: ResearchSubmissionSummary | null = null;
+    let universeSymbolSelector:
+        | { commitPending: () => void }
+        | null = null;
 
     const optionLabels: Record<string, string> = {
         runtime_compatibility_mode: "Manual Threshold Mode",
@@ -212,6 +216,7 @@
     };
 
     const moveStage = (direction: -1 | 1) => {
+        universeSymbolSelector?.commitPending();
         const currentIndex = stageOrder.indexOf(activeStage);
         const nextIndex = currentIndex + direction;
         if (nextIndex < 0 || nextIndex >= stageOrder.length) {
@@ -221,10 +226,22 @@
     };
 
     const openStage = (stageId: ResearchWorkflowStageId) => {
+        universeSymbolSelector?.commitPending();
         activeStage = stageId;
     };
 
+    const updateUniverseSymbols = (symbols: string[]) => {
+        draft = {
+            ...draft,
+            universe: {
+                ...draft.universe,
+                symbolsInput: symbols.join(", "),
+            },
+        };
+    };
+
     const submitWorkflow = () => {
+        universeSymbolSelector?.commitPending();
         const nextErrors = validateResearchWorkflow(draft, capabilityReadiness);
         errors = nextErrors;
 
@@ -378,6 +395,81 @@
                     </button>
                 {/each}
             </div>
+
+            <div class="workflow-action-bar">
+                {#if activeStage === "universe"}
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={() => moveStage(1)}
+                    >
+                        Continue to Features
+                    </button>
+                {:else if activeStage === "signal_sources"}
+                    <button
+                        type="button"
+                        class="secondary"
+                        onclick={() => moveStage(-1)}
+                    >
+                        Back
+                    </button>
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={() => moveStage(1)}
+                    >
+                        Continue to Model
+                    </button>
+                {:else if activeStage === "model_family"}
+                    <button
+                        type="button"
+                        class="secondary"
+                        onclick={() => moveStage(-1)}
+                    >
+                        Back
+                    </button>
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={() => moveStage(1)}
+                    >
+                        Continue to Validation
+                    </button>
+                {:else if activeStage === "evaluation"}
+                    <button
+                        type="button"
+                        class="secondary"
+                        onclick={() => moveStage(-1)}
+                    >
+                        Back
+                    </button>
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={() => moveStage(1)}
+                    >
+                        Continue to Review
+                    </button>
+                {:else}
+                    <button
+                        type="button"
+                        class="secondary"
+                        onclick={() => moveStage(-1)}
+                    >
+                        Back
+                    </button>
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={submitWorkflow}
+                        disabled={mutation.isPending}
+                    >
+                        {mutation.isPending
+                            ? "Running Research..."
+                            : "Run Research Workflow"}
+                    </button>
+                {/if}
+            </div>
         </section>
 
         {#if submitError}
@@ -426,16 +518,20 @@
                         <span>Market</span>
                         <input value="TW" disabled />
                     </label>
-                    <label class="form-grid__wide">
-                        <span>Symbols</span>
-                        <input
-                            bind:value={draft.universe.symbolsInput}
-                            placeholder="2330, 2317"
+                    <div class="form-grid__wide">
+                        <SymbolSelector
+                            bind:this={universeSymbolSelector}
+                            label="Symbols"
+                            market={draft.universe.market}
+                            value={parseSymbols(draft.universe.symbolsInput)}
+                            placeholder="Search 2330 or company name"
+                            on:change={(event) =>
+                                updateUniverseSymbols(event.detail.value)}
                         />
                         {#if errors.symbolsInput}<small
                                 >{errors.symbolsInput}</small
                             >{/if}
-                    </label>
+                    </div>
                     <label>
                         <span>Start Date</span>
                         <input
@@ -475,7 +571,7 @@
 
                 {#if errors.dateRange}<small>{errors.dateRange}</small>{/if}
 
-                <div class="stage-actions">
+                <div class="stage-actions stage-actions--bottom">
                     <button
                         type="button"
                         class="submit"
@@ -612,7 +708,7 @@
                     </div>
                 </div>
 
-                <div class="stage-actions">
+                <div class="stage-actions stage-actions--bottom">
                     <button
                         type="button"
                         class="secondary"
@@ -761,7 +857,7 @@
                     </div>
                 </details>
 
-                <div class="stage-actions">
+                <div class="stage-actions stage-actions--bottom">
                     <button
                         type="button"
                         class="secondary"
@@ -889,7 +985,7 @@
                     </label>
                 </details>
 
-                <div class="stage-actions">
+                <div class="stage-actions stage-actions--bottom">
                     <button
                         type="button"
                         class="secondary"
@@ -1018,7 +1114,7 @@
                     </details>
                 </div>
 
-                <div class="stage-actions">
+                <div class="stage-actions stage-actions--bottom">
                     <button
                         type="button"
                         class="secondary"
@@ -1238,11 +1334,25 @@
         gap: 0.35rem;
     }
 
+    .workflow-action-bar {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.8rem;
+        flex-wrap: wrap;
+        padding-top: var(--space-2);
+        border-top: 1px solid rgba(148, 163, 184, 0.1);
+    }
+
     .stage-actions {
         display: flex;
         justify-content: flex-end;
         gap: 0.8rem;
         flex-wrap: wrap;
+    }
+
+    .stage-actions--bottom {
+        padding-top: var(--space-3);
+        border-top: 1px solid rgba(148, 163, 184, 0.1);
     }
 
     @media (max-width: 1200px) {
@@ -1260,6 +1370,11 @@
     }
 
     @media (max-width: 720px) {
+        .workflow-action-bar {
+            align-items: stretch;
+            flex-direction: column;
+        }
+
         .stage-actions {
             align-items: stretch;
             flex-direction: column;

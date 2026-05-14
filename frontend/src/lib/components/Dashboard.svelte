@@ -1,20 +1,27 @@
 <script lang="ts">
     import { onMount } from "svelte";
 
-    import { ApiError, fetchTwDailyReadiness } from "../api";
+    import {
+        ApiError,
+        createDataIngestion,
+        fetchTwDailyReadiness,
+    } from "../api";
     import {
         buildCapabilityReadinessMap,
         createDefaultResearchWorkflowDraft,
         parseSymbols,
     } from "../state/researchWorkflow";
     import type {
+        DataIngestionResponse,
         ResearchRunResponse,
         ResearchSubmissionSummary,
+        TwDailyReadinessSymbolStatus,
         TwDailyReadinessResponse,
     } from "../types";
     import OperationsWorkspace from "./OperationsWorkspace.svelte";
     import ResearchWorkspace from "./ResearchWorkspace.svelte";
     import RunReviewWorkspace from "./RunReviewWorkspace.svelte";
+    import SymbolSelector from "./SymbolSelector.svelte";
 
     type SurfaceId = "start" | "builder" | "experiments" | "data_ops";
 
@@ -27,6 +34,47 @@
     let readinessEndDate = builderDefaults.universe.endDate;
     let readinessData: TwDailyReadinessResponse | null = null;
     let readinessLoadError: string | null = null;
+    let syncingSymbols: string[] = [];
+    let syncMessages: Record<string, string> = {};
+    let syncErrors: Record<string, string> = {};
+    let isSyncingAttention = false;
+    let attentionSyncProgress: {
+        current: number;
+        total: number;
+        symbol: string;
+    } | null = null;
+    let readinessSymbolSelector:
+        | { commitPending: () => void }
+        | null = null;
+
+    const setReadinessSymbols = (symbols: string[]) => {
+        readinessSymbolsInput = symbols.join(", ");
+    };
+
+    const removeKey = (record: Record<string, string>, key: string) => {
+        const { [key]: _removed, ...rest } = record;
+        return rest;
+    };
+
+    const formatIngestionSummary = (result: DataIngestionResponse) =>
+        `Backfill ${result.backfill.upserted_rows} rows, daily update ${result.daily_update.upserted_rows} rows, minute supplement ${result.minute_supplement.status}.`;
+
+    const yearsForReadinessRange = () => {
+        if (!readinessStartDate || !readinessEndDate) {
+            return 5;
+        }
+        const start = new Date(readinessStartDate).getTime();
+        const end = new Date(readinessEndDate).getTime();
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+            return 1;
+        }
+        return Math.max(1, Math.ceil((end - start) / 31_536_000_000));
+    };
+
+    const needsDataSync = (symbol: TwDailyReadinessSymbolStatus) =>
+        symbol.status !== "ready" ||
+        symbol.stale_trading_days > 0 ||
+        (symbol.missing_trading_days ?? 0) > 0;
 
     const loadTwDailyReadiness = async () => {
         const symbols = parseSymbols(readinessSymbolsInput);
@@ -36,6 +84,7 @@
             return;
         }
         try {
+            readinessLoadError = null;
             readinessData = await fetchTwDailyReadiness({
                 market: "TW",
                 symbols,
@@ -53,6 +102,68 @@
                 error instanceof ApiError
                     ? `${error.code}: ${error.message}`
                     : "TW daily readiness is unavailable.";
+            readinessData = null;
+        }
+    };
+
+    const refreshReadiness = () => {
+        readinessSymbolSelector?.commitPending();
+        void loadTwDailyReadiness();
+    };
+
+    const syncReadinessSymbol = async (
+        symbol: string,
+        options: { refreshReadiness: boolean } = { refreshReadiness: true },
+    ) => {
+        if (syncingSymbols.includes(symbol)) {
+            return;
+        }
+        syncingSymbols = [...syncingSymbols, symbol];
+        syncErrors = removeKey(syncErrors, symbol);
+        syncMessages = removeKey(syncMessages, symbol);
+        try {
+            const result = await createDataIngestion({
+                symbol,
+                market: "TW",
+                years: yearsForReadinessRange(),
+            });
+            syncMessages = {
+                ...syncMessages,
+                [symbol]: formatIngestionSummary(result),
+            };
+            if (options.refreshReadiness) {
+                await loadTwDailyReadiness();
+            }
+        } catch (error) {
+            syncErrors = {
+                ...syncErrors,
+                [symbol]:
+                    error instanceof ApiError
+                        ? `${error.code}: ${error.message}`
+                        : "Unable to sync market data.",
+            };
+        } finally {
+            syncingSymbols = syncingSymbols.filter((item) => item !== symbol);
+        }
+    };
+
+    const syncAttentionSymbols = async () => {
+        isSyncingAttention = true;
+        attentionSyncProgress = null;
+        try {
+            const symbols = [...attentionSymbols];
+            for (const [index, symbol] of symbols.entries()) {
+                attentionSyncProgress = {
+                    current: index + 1,
+                    total: symbols.length,
+                    symbol,
+                };
+                await syncReadinessSymbol(symbol, { refreshReadiness: false });
+            }
+            await loadTwDailyReadiness();
+        } finally {
+            isSyncingAttention = false;
+            attentionSyncProgress = null;
         }
     };
 
@@ -82,6 +193,10 @@
         missing: 0,
         stale: 0,
     };
+    $: attentionSymbols =
+        readinessData?.symbols
+            .filter(needsDataSync)
+            .map((symbol) => symbol.symbol) ?? [];
 </script>
 
 <div class="dashboard-shell">
@@ -142,13 +257,15 @@
                 </summary>
 
                 <div class="readiness-controls">
-                    <label>
-                        <span>Requested Symbols</span>
-                        <input
-                            bind:value={readinessSymbolsInput}
-                            placeholder="2330, 2317"
-                        />
-                    </label>
+                    <SymbolSelector
+                        bind:this={readinessSymbolSelector}
+                        label="Requested Symbols"
+                        market="TW"
+                        value={parseSymbols(readinessSymbolsInput)}
+                        placeholder="Search 2330 or company name"
+                        on:change={(event) =>
+                            setReadinessSymbols(event.detail.value)}
+                    />
                     <label>
                         <span>Start Date</span>
                         <input type="date" bind:value={readinessStartDate} />
@@ -160,11 +277,31 @@
                     <button
                         type="button"
                         class="secondary"
-                        onclick={() => void loadTwDailyReadiness()}
+                        onclick={refreshReadiness}
                     >
                         Refresh
                     </button>
+                    <button
+                        type="button"
+                        class="submit"
+                        onclick={() => void syncAttentionSymbols()}
+                        disabled={!attentionSymbols.length || isSyncingAttention}
+                    >
+                        {isSyncingAttention
+                            ? "Syncing..."
+                            : "Sync Attention Symbols"}
+                    </button>
                 </div>
+                <p class="muted readiness-message">
+                    Warnings mean some requested trading days are missing. A run
+                    may still work if enough model-ready rows remain.
+                </p>
+                {#if attentionSyncProgress}
+                    <p class="muted readiness-message">
+                        Syncing {attentionSyncProgress.current}/{attentionSyncProgress.total}:
+                        {attentionSyncProgress.symbol}
+                    </p>
+                {/if}
                 {#if readinessLoadError}
                     <p class="muted readiness-message">{readinessLoadError}</p>
                 {/if}
@@ -188,6 +325,44 @@
                                         Latest daily row: {symbol.latest_daily_date ?? "unavailable"}
                                     {/if}
                                 </p>
+                                <div class="readiness-row__meta">
+                                    <span>
+                                        {symbol.covered_trading_days ?? 0}/{symbol.requested_trading_days ?? 0}
+                                        days covered
+                                    </span>
+                                    <span>
+                                        Latest: {symbol.latest_daily_date ?? "N/A"}
+                                    </span>
+                                </div>
+                                {#if needsDataSync(symbol)}
+                                    <button
+                                        type="button"
+                                        class="secondary"
+                                        onclick={() =>
+                                            void syncReadinessSymbol(
+                                                symbol.symbol,
+                                            )}
+                                        disabled={syncingSymbols.includes(
+                                            symbol.symbol,
+                                        )}
+                                    >
+                                        {syncingSymbols.includes(symbol.symbol)
+                                            ? "Syncing..."
+                                            : "Sync Data"}
+                                    </button>
+                                {/if}
+                                {#if syncMessages[symbol.symbol]}
+                                    <p class="muted readiness-message">
+                                        {syncMessages[symbol.symbol]}
+                                    </p>
+                                {/if}
+                                {#if syncErrors[symbol.symbol]}
+                                    <p
+                                        class="muted readiness-message readiness-message--error"
+                                    >
+                                        {syncErrors[symbol.symbol]}
+                                    </p>
+                                {/if}
                             </article>
                         {/each}
                     </div>
@@ -385,7 +560,7 @@
     .readiness-controls {
         display: grid;
         gap: var(--space-3);
-        grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr)) auto;
+        grid-template-columns: minmax(280px, 1.4fr) repeat(2, minmax(0, 1fr)) auto auto;
         align-items: end;
     }
 
@@ -401,6 +576,10 @@
 
     .readiness-message {
         margin: 0;
+    }
+
+    .readiness-message--error {
+        color: #ffb4c1;
     }
 
     .readiness-details {
@@ -440,6 +619,12 @@
     .readiness-row p {
         color: var(--muted);
         line-height: 1.45;
+    }
+
+    .readiness-row__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
     .readiness-row--warning {

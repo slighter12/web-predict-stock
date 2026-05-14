@@ -8,12 +8,12 @@
 
     const sections = [
         {
-            title: "Ingestion Recovery",
-            detail: "Manual catch-up and scheduled recovery stay here so the research flow does not turn into an operator console.",
+            title: "Market Data Sync",
+            detail: "Manual symbol sync and scheduled recovery stay here so the research flow does not turn into an operator console.",
         },
         {
             title: "Replay Diagnostics",
-            detail: "Raw replay remains available for ingestion troubleshooting without exposing low-level archival internals.",
+            detail: "Raw replay remains available for sync troubleshooting without exposing low-level archival internals.",
         },
         {
             title: "Lifecycle Repair",
@@ -55,11 +55,11 @@
         <section class="surface">
             <div class="surface-header surface-header--stack">
                 <div>
-                    <p class="eyebrow">Ingestion Recovery</p>
-                    <h3>Repair missing or stale market data</h3>
+                    <p class="eyebrow">Market Data Sync</p>
+                    <h3>Sync missing or stale market data</h3>
                 </div>
                 <p class="muted">
-                    Manual ingestions and recovery drills stay available when
+                    Manual market-data sync and recovery drills stay available when
                     automated acquisition needs intervention.
                 </p>
             </div>
