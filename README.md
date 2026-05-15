@@ -59,6 +59,8 @@ promotes them deliberately.
 For the fuller implementation inventory, use
 [`docs/implementation-status.md`](docs/implementation-status.md). That file may
 include lower-level or advanced foundations that are not v1 product commitments.
+Retained backend foundations and metadata fields are compatibility or internal
+diagnostic surfaces unless a future roadmap promotes them.
 
 ## Implemented Today
 
