@@ -47,6 +47,17 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
             {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0}
         ],
         validation=None,
+        model_diagnostics={
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "mae": 0.08,
+            "rank_ic": 0.2,
+            "linear_ic": 0.1,
+            "actual_vs_predicted": [],
+            "residuals": [],
+            "feature_importance": [],
+        },
         baselines={},
         warnings=[],
         runtime_mode="runtime_compatibility_mode",
@@ -68,7 +79,7 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
                 "threshold_policy_version": "static_absolute_gross_label_v1",
                 "price_basis_version": "label_open_to_open__entry_ohlc_default__exit_ohlc_default__benchmark_unset_v1",
                 "benchmark_comparability_gate": False,
-                "comparison_eligibility": "comparison_metadata_only",
+                "comparison_eligibility": "research_only_comparable",
                 "scoring_factor_ids": [],
             }
         ),
@@ -157,4 +168,6 @@ def test_create_research_run_records_started_before_execute(monkeypatch):
     )
 
     assert response.run_id == "run_started"
+    assert response.artifact_completeness == "complete"
+    assert response.not_required_artifacts == ["validation", "baselines"]
     assert call_order == ["started", "executed", "success"]

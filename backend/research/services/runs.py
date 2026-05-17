@@ -5,6 +5,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from backend.platform.errors import BacktestError, DataAccessError
+from backend.research.domain.artifact_summary import build_review_artifact_summary
 from backend.research.repositories.runs import (
     get_research_run_record,
     list_research_run_records,
@@ -24,6 +25,26 @@ from backend.research.services.registry import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _response_with_artifact_summary(
+    response: ResearchRunResponse,
+    request: ResearchRunCreateRequest,
+) -> ResearchRunResponse:
+    summary = build_review_artifact_summary(
+        status="succeeded",
+        request_payload=request.model_dump(mode="json"),
+        comparison_eligibility=response.comparison_eligibility,
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": response.model_diagnostics is not None,
+            "equity_curve": True,
+            "signals": True,
+            "validation": response.validation is not None,
+            "baselines": isinstance(response.baselines, dict),
+        },
+    )
+    return response.model_copy(update=summary)
 
 
 def _record_registry_event(
@@ -58,6 +79,7 @@ def create_research_run(
         )
         artifacts = execute_research_run(run_id=run_id, request=request)
         runtime_context = artifacts.runtime_context
+        response = _response_with_artifact_summary(artifacts.response, request)
         _record_registry_event(
             record_success,
             raise_on_failure=True,
@@ -65,11 +87,11 @@ def create_research_run(
             request_id=request_id,
             request=request,
             runtime_context=runtime_context,
-            response=artifacts.response,
+            response=response,
             validation_summary=artifacts.validation_summary,
             warnings=artifacts.warnings,
         )
-        return artifacts.response
+        return response
     except BacktestError as exc:
         # Preserve the original rejection even if audit persistence fails.
         _record_registry_event(

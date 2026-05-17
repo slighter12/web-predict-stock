@@ -3,6 +3,7 @@
 
     export let validation: ValidationSummary | null = null;
     export let warnings: string[] = [];
+    export let emptyMessage = "Validation was not requested for this run.";
 </script>
 
 <div class="validation-grid">
@@ -23,7 +24,7 @@
                 {/each}
             </div>
         {:else}
-            <p class="muted">Validation is disabled for this run.</p>
+            <p class="muted">{emptyMessage}</p>
         {/if}
     </div>
 

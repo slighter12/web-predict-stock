@@ -9,7 +9,7 @@
     const sections = [
         {
             title: "Market Data Sync",
-            detail: "Manual symbol sync and scheduled recovery stay here so the research flow does not turn into an operator console.",
+            detail: "Manual symbol sync and scheduled recovery stay here as data support for the research flow.",
         },
         {
             title: "Replay Diagnostics",
@@ -24,9 +24,9 @@
 
 <WorkspaceSection
     id="operations-workspace"
-    eyebrow="Operations"
+    eyebrow="Data Support"
     title="Keep repair, replay, and correction workflows out of the main research path."
-    description="Operations is intentionally narrow in v1. This surface is only for TW daily data repair, raw replay, and market-state correction."
+    description="This secondary surface is intentionally narrow in v1: TW daily data repair, raw replay, and market-state correction."
 >
     <div class="operations-shell">
         <section class="surface surface--overview">
@@ -36,7 +36,7 @@
                     <h3>What still belongs here</h3>
                 </div>
                 <p class="muted">
-                    Use this area only when the workflow needs a data-plane fix.
+                    Use this area only when the workflow needs a data fix.
                     Research setup and capability expansion now stay inside the
                     primary research experience.
                 </p>
@@ -77,8 +77,8 @@
                     <h3>Verify raw payload replay and restoration</h3>
                 </div>
                 <p class="muted">
-                    Replay operations remain separate so the research flow does
-                    not become a maintenance console.
+                    Replay diagnostics remain separate so the research flow stays
+                    focused on study setup, review, and comparison.
                 </p>
             </div>
 

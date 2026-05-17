@@ -33,13 +33,14 @@ stable across multiple implementation tasks.
 | `DEC-V1-009` | advanced APIs remain available as internal foundations | accepted | advanced routes may stay reachable for diagnostics and legacy tooling, but they must stay out of v1 navigation and baseline workflow requirements |
 | `DEC-V1-010` | v1 baseline builder defaults to Extra Trees | accepted | the default research loop avoids requiring the XGBoost native runtime while keeping XGBoost and Random Forest selectable variants |
 | `DEC-V1-011` | retained platform-era code is internal foundation inventory | accepted | code, metadata fields, and docs may mention execution, adaptive, peer, factor, external-signal, or tick foundations only as compatibility or future-promoted surfaces, not as v1 product commitments |
+| `DEC-V1-012` | artifact completeness is derived, not migrated | accepted | run review and compare use `artifact_completeness`, artifact lists, and backend caveats derived from existing row JSON fields |
 
 ## Open V1 Decisions
 
 | ID | Topic | Owner area | Blocks | Next action |
 | --- | --- | --- | --- | --- |
 | `TBD-V1-002` | persisted artifact retention and size bounds | research persistence | long-running experiment history, not the current usable loop | define whether diagnostic samples, signals, and equity curves are stored fully or bounded per run |
-| `TBD-V1-003` | comparison reason hardening | experiments UX | richer comparison explanations, not basic compare usability | define stable reason labels for metadata-only, missing artifacts, sample-window mismatch, target mismatch, and feature/model mismatch |
+| `TBD-V1-003` | comparison reason hardening | experiments UX | richer pairwise explanations, not basic compare usability | extend backend caveats beyond artifact completeness and keep UI-derived assumption mismatch labels aligned |
 
 ## Deferred Platform Decisions
 

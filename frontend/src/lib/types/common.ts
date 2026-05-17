@@ -40,6 +40,14 @@ export type ComparisonEligibility =
   | "strategy_pair_comparable"
   | "research_only_comparable"
   | "unresolved_event_quarantine";
+export type ReviewArtifactName =
+  | "metrics"
+  | "model_diagnostics"
+  | "equity_curve"
+  | "signals"
+  | "validation"
+  | "baselines";
+export type ArtifactCompleteness = "complete" | "partial" | "metadata_only";
 export type TradabilityState =
   | "execution_ready"
   | "research_only"

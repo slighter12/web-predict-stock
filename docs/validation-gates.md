@@ -57,8 +57,9 @@ drive the default workbench workflow.
 - Artifact rule: a successful new run is incomplete for v1 review if persisted
   reload cannot show the same core diagnostics and backtest artifacts as the
   in-session response.
-- Old-run fallback rule: older records without artifacts pass only when the UI
-  clearly labels missing artifacts as unavailable.
+- Old-run fallback rule: older records without artifacts pass only when the API
+  marks them `metadata_only` or `partial` and the UI clearly labels missing
+  artifacts as unavailable on the record.
 
 ## KPI Dictionary
 
@@ -68,7 +69,7 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-DATA-001` | daily data availability | requested TW symbols have daily OHLCV rows in the requested range after exclusions | report |
 | `KPI-DATA-002` | model-ready row count | rows remaining after feature generation, shifting, target alignment, and null filtering | `> 0` per trained symbol |
-| `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics, including symbol-level warning reasons on Start or Data Ops surfaces | required |
+| `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics, including symbol-level warning reasons on Start or Data Support surfaces | required |
 
 ### Model Diagnostics
 
@@ -84,7 +85,7 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-RESEARCH-001` | request persistence | persisted record includes the original request config | required |
 | `KPI-RESEARCH-002` | strategy artifact persistence | persisted record includes metrics, equity curve, signals, baselines, warnings, and runtime metadata | required for new runs |
-| `KPI-RESEARCH-003` | old-run fallback clarity | historical records lacking artifacts show explicit fallback copy | required |
+| `KPI-RESEARCH-003` | old-run fallback clarity | historical records lacking artifacts expose artifact completeness and explicit fallback copy | required |
 
 ### Comparison
 

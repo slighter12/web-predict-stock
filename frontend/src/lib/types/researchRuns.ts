@@ -1,9 +1,11 @@
 import type {
   BaselineName,
   DefaultBundleVersion,
+  ArtifactCompleteness,
   FeatureName,
   ModelType,
   PriceSource,
+  ReviewArtifactName,
   ReturnTarget,
   ResearchMonitorProfileId,
   RunStatus,
@@ -127,8 +129,26 @@ export interface RegressionDiagnostics {
   feature_importance: FeatureImportancePoint[];
 }
 
+export interface ComparisonCaveat {
+  code: string;
+  label: string;
+  severity: "blocker" | "note";
+}
+
+export interface ReviewArtifactSummary {
+  artifact_completeness: ArtifactCompleteness;
+  present_artifacts: ReviewArtifactName[];
+  missing_artifacts: ReviewArtifactName[];
+  not_required_artifacts: ReviewArtifactName[];
+  comparison_caveats: ComparisonCaveat[];
+}
+
 export interface ResearchRunResponse
-  extends VersionPack, P3Summary, GovernanceMetadata, FoundationMetadata {
+  extends VersionPack,
+    P3Summary,
+    GovernanceMetadata,
+    FoundationMetadata,
+    ReviewArtifactSummary {
   run_id: string;
   metrics: Metrics;
   equity_curve: EquityPoint[];
@@ -145,7 +165,11 @@ export interface ResearchRunResponse
 }
 
 export interface ResearchRunRecord
-  extends VersionPack, P3Summary, GovernanceMetadata, FoundationMetadata {
+  extends VersionPack,
+    P3Summary,
+    GovernanceMetadata,
+    FoundationMetadata,
+    ReviewArtifactSummary {
   run_id: string;
   request_id: string | null;
   status: RunStatus;

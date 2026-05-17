@@ -28,7 +28,7 @@ Some code and metadata from that period remains intentionally:
 
 Those retained foundations are not current v1 commitments. They should not be
 used to justify adding execution, adaptive, peer, factor, external-signal, tick
-archive, or operations-console workflows back into Start, Builder, or
+archive, or broad data-control workflows back into Start, Builder, or
 Experiments.
 
 ## Promotion Rule
@@ -56,7 +56,7 @@ or Experiments workflow.
 | Broad factor catalog expansion | deferred | Which factors are required for the baseline TW daily task family? |
 | External-signal breadth | deferred | Which signal timing and audit rules make it research-safe? |
 | Tick archive and intraday strategy UX | deferred | Is intraday analysis part of a future product, or only a data-foundation tool? |
-| Operations-console completeness | deferred | Which operational controls are needed for the workbench user, not platform admins? |
+| Data-control completeness | deferred | Which controls are needed for the workbench user, not platform admins? |
 
 ## Current Todo
 

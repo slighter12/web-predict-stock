@@ -28,11 +28,11 @@ in the v1 product navigation.
 | Area | Status | Current reading |
 | --- | --- | --- |
 | Workbench product direction | implemented | README, goals, plan, spec, and gates describe the v1 workbench direction |
-| Start / Builder / Experiments / Data Ops shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
+| Start / Builder / Experiments / Data Support shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
 | Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
-| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, and runtime metadata; old metadata-only records show explicit fallback copy |
-| Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; deeper non-comparable reason taxonomy still needs hardening |
+| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, runtime metadata, and artifact completeness summaries; old metadata-only records show explicit fallback copy |
+| Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; backend caveats block metadata-only, partial, and unfinished records |
 | Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
@@ -48,7 +48,7 @@ in the v1 product navigation.
   - currently regression-first; classification remains a documented future task
 - `Experiments`
   - persisted run lookup, result review, filtering, sorting, and comparison
-- `Data Ops`
+- `Data Support`
   - secondary diagnostic surface for data readiness and repair workflows
 
 Legacy components such as `PredictionStudio` and `MaintenanceWorkspace` may
@@ -81,7 +81,7 @@ baseline experiment.
 
 The current codebase still contains names, metadata fields, and service modules
 from the earlier platform-oriented design. That is expected historical context,
-not a signal that v1 has returned to an execution or operations platform.
+not a signal that v1 has returned to an execution or admin surface.
 
 - data-plane repair, replay, lifecycle, and event endpoints support TW daily
   research data readiness; they are not the primary product loop
@@ -89,7 +89,7 @@ not a signal that v1 has returned to an execution or operations platform.
   archive code remains as compatibility or internal foundation inventory
 - version-pack and foundation metadata may appear on research-run records so
   old records and future-promoted capabilities remain explainable
-- Start, Experiment Builder, Experiments, and secondary Data Ops remain the
+- Start, Experiment Builder, Experiments, and secondary Data Support remain the
   v1 information architecture for user-facing work
 
 When reading code, treat advanced routes or metadata as retained foundations
@@ -219,7 +219,7 @@ Move from usable-loop verification to cleanup and hardening:
 
 1. harden comparison caveats for non-comparable runs across sample-window,
    target, feature, and cost-basis mismatch cases
-2. keep Data Ops secondary to the main research loop, and keep retained
+2. keep Data Support secondary to the main research loop, and keep retained
    platform-era foundations labeled as internal or deferred
 3. document a clean-environment data-prep checklist for v1 demos and manual
    verification
