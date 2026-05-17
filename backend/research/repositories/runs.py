@@ -12,6 +12,7 @@ from backend.database import (
     ResearchRunLiquidityCoverage,
     SessionLocal,
 )
+from backend.research.domain.artifact_summary import build_review_artifact_summary
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.platform.time import utc_now
@@ -99,6 +100,33 @@ def _summarize_model_diagnostics(value: Any) -> dict[str, Any] | None:
     }
 
 
+def _review_artifact_summary_from_row(
+    row: ResearchRun,
+    *,
+    request_payload: dict[str, Any] | None,
+    validation_outcome: Any,
+    model_diagnostics: Any,
+) -> dict[str, Any]:
+    return build_review_artifact_summary(
+        status=row.status,
+        request_payload=request_payload,
+        comparison_eligibility=row.comparison_eligibility,
+        artifact_presence={
+            "metrics": isinstance(json_loads(row.metrics_json, None), dict),
+            "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
+            is not None,
+            "equity_curve": row.equity_curve_json is not None
+            and isinstance(json_loads(row.equity_curve_json, None), list),
+            "signals": row.signals_json is not None
+            and isinstance(json_loads(row.signals_json, None), list),
+            "validation": _validation_summary_from_payload(validation_outcome)
+            is not None,
+            "baselines": row.baselines_json is not None
+            and isinstance(json_loads(row.baselines_json, None), dict),
+        },
+    )
+
+
 def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dict[str, Any]:
     effective_strategy = None
     if row.effective_threshold is not None and row.effective_top_n is not None:
@@ -109,6 +137,7 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
 
     validation_outcome = json_loads(row.validation_outcome_json, None)
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
+    request_payload = json_loads(row.request_payload_json, None)
     payload = {
         "run_id": row.run_id,
         "request_id": row.request_id,
@@ -124,7 +153,7 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
         "fallback_audit": json_loads(row.fallback_audit_json, None),
         "validation_outcome": validation_outcome,
         "rejection_reason": row.rejection_reason,
-        "request_payload": json_loads(row.request_payload_json, None),
+        "request_payload": request_payload,
         "metrics": json_loads(row.metrics_json, None),
         "equity_curve": json_loads(row.equity_curve_json, [])
         if include_artifacts
@@ -169,6 +198,14 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
         "monitor_observation_status": row.monitor_observation_status,
         "created_at": normalize_created_at(row.created_at),
     }
+    payload.update(
+        _review_artifact_summary_from_row(
+            row,
+            request_payload=request_payload,
+            validation_outcome=validation_outcome,
+            model_diagnostics=model_diagnostics,
+        )
+    )
     payload.update(
         build_version_pack_payload(
             {

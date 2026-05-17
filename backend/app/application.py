@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="TW Daily Quant ML Research Workbench API",
-    description="Public v1 API for TW daily baseline research, experiment review, and data readiness operations.",
+    description="Public v1 API for TW daily baseline research, experiment review, and data readiness support.",
     version="1.0.0",
 )
 

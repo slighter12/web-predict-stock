@@ -31,6 +31,10 @@ from backend.shared.contracts.common import (
     StrategyType,
     ValidationMethod,
 )
+from backend.research.domain.artifact_summary import (
+    ArtifactCompleteness,
+    ReviewArtifactName,
+)
 
 from .runtime_metadata import (
     ConfigSources,
@@ -262,11 +266,26 @@ class RegressionDiagnostics(BaseModel):
     feature_importance: List[FeatureImportancePoint] = Field(default_factory=list)
 
 
+class ComparisonCaveat(BaseModel):
+    code: str
+    label: str
+    severity: Literal["blocker", "note"] = "blocker"
+
+
+class ReviewArtifactSummaryMixin(BaseModel):
+    artifact_completeness: ArtifactCompleteness = "metadata_only"
+    present_artifacts: List[ReviewArtifactName] = Field(default_factory=list)
+    missing_artifacts: List[ReviewArtifactName] = Field(default_factory=list)
+    not_required_artifacts: List[ReviewArtifactName] = Field(default_factory=list)
+    comparison_caveats: List[ComparisonCaveat] = Field(default_factory=list)
+
+
 class ResearchRunResponse(
     VersionPackMixin,
     P3SummaryMixin,
     GovernanceMetadataMixin,
     FoundationMetadataMixin,
+    ReviewArtifactSummaryMixin,
 ):
     run_id: str
     metrics: Metrics
@@ -288,6 +307,7 @@ class ResearchRunRecordResponse(
     P3SummaryMixin,
     GovernanceMetadataMixin,
     FoundationMetadataMixin,
+    ReviewArtifactSummaryMixin,
 ):
     run_id: str
     request_id: Optional[str] = None

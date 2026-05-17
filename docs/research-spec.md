@@ -228,6 +228,19 @@ Old runs that lack persisted artifacts must show an explicit fallback message.
 The UI must not imply that missing diagnostics, signals, equity, or baselines
 were evaluated.
 
+Persisted run responses expose an additive artifact summary derived from the
+saved row and request payload:
+
+- `artifact_completeness`: `complete`, `partial`, or `metadata_only`
+- `present_artifacts`
+- `missing_artifacts`
+- `not_required_artifacts`
+- `comparison_caveats`
+
+Validation and baselines are `not_required` when they were not requested.
+Missing values mean the artifact is unavailable on that saved record, not that
+the study evaluated the artifact and produced an empty result.
+
 ### SPEC-RUN-003: Runtime metadata
 
 Every run must persist:
@@ -284,6 +297,10 @@ can explain their shared and differing assumptions. At minimum, compare:
 
 Comparison eligibility helps the researcher avoid invalid claims. It must not
 hide model diagnostics or persisted artifacts.
+
+Artifact completeness caveats are blocking comparison context. A run that is
+`partial` or `metadata_only`, or a run that did not finish successfully, must
+not be treated as a complete comparable result.
 
 ## Hidden Advanced Modules
 

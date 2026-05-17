@@ -15,7 +15,7 @@ in the v1 product navigation.
 
 ## Status Scope
 
-- status date: `2026-05-13`
+- status date: `2026-05-14`
 - status terms:
   - `implemented`: behavior exists and is usable in the current codebase
   - `partial`: meaningful foundation exists, but the v1 product expectation is
@@ -28,11 +28,11 @@ in the v1 product navigation.
 | Area | Status | Current reading |
 | --- | --- | --- |
 | Workbench product direction | implemented | README, goals, plan, spec, and gates describe the v1 workbench direction |
-| Start / Builder / Experiments / Data Ops shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
+| Start / Builder / Experiments / Data Support shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
 | Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
-| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, and runtime metadata; old metadata-only records show explicit fallback copy |
-| Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; deeper non-comparable reason taxonomy still needs hardening |
+| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, runtime metadata, and artifact completeness summaries; old metadata-only records show explicit fallback copy |
+| Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; backend caveats block metadata-only, partial, and unfinished records |
 | Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
@@ -48,7 +48,7 @@ in the v1 product navigation.
   - currently regression-first; classification remains a documented future task
 - `Experiments`
   - persisted run lookup, result review, filtering, sorting, and comparison
-- `Data Ops`
+- `Data Support`
   - secondary diagnostic surface for data readiness and repair workflows
 
 Legacy components such as `PredictionStudio` and `MaintenanceWorkspace` may
@@ -76,6 +76,24 @@ of the v1 information architecture.
 Hidden advanced paths may remain reachable for internal diagnostics or legacy
 tooling, but they should not be required to start, understand, or compare a
 baseline experiment.
+
+## Code Reading Notes
+
+The current codebase still contains names, metadata fields, and service modules
+from the earlier platform-oriented design. That is expected historical context,
+not a signal that v1 has returned to an execution or admin surface.
+
+- data-plane repair, replay, lifecycle, and event endpoints support TW daily
+  research data readiness; they are not the primary product loop
+- execution, simulation, adaptive, peer, factor, external-signal, and tick
+  archive code remains as compatibility or internal foundation inventory
+- version-pack and foundation metadata may appear on research-run records so
+  old records and future-promoted capabilities remain explainable
+- Start, Experiment Builder, Experiments, and secondary Data Support remain the
+  v1 information architecture for user-facing work
+
+When reading code, treat advanced routes or metadata as retained foundations
+unless `docs/plan.md` explicitly promotes them into a v1 milestone.
 
 ## Implemented Foundations
 
@@ -112,6 +130,8 @@ These foundations are implementation inventory, not v1 product scope.
 ### Documentation
 
 - v1 direction is current after the usable-loop verification
+- docs should keep the historical context visible: retained platform-era code
+  exists, but the current product contract is workbench-first
 - developer-facing docs should keep the local data-prep caveat visible: a clean
   DB needs TW daily data loaded before the run path is useful
 - future edits must keep advanced/platform modules out of the default research
@@ -119,18 +139,21 @@ These foundations are implementation inventory, not v1 product scope.
 
 ### Frontend
 
-- legacy `PredictionStudio` and `MaintenanceWorkspace` should be removed once
-  the current workbench surfaces fully replace them
+- legacy or platform-era component names should be cleaned up only after the
+  current workbench surfaces fully replace them
 - residual diagnostics now have a dedicated sample section in the persisted run
   review surface
 - comparison UI supports the v1 complete-run path; reason labels still need
-  hardening for non-comparable or metadata-only runs
+  hardening so pairwise caveats are easier to interpret
 
 ### Backend
 
 - classification remains specification-only
-- comparison caveat labels still need deeper hardening for non-comparable runs,
-  such as sample-window, target, feature, and cost-basis mismatch cases
+- comparison caveat labels and reason codes still need deeper hardening for
+  non-comparable runs, such as sample-window, target, feature, and cost-basis
+  mismatch cases
+- artifact retention and payload sizing need a long-running-history policy, but
+  this does not block the currently verified usable loop
 - hidden advanced foundations may stay reachable for diagnostics and legacy
   tooling, but should not return to the v1 navigation without a roadmap
   decision
@@ -192,13 +215,13 @@ These foundations are implementation inventory, not v1 product scope.
 
 ## Next Recommended Stage
 
-Move from usable-loop verification to documentation and comparison cleanup:
+Move from usable-loop verification to cleanup and hardening:
 
 1. harden comparison caveats for non-comparable runs across sample-window,
    target, feature, and cost-basis mismatch cases
-2. keep Data Ops secondary to the main research loop, and remove any remaining
-   advanced/platform language from the default path
+2. keep Data Support secondary to the main research loop, and keep retained
+   platform-era foundations labeled as internal or deferred
 3. document a clean-environment data-prep checklist for v1 demos and manual
    verification
-4. deprecate or remove legacy frontend surfaces once the replacement flow is
-   confirmed
+4. clean up legacy naming only where it improves readability without widening
+   v1 scope

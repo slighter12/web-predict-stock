@@ -55,6 +55,21 @@ def test_research_run_repository_roundtrip(monkeypatch):
             "max_drawdown": -0.08,
             "turnover": 0.3,
         },
+        "equity_curve": [{"date": "2024-01-02", "equity": 1.0}],
+        "signals": [
+            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0}
+        ],
+        "model_diagnostics": {
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "mae": 0.08,
+            "rank_ic": 0.2,
+            "linear_ic": 0.1,
+            "actual_vs_predicted": [],
+            "residuals": [],
+            "feature_importance": [],
+        },
         "warnings": [],
         "tradability_state": "execution_ready",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
@@ -126,6 +141,198 @@ def test_research_run_repository_roundtrip(monkeypatch):
     assert loaded["tradability_contract_version"] == "p3_tradability_monitoring_v1"
     assert loaded["liquidity_bucket_coverages"][0]["bucket_key"] == "50m_to_200m"
     assert loaded["monitor_observation_status"] == "persisted"
+    assert loaded["artifact_completeness"] == "complete"
+    assert loaded["missing_artifacts"] == []
+    assert loaded["not_required_artifacts"] == ["validation", "baselines"]
+
+
+def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+            MicrostructureObservation.__table__,
+        ],
+    )
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        row = ResearchRun(run_id="run_old")
+        row.request_id = "req_old"
+        row.status = "succeeded"
+        row.market = "TW"
+        row.symbols_json = '["2330"]'
+        row.strategy_type = "research_v1"
+        row.request_payload_json = research_run_repository.json_dumps(
+            {"symbols": ["2330"], "baselines": []}
+        )
+        row.comparison_eligibility = "comparison_metadata_only"
+        row.warnings_json = "[]"
+        session.add(row)
+        session.commit()
+
+    loaded = research_run_repository.get_research_run_record("run_old")
+
+    assert loaded["artifact_completeness"] == "metadata_only"
+    assert loaded["present_artifacts"] == []
+    assert loaded["missing_artifacts"] == [
+        "metrics",
+        "model_diagnostics",
+        "equity_curve",
+        "signals",
+    ]
+    assert loaded["not_required_artifacts"] == ["validation", "baselines"]
+    assert {item["code"] for item in loaded["comparison_caveats"]} >= {
+        "METADATA_ONLY_RECORD",
+        "COMPARISON_METADATA_ONLY",
+    }
+
+
+def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+            MicrostructureObservation.__table__,
+        ],
+    )
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        row = ResearchRun(run_id="run_partial")
+        row.request_id = "req_partial"
+        row.status = "succeeded"
+        row.market = "TW"
+        row.symbols_json = '["2330"]'
+        row.strategy_type = "research_v1"
+        row.request_payload_json = research_run_repository.json_dumps(
+            {"symbols": ["2330"], "baselines": []}
+        )
+        row.metrics_json = research_run_repository.json_dumps(
+            {
+                "total_return": 0.12,
+                "sharpe": 1.1,
+                "max_drawdown": -0.08,
+                "turnover": 0.3,
+            }
+        )
+        row.comparison_eligibility = "research_only_comparable"
+        row.warnings_json = "[]"
+        session.add(row)
+        session.commit()
+
+    loaded = research_run_repository.get_research_run_record("run_partial")
+
+    assert loaded["artifact_completeness"] == "partial"
+    assert loaded["present_artifacts"] == ["metrics"]
+    assert loaded["missing_artifacts"] == [
+        "model_diagnostics",
+        "equity_curve",
+        "signals",
+    ]
+    assert {item["code"] for item in loaded["comparison_caveats"]} == {
+        "REVIEW_ARTIFACTS_MISSING"
+    }
+
+
+def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+            MicrostructureObservation.__table__,
+        ],
+    )
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        row = ResearchRun(run_id="run_running")
+        row.request_id = "req_running"
+        row.status = "running"
+        row.market = "TW"
+        row.symbols_json = '["2330"]'
+        row.strategy_type = "research_v1"
+        row.request_payload_json = research_run_repository.json_dumps(
+            {"symbols": ["2330"], "baselines": []}
+        )
+        row.comparison_eligibility = "comparison_metadata_only"
+        row.warnings_json = "[]"
+        session.add(row)
+        session.commit()
+
+    loaded = research_run_repository.get_research_run_record("run_running")
+
+    assert loaded["artifact_completeness"] == "metadata_only"
+    assert {item["code"] for item in loaded["comparison_caveats"]} >= {
+        "ARTIFACTS_NOT_EVALUATED",
+        "METADATA_ONLY_RECORD",
+    }
+
+
+def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+            MicrostructureObservation.__table__,
+        ],
+    )
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    payload = {
+        "run_id": "run_list",
+        "request_id": "req_list",
+        "status": "succeeded",
+        "market": "TW",
+        "symbols": ["2330"],
+        "strategy_type": "research_v1",
+        "request_payload": {"symbols": ["2330"], "baselines": []},
+        "metrics": {
+            "total_return": 0.12,
+            "sharpe": 1.1,
+            "max_drawdown": -0.08,
+            "turnover": 0.3,
+        },
+        "equity_curve": [{"date": "2024-01-02", "equity": 1.0}],
+        "signals": [
+            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0}
+        ],
+        "model_diagnostics": {
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "mae": 0.08,
+            "rank_ic": 0.2,
+            "linear_ic": 0.1,
+            "actual_vs_predicted": [],
+            "residuals": [],
+            "feature_importance": [],
+        },
+        "warnings": [],
+        "comparison_eligibility": "research_only_comparable",
+    }
+
+    research_run_repository.persist_research_run_record(payload)
+    listed = research_run_repository.list_research_run_records()
+
+    assert listed[0]["run_id"] == "run_list"
+    assert listed[0]["artifact_completeness"] == "complete"
+    assert listed[0]["missing_artifacts"] == []
+    assert listed[0]["equity_curve"] == []
+    assert listed[0]["signals"] == []
+    assert listed[0]["model_diagnostics"]["actual_vs_predicted"] == []
 
 
 def test_research_run_repository_reassigns_existing_observation_run_id(monkeypatch):

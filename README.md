@@ -4,7 +4,7 @@ This repository is a research-first workbench for TW daily quantitative ML
 experiments. The v1 product is intentionally narrow: help a researcher create a
 baseline study, inspect model quality, review the resulting strategy backtest,
 and compare persisted experiments without treating the app as an execution or
-operations platform.
+data-control suite.
 
 ## V1 Product Flow
 
@@ -38,7 +38,7 @@ research workflow shape.
 - adaptive or RL workflows
 - peer inference, factor expansion, external-signal breadth, or tick archive UX
   as main-flow requirements
-- multi-user productization or operations-console completeness
+- multi-user productization or admin-console completeness
 
 Those advanced capabilities may exist as backend foundations or internal
 diagnostics, but they are hidden from the v1 research path unless a future plan
@@ -52,13 +52,15 @@ promotes them deliberately.
 | TW daily data readiness | implemented with diagnostics | ingestion, replay, lifecycle, important-event, and recovery surfaces support data trust checks |
 | Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
 | Regression diagnostics | implemented | successful regression runs return and reload model-quality artifacts before strategy interpretation |
-| Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, and runtime metadata |
-| Experiment comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; non-comparable reason labels still need taxonomy hardening |
+| Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, runtime metadata, and artifact completeness summaries |
+| Experiment comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; metadata-only and partial records expose backend caveats before comparison |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
 
 For the fuller implementation inventory, use
 [`docs/implementation-status.md`](docs/implementation-status.md). That file may
 include lower-level or advanced foundations that are not v1 product commitments.
+Retained backend foundations and metadata fields are compatibility or internal
+diagnostic surfaces unless a future roadmap promotes them.
 
 ## Implemented Today
 
@@ -79,13 +81,13 @@ include lower-level or advanced foundations that are not v1 product commitments.
   - check data readiness
 - Experiment Builder for the baseline TW daily research workflow
 - Experiments surface for persisted run lookup, review, and comparison
-- Data Ops as a secondary diagnostic surface, not the default research path
+- Data Support as a secondary diagnostic surface, not the default research path
 
 ## Still Partial Or Deferred
 
 - classification is specified but not implemented in the first code pass
-- comparison reason taxonomy still needs hardening for runs that should not be
-  compared, but the core persisted comparison loop is usable
+- richer pairwise comparison explanations can still improve review workflow, but
+  incomplete artifacts and backend comparison caveats now block optimistic compare
 - execution, adaptive, peer, factor, and tick archive modules are deferred from
   the v1 main workflow
 

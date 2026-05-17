@@ -12,7 +12,9 @@
     import type {
         CapabilityReadinessState,
         ComparisonEligibility,
+        ComparisonCaveat,
         ResearchCapabilityId,
+        ReviewArtifactName,
         ResearchRunRecord,
         ResearchRunResponse,
         ResearchSubmissionSummary,
@@ -69,6 +71,14 @@
         strategy_pair_comparable: "Comparable",
         research_only_comparable: "Comparable for research",
         unresolved_event_quarantine: "Quarantined",
+    };
+    const artifactLabels: Record<ReviewArtifactName, string> = {
+        metrics: "strategy metrics",
+        model_diagnostics: "model diagnostics",
+        equity_curve: "equity curve",
+        signals: "signals",
+        validation: "validation",
+        baselines: "baselines",
     };
 
     let recentRuns: ResearchRunRecord[] = [];
@@ -144,12 +154,43 @@
         }).length;
 
     const hasCompleteArtifacts = (run: ReviewRun | null) =>
+        run?.artifact_completeness === "complete";
+
+    const formatArtifactList = (artifacts: ReviewArtifactName[]) =>
+        artifacts.map((artifact) => artifactLabels[artifact]).join(", ");
+
+    const isArtifactNotRequired = (
+        run: ReviewRun | null | undefined,
+        artifact: ReviewArtifactName,
+    ) => Boolean(run?.not_required_artifacts?.includes(artifact));
+
+    const hasArtifact = (
+        run: ReviewRun | null | undefined,
+        artifact: ReviewArtifactName,
+    ) => Boolean(run?.present_artifacts?.includes(artifact));
+
+    const isArtifactMissing = (
+        run: ReviewRun | null | undefined,
+        artifact: ReviewArtifactName,
+    ) => Boolean(run?.missing_artifacts?.includes(artifact));
+
+    const hasBlockingCaveats = (run: ReviewRun | null | undefined) =>
         Boolean(
-            run?.model_diagnostics ||
-                run?.equity_curve?.length ||
-                run?.signals?.length ||
-                Object.keys(run?.baselines ?? {}).length,
+            run?.comparison_caveats?.some(
+                (caveat) => caveat.severity === "blocker",
+            ),
         );
+
+    const uniqueCaveats = (caveats: ComparisonCaveat[]) => {
+        const seen = new Set<string>();
+        return caveats.filter((caveat) => {
+            if (seen.has(caveat.code)) {
+                return false;
+            }
+            seen.add(caveat.code);
+            return true;
+        });
+    };
 
     const formatMetric = (value: number | null | undefined) =>
         value === null || value === undefined ? "N/A" : value.toFixed(4);
@@ -371,56 +412,18 @@
         const fields = runs.map(getComparisonFields);
         const findings: ComparisonFinding[] = [];
 
-        if (runs.some((run) => !hasCompleteArtifacts(run))) {
-            findings.push({
-                label: "Old record only",
-                detail: "At least one selected run does not have saved diagnostics or backtest artifacts.",
-                severity: "blocker",
-            });
-        }
-        if (
-            runs.some(
-                (run) =>
-                    run.comparison_eligibility === "comparison_metadata_only",
-            )
-        ) {
-            findings.push({
-                label: "Old record only",
-                detail: "At least one selected run only has the old saved record format.",
-                severity: "blocker",
-            });
-        }
-        if (
-            runs.some(
-                (run) => run.comparison_eligibility === "sample_window_pending",
-            )
-        ) {
-            findings.push({
-                label: "Not enough samples yet",
-                detail: "At least one selected run has artifacts, but needs more samples before comparison is strong.",
-                severity: "blocker",
-            });
-        }
-        if (
-            runs.some(
-                (run) =>
-                    run.comparison_eligibility ===
-                    "unresolved_event_quarantine",
-            )
-        ) {
-            findings.push({
-                label: "Event quarantine",
-                detail: "At least one selected run is blocked by unresolved corporate-event data.",
-                severity: "blocker",
-            });
-        }
-        if (runs.some((run) => !run.comparison_eligibility)) {
-            findings.push({
-                label: "Eligibility unavailable",
-                detail: "At least one selected run is missing comparison status.",
-                severity: "blocker",
-            });
-        }
+        uniqueCaveats(runs.flatMap((run) => run.comparison_caveats)).forEach(
+            (caveat) => {
+                findings.push({
+                    label: caveat.label,
+                    detail:
+                        caveat.severity === "blocker"
+                            ? "Backend comparison blocker on at least one selected run."
+                            : "Backend comparison note on at least one selected run.",
+                    severity: caveat.severity,
+                });
+            },
+        );
         const missingDimensions = uniqueValues(
             fields.flatMap((field) => field.missingDimensions),
         );
@@ -493,7 +496,7 @@
 
         return {
             status: blockers.length
-                ? "Compare with caution"
+                ? "Comparison blocked"
                 : findings.length
                   ? "Compare with notes"
                   : "Comparable",
@@ -508,17 +511,20 @@
     };
 
     const getComparableReason = (run: ReviewRun) => {
+        if (hasBlockingCaveats(run)) {
+            return run.comparison_caveats
+                .filter((caveat) => caveat.severity === "blocker")
+                .map((caveat) => caveat.label)
+                .join(" ");
+        }
         if (!hasCompleteArtifacts(run)) {
-            return "Old record only. Saved diagnostics or backtest artifacts are unavailable.";
+            const missing = run.missing_artifacts?.length
+                ? ` Missing: ${formatArtifactList(run.missing_artifacts)}.`
+                : "";
+            return `Review artifacts are ${run.artifact_completeness}.${missing}`;
         }
-        if (run.comparison_eligibility === "comparison_metadata_only") {
-            return "Old record only. Comparison details or artifacts are incomplete.";
-        }
-        if (run.comparison_eligibility === "sample_window_pending") {
-            return "Not enough samples yet.";
-        }
-        if (run.comparison_eligibility === "unresolved_event_quarantine") {
-            return "Blocked by unresolved corporate-event data.";
+        if (run.comparison_caveats?.length) {
+            return run.comparison_caveats.map((caveat) => caveat.label).join(" ");
         }
         if (run.comparison_eligibility === "strategy_pair_comparable") {
             return "Comparable.";
@@ -527,6 +533,16 @@
             return "Comparison status is unavailable.";
         }
         return "Comparable for research.";
+    };
+
+    const getRunCompareStatus = (run: ReviewRun) => {
+        if (hasBlockingCaveats(run)) {
+            const [firstCaveat] = run.comparison_caveats.filter(
+                (caveat) => caveat.severity === "blocker",
+            );
+            return firstCaveat ? `Blocked: ${firstCaveat.label}` : "Blocked";
+        }
+        return formatEligibility(run.comparison_eligibility);
     };
 
     onMount(() => {
@@ -675,7 +691,7 @@
                 <div class="summary-card">
                     <span>Compare Status</span>
                     <strong>
-                        {formatEligibility(activeRun?.comparison_eligibility)}
+                        {activeRun ? getRunCompareStatus(activeRun) : "Unknown"}
                     </strong>
                     <p>{activeRun ? getComparableReason(activeRun as ResearchRunRecord) : "No run selected."}</p>
                 </div>
@@ -732,7 +748,7 @@
 
             <div class="registry-help">
                 <span>Review: use the row button to load one run.</span>
-                <span>Compare: check two or more rows.</span>
+                <span>Compare: check two or more complete compatible rows.</span>
             </div>
 
             {#if recentRunsError}
@@ -796,7 +812,7 @@
 
                             <div class="run-eligibility">
                                 <span class="sr-only">Eligibility </span>
-                                {formatEligibility(run.comparison_eligibility)}
+                                {getRunCompareStatus(run)}
                             </div>
 
                             <button
@@ -850,65 +866,72 @@
                         </p>
                     {/if}
                 </div>
-                <details class="comparison-details">
-                    <summary>Show detailed comparison table</summary>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Run ID</th>
-                                    <th>Dataset</th>
-                                    <th>Target</th>
-                                    <th>Features</th>
-                                    <th>Model</th>
-                                    <th>Cost Basis</th>
-                                    <th>Price Basis</th>
-                                    <th>Missing Policy</th>
-                                    <th>RMSE</th>
-                                    <th>Rank IC</th>
-                                    <th>Total Return</th>
-                                    <th>Baseline Delta</th>
-                                    <th>Caveat</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {#each comparisonRuns as run}
-                                    {@const comparison = getComparisonFields(run)}
-                                    {@const baseline = summarizeBaselineComparison(run)}
+                {#if comparisonAssessment.findings.some((finding) => finding.severity === "blocker")}
+                    <p class="muted">
+                        Detailed comparison is blocked until selected runs have
+                        complete review artifacts and compatible assumptions.
+                    </p>
+                {:else}
+                    <details class="comparison-details">
+                        <summary>Show detailed comparison table</summary>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
                                     <tr>
-                                        <td>{run.run_id}</td>
-                                        <td>{comparison.datasetLabel}</td>
-                                        <td>{comparison.targetLabel}</td>
-                                        <td>{comparison.featureLabel}</td>
-                                        <td>{comparison.modelLabel}</td>
-                                        <td>{comparison.costLabel}</td>
-                                        <td>{comparison.priceBasisLabel}</td>
-                                        <td>
-                                            {comparison.missingFeaturePolicyLabel}
-                                        </td>
-                                        <td>
-                                            {formatMetric(
-                                                run.model_diagnostics?.rmse,
-                                            )}
-                                        </td>
-                                        <td>
-                                            {formatMetric(
-                                                run.model_diagnostics?.rank_ic,
-                                            )}
-                                        </td>
-                                        <td>
-                                            {formatMetric(
-                                                run.metrics?.total_return,
-                                            )}
-                                        </td>
-                                        <td>{formatMetric(baseline?.delta)}</td>
-                                        <td>{getComparableReason(run)}</td>
+                                        <th>Run ID</th>
+                                        <th>Dataset</th>
+                                        <th>Target</th>
+                                        <th>Features</th>
+                                        <th>Model</th>
+                                        <th>Cost Basis</th>
+                                        <th>Price Basis</th>
+                                        <th>Missing Policy</th>
+                                        <th>RMSE</th>
+                                        <th>Rank IC</th>
+                                        <th>Total Return</th>
+                                        <th>Baseline Delta</th>
+                                        <th>Caveat</th>
                                     </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                </details>
+                                </thead>
+                                <tbody>
+                                    {#each comparisonRuns as run}
+                                        {@const comparison = getComparisonFields(run)}
+                                        {@const baseline = summarizeBaselineComparison(run)}
+                                        <tr>
+                                            <td>{run.run_id}</td>
+                                            <td>{comparison.datasetLabel}</td>
+                                            <td>{comparison.targetLabel}</td>
+                                            <td>{comparison.featureLabel}</td>
+                                            <td>{comparison.modelLabel}</td>
+                                            <td>{comparison.costLabel}</td>
+                                            <td>{comparison.priceBasisLabel}</td>
+                                            <td>
+                                                {comparison.missingFeaturePolicyLabel}
+                                            </td>
+                                            <td>
+                                                {formatMetric(
+                                                    run.model_diagnostics?.rmse,
+                                                )}
+                                            </td>
+                                            <td>
+                                                {formatMetric(
+                                                    run.model_diagnostics?.rank_ic,
+                                                )}
+                                            </td>
+                                            <td>
+                                                {formatMetric(
+                                                    run.metrics?.total_return,
+                                                )}
+                                            </td>
+                                            <td>{formatMetric(baseline?.delta)}</td>
+                                            <td>{getComparableReason(run)}</td>
+                                        </tr>
+                                    {/each}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                {/if}
             </section>
         {/if}
 
@@ -924,13 +947,45 @@
                             <span class="muted">Loading...</span>
                         {/if}
                     </div>
+                    {#if activeRun}
+                        <div
+                            class="artifact-status"
+                            class:artifact-status--limited={activeRun.artifact_completeness !==
+                                "complete"}
+                        >
+                            <strong>
+                                Review artifacts: {activeRun.artifact_completeness}
+                            </strong>
+                            {#if activeRun.missing_artifacts.length}
+                                <span>
+                                    Missing {formatArtifactList(
+                                        activeRun.missing_artifacts,
+                                    )}. These artifacts are unavailable on this
+                                    record.
+                                </span>
+                            {:else if activeRun.not_required_artifacts.length}
+                                <span>
+                                    Not requested: {formatArtifactList(
+                                        activeRun.not_required_artifacts,
+                                    )}.
+                                </span>
+                            {:else}
+                                <span>Required review artifacts are available.</span>
+                            {/if}
+                        </div>
+                    {/if}
                     {#if selectedRunError}
                         <p class="muted">{selectedRunError}</p>
                     {:else if activeRun?.metrics}
                         <ResearchRunMetrics metrics={activeRun.metrics} />
-                    {:else}
+                    {:else if isArtifactMissing(activeRun, "metrics")}
                         <p class="muted">
                             Strategy metrics are unavailable for this record.
+                        </p>
+                    {:else if hasArtifact(activeRun, "metrics")}
+                        <p class="muted">
+                            Strategy metrics are available but contain no values
+                            for this run.
                         </p>
                     {/if}
                 </div>
@@ -949,11 +1004,17 @@
                         </div>
                         <EquityChart points={activeRun.equity_curve} />
                     </div>
-                {:else}
+                {:else if isArtifactMissing(activeRun, "equity_curve")}
                     <div class="surface">
                         <p class="muted">
                             Equity curve is unavailable for this record. This is
                             expected for older saved runs.
+                        </p>
+                    </div>
+                {:else if hasArtifact(activeRun, "equity_curve")}
+                    <div class="surface">
+                        <p class="muted">
+                            No equity curve points were produced for this run.
                         </p>
                     </div>
                 {/if}
@@ -961,6 +1022,11 @@
                 <ResearchRunValidation
                     validation={activeRun?.validation ?? null}
                     warnings={activeRun?.warnings ?? []}
+                    emptyMessage={activeRun?.missing_artifacts.includes(
+                        "validation",
+                    )
+                        ? "Validation is unavailable on this record."
+                        : "Validation was not requested for this run."}
                 />
 
                 {#if Object.keys(activeRun?.baselines ?? {}).length}
@@ -1004,15 +1070,40 @@
                             </table>
                         </div>
                     </div>
+                {:else if activeRun && isArtifactNotRequired(activeRun, "baselines")}
+                    <div class="surface">
+                        <p class="muted">
+                            Baselines were not requested for this run.
+                        </p>
+                    </div>
+                {:else if activeRun?.missing_artifacts.includes("baselines")}
+                    <div class="surface">
+                        <p class="muted">
+                            Baseline metrics are unavailable on this record.
+                        </p>
+                    </div>
+                {:else if activeRun && hasArtifact(activeRun, "baselines")}
+                    <div class="surface">
+                        <p class="muted">
+                            Baseline artifacts are available but contain no rows
+                            for this run.
+                        </p>
+                    </div>
                 {/if}
 
                 {#if activeRun?.signals?.length}
                     <ResearchRunSignals signals={activeRun.signals} />
-                {:else}
+                {:else if isArtifactMissing(activeRun, "signals")}
                     <div class="surface">
                         <p class="muted">
                             Signals are unavailable for this record. This is
                             expected for older saved runs.
+                        </p>
+                    </div>
+                {:else if hasArtifact(activeRun, "signals")}
+                    <div class="surface">
+                        <p class="muted">
+                            No signals were produced for this run.
                         </p>
                     </div>
                 {/if}
@@ -1252,6 +1343,26 @@
     .status-pill--limited {
         border-color: rgba(251, 191, 36, 0.36);
         color: #fde68a;
+    }
+
+    .artifact-status {
+        display: grid;
+        gap: 0.25rem;
+        margin-bottom: var(--space-4);
+        padding: 0.85rem 0.95rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(45, 212, 191, 0.18);
+        background: rgba(15, 35, 54, 0.72);
+    }
+
+    .artifact-status--limited {
+        border-color: rgba(251, 191, 36, 0.22);
+        background: rgba(113, 63, 18, 0.14);
+    }
+
+    .artifact-status span {
+        color: var(--muted);
+        line-height: 1.45;
     }
 
     .comparison-summary {

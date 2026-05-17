@@ -145,10 +145,16 @@ After DB, migrations, backend, frontend, and data are ready, verify:
 - Start shows TW daily readiness context for the requested symbol
 - Builder opens from the baseline task and defaults to Extra Trees
 - Run creates a successful research record
-- Review shows diagnostics, equity, validation, baselines, and signals
-- Reload plus Load restores the persisted result
-- Compare can select two complete runs and shows dataset, target, feature,
-  model, cost-basis, metrics, baseline delta, and caveat fields
+- Review shows diagnostics, equity, signals, plus validation and baselines when
+  requested
+- Reload restores the persisted result and shows whether review artifacts are
+  complete, partial, metadata-only, not requested, or unavailable on the record
+- Compare two complete runs and confirm dataset, target, feature, model,
+  cost-basis, metrics, baseline delta, and caveat fields are visible
+- Compare complete versus partial or old metadata-only records and confirm the
+  compare status blocks optimistic interpretation
+- Compare assumption mismatch cases and confirm the table flags dataset, target,
+  cost, price-basis, or missing-feature policy differences
 
 ## Frontend
 
