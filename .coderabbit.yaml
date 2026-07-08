@@ -1,0 +1,54 @@
+language: zh-TW
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  path_filters:
+    - "!**/.venv/**"
+    - "!**/node_modules/**"
+    - "!**/frontend/dist/**"
+    - "!**/.svelte-kit/**"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.mypy_cache/**"
+    - "!**/.ruff_cache/**"
+    - "!**/coverage/**"
+  path_instructions:
+    - path: "**/*"
+      instructions: >
+        Respond in Traditional Chinese. Keep reviews bounded and diff-centered.
+        Prefer minimal changes. Ask when requirements are unclear. Do not suggest
+        public API renames, new dependencies, broad refactors, or broad test-suite
+        execution unless the diff clearly requires it.
+
+    - path: "backend/**"
+      instructions: >
+        Treat backend code as Python 3.12+ FastAPI-style code. Pay attention to
+        API contracts, DB/session boundaries, migrations, data integrity, and
+        deterministic research artifact reload behavior.
+
+    - path: "backend/research/**"
+      instructions: >
+        Preserve the research-to-opinion boundary. Do not suggest broker/live
+        order execution, portfolio auto-control, US market provider work, crypto
+        trading integration, or adaptive/RL runtime behavior unless the PR
+        explicitly targets that deferred scope.
+
+    - path: "frontend/**"
+      instructions: >
+        Treat frontend code as Svelte 5 + Vite + TypeScript. Pay attention to
+        backend API/type alignment, user-facing research workflow regressions,
+        and build/typecheck risks.
+
+    - path: "frontend/src/lib/internal/legacy/**"
+      instructions: >
+        This is legacy UI code and is not part of the v1 information architecture.
+        Avoid broad comments unless the PR intentionally changes legacy behavior.
+
+    - path: "docs/**"
+      instructions: >
+        Keep repository documentation in English. Preserve document ownership and
+        product boundaries; do not turn focused docs edits into product redesign.

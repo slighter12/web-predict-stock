@@ -57,7 +57,10 @@ def test_research_run_repository_roundtrip(monkeypatch):
         },
         "equity_curve": [{"date": "2024-01-02", "equity": 1.0}],
         "signals": [
-            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0}
+            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0},
+            {"date": "2024-01-02", "symbol": "2317", "score": -0.02, "position": -1.0},
+            {"date": "2024-01-02", "symbol": "2454", "score": 0.0, "position": 0.0},
+            {"date": "2024-01-02", "symbol": "9999", "score": None, "position": 1.0},
         ],
         "model_diagnostics": {
             "task": "regression",
@@ -144,6 +147,102 @@ def test_research_run_repository_roundtrip(monkeypatch):
     assert loaded["artifact_completeness"] == "complete"
     assert loaded["missing_artifacts"] == []
     assert loaded["not_required_artifacts"] == ["validation", "baselines"]
+    assert loaded["opinion_artifact"]["state"] == "viable"
+    assert [row["symbol"] for row in loaded["opinion_artifact"]["sell_or_avoid"]] == [
+        "2317"
+    ]
+    assert [row["symbol"] for row in loaded["opinion_artifact"]["watch"]] == [
+        "2454"
+    ]
+    opinion_row = loaded["opinion_artifact"]["buy_candidates"][0]
+    assert opinion_row["symbol"] == "2330"
+    assert opinion_row["model_score"] == 0.01
+    assert opinion_row["position_signal"] == 1.0
+    assert opinion_row["evidence_reason"]
+    assert opinion_row["risk_or_warning"]
+    assert opinion_row["invalidation_note"]
+    assert {item["artifact"] for item in opinion_row["source_artifact_references"]} >= {
+        "signals",
+        "model_diagnostics",
+        "metrics",
+        "artifact_completeness",
+        "comparison_caveats",
+    }
+    checks = {
+        item["check"]: item for item in loaded["opinion_artifact"]["review_checks"]
+    }
+    assert checks["strategy_lifecycle"]["status"] == "pass"
+    assert checks["strategy_lifecycle"]["result"] == {
+        "request_present": True,
+        "effective_strategy_present": True,
+        "diagnostics_present": True,
+        "signals_present": True,
+        "metrics_present": True,
+        "opinion_rows_emitted_or_limited": True,
+    }
+    assert checks["signal_to_position"]["status"] == "warning"
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 4,
+        "positive_count": 1,
+        "negative_count": 1,
+        "flat_count": 1,
+        "invalid_row_count": 1,
+    }
+    assert checks["backtest_report_discipline"]["status"] == "warning"
+    assert checks["backtest_report_discipline"]["result"]["metric_keys"] == [
+        "max_drawdown",
+        "sharpe",
+        "total_return",
+        "turnover",
+    ]
+    assert checks["backtest_report_discipline"]["result"][
+        "threshold_policy_version_present"
+    ]
+    assert checks["backtest_report_discipline"]["result"][
+        "price_basis_version_present"
+    ]
+    assert checks["backtest_report_discipline"]["result"][
+        "research_only_boundary_present"
+    ]
+    assert checks["robustness"]["status"] == "warning"
+    assert checks["robustness"]["result"]["baseline_keys"] == []
+    assert checks["parameter_sensitivity"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
+        "2330"
+    ]
+    assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"] == {
+        "strict_threshold": 1,
+        "loose_threshold": 1,
+        "top_n_minus_1": 2,
+        "top_n_plus_1": 3,
+    }
+    assert checks["parameter_sensitivity"]["result"]["stable_symbols"] == ["2330"]
+    assert checks["parameter_sensitivity"]["result"]["provisional_policy"]
+    assert checks["source_artifact_audit"]["status"] == "warning"
+    assert checks["source_artifact_audit"]["result"] == {
+        "config_fallback_metadata_present": True,
+        "config_sources_present": True,
+        "fallback_audit_present": True,
+        "raw_provider_parser_audit_available": False,
+        "missing_raw_provider_parser_fields": [
+            "provider_source_name",
+            "parser_version",
+            "fetch_status",
+            "fetch_timestamp",
+            "raw_ingest_audit_ref",
+        ],
+        "missing_config_fallback_inputs": [],
+    }
+    assert checks["text_evidence_summary"]["status"] == "warning"
+    assert checks["text_evidence_summary"]["result"]["caveat_count"] == 1
+    assert checks["text_evidence_summary"]["result"]["source_text_count"] == 1
+    assert checks["text_evidence_summary"]["result"]["summary_text"]
+    assert all(item["source_artifact_references"] for item in checks.values())
+    assert all(
+        reference.get("symbol") == opinion_row["symbol"]
+        for reference in opinion_row["source_artifact_references"]
+        if reference["artifact"] == "signals"
+    )
 
 
 def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):
@@ -189,6 +288,19 @@ def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):
         "METADATA_ONLY_RECORD",
         "COMPARISON_METADATA_ONLY",
     }
+    assert loaded["opinion_artifact"]["state"] == "no-opinion"
+    assert loaded["opinion_artifact"]["buy_candidates"] == []
+    assert loaded["opinion_artifact"]["sell_or_avoid"] == []
+    assert loaded["opinion_artifact"]["watch"] == []
+    assert loaded["opinion_artifact"]["evidence_limitations"]
+    checks = {
+        item["check"]: item for item in loaded["opinion_artifact"]["review_checks"]
+    }
+    assert checks["insufficient_evidence_gate"]["status"] == "pass"
+    assert checks["robustness"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["status"] == "not_evaluated"
+    assert checks["source_artifact_audit"]["status"] == "not_evaluated"
+    assert checks["text_evidence_summary"]["status"] == "warning"
 
 
 def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
@@ -239,6 +351,14 @@ def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
     assert {item["code"] for item in loaded["comparison_caveats"]} == {
         "REVIEW_ARTIFACTS_MISSING"
     }
+    assert loaded["opinion_artifact"]["state"] == "no-opinion"
+    assert loaded["opinion_artifact"]["evidence_limitations"]
+    checks = {
+        item["check"]: item for item in loaded["opinion_artifact"]["review_checks"]
+    }
+    assert checks["robustness"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["status"] == "not_evaluated"
+    assert checks["source_artifact_audit"]["status"] == "not_evaluated"
 
 
 def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypatch):
@@ -276,6 +396,8 @@ def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypat
         "ARTIFACTS_NOT_EVALUATED",
         "METADATA_ONLY_RECORD",
     }
+    assert loaded["opinion_artifact"]["state"] == "do-not-adopt"
+    assert loaded["opinion_artifact"]["evidence_limitations"]
 
 
 def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeypatch):
@@ -333,6 +455,20 @@ def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeyp
     assert listed[0]["equity_curve"] == []
     assert listed[0]["signals"] == []
     assert listed[0]["model_diagnostics"]["actual_vs_predicted"] == []
+    assert listed[0]["opinion_artifact"]["state"] == "no-opinion"
+    assert listed[0]["opinion_artifact"]["buy_candidates"] == []
+    assert listed[0]["opinion_artifact"]["sell_or_avoid"] == []
+    assert listed[0]["opinion_artifact"]["watch"] == []
+    assert listed[0]["opinion_artifact"]["evidence_limitations"] == [
+        "Detail artifacts are omitted; reload the run detail for row-level opinion review."
+    ]
+    listed_checks = {
+        item["check"]: item for item in listed[0]["opinion_artifact"]["review_checks"]
+    }
+    assert listed_checks["signal_to_position"]["status"] == "not_evaluated"
+    assert listed_checks["signal_to_position"]["result"] == {
+        "omitted_for_summary": True
+    }
 
 
 def test_research_run_repository_reassigns_existing_observation_run_id(monkeypatch):

@@ -41,6 +41,82 @@ def make_payload() -> dict:
     }
 
 
+def make_opinion_artifact() -> dict:
+    review_checks = [
+        {
+            "check": "strategy_lifecycle",
+            "category": "method",
+            "status": "pass",
+            "evidence_reason": "Persisted artifacts support the lifecycle check.",
+            "risk_or_warning": "Research-only opinion.",
+            "source_artifact_references": [
+                {"artifact": "request_payload", "field": "request_payload"}
+            ],
+            "result": {
+                "request_present": True,
+                "effective_strategy_present": True,
+                "diagnostics_present": True,
+                "signals_present": True,
+                "metrics_present": True,
+                "opinion_rows_emitted_or_limited": True,
+            },
+        },
+        {
+            "check": "source_artifact_audit",
+            "category": "source_provider_audit",
+            "status": "warning",
+            "evidence_reason": "Config source audit is persisted.",
+            "risk_or_warning": "Provider expansion is not inferred.",
+            "source_artifact_references": [
+                {"artifact": "config_sources", "field": "config_sources"}
+            ],
+            "result": {
+                "config_fallback_metadata_present": True,
+                "config_sources_present": True,
+                "fallback_audit_present": True,
+                "raw_provider_parser_audit_available": False,
+                "missing_raw_provider_parser_fields": [
+                    "provider_source_name",
+                    "parser_version",
+                    "fetch_status",
+                    "fetch_timestamp",
+                    "raw_ingest_audit_ref",
+                ],
+                "missing_config_fallback_inputs": [],
+            },
+        },
+    ]
+    return {
+        "state": "viable",
+        "state_reason": "Complete persisted research artifacts support traceable opinion rows.",
+        "manual_adoption_only": True,
+        "evidence_limitations": [],
+        "buy_candidates": [
+            {
+                "symbol": "2330",
+                "model_score": 0.01,
+                "position_signal": 1.0,
+                "evidence_reason": "Latest persisted signal links model score to strategy position for this symbol.",
+                "risk_or_warning": "Research-only opinion for manual adoption review; not an execution or personalized-advice signal.",
+                "invalidation_note": "Do not adopt if newer data invalidates this persisted run.",
+                "source_artifact_references": [
+                    {"artifact": "signals", "field": "score"},
+                    {"artifact": "signals", "field": "position"},
+                    {"artifact": "model_diagnostics", "field": "model_diagnostics"},
+                    {"artifact": "metrics", "field": "metrics"},
+                    {
+                        "artifact": "artifact_completeness",
+                        "field": "artifact_completeness",
+                    },
+                ],
+            }
+        ],
+        "sell_or_avoid": [],
+        "watch": [],
+        "review_checks": review_checks,
+    }
+
+
 def make_response(run_id: str = "run_123") -> ResearchRunResponse:
     return ResearchRunResponse(
         run_id=run_id,
@@ -52,8 +128,20 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
             {"date": date(2024, 1, 2), "symbol": "2330", "score": 0.01, "position": 1.0}
         ],
         validation=None,
+        model_diagnostics={
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "mae": 0.08,
+            "rank_ic": 0.2,
+            "linear_ic": 0.1,
+            "actual_vs_predicted": [],
+            "residuals": [],
+            "feature_importance": [],
+        },
         baselines={},
         warnings=[],
+        opinion_artifact=make_opinion_artifact(),
         runtime_mode="runtime_compatibility_mode",
         default_bundle_version=None,
         effective_strategy=EffectiveStrategyConfig(threshold=0.003, top_n=3),
@@ -108,7 +196,22 @@ def make_record(run_id: str = "run_123") -> ResearchRunRecordResponse:
         metrics=Metrics(
             total_return=0.12, sharpe=1.1, max_drawdown=-0.08, turnover=0.3
         ),
+        signals=[
+            {"date": date(2024, 1, 2), "symbol": "2330", "score": 0.01, "position": 1.0}
+        ],
+        model_diagnostics={
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "mae": 0.08,
+            "rank_ic": 0.2,
+            "linear_ic": 0.1,
+            "actual_vs_predicted": [],
+            "residuals": [],
+            "feature_importance": [],
+        },
         warnings=[],
+        opinion_artifact=make_opinion_artifact(),
         created_at=datetime.now(timezone.utc),
         **build_version_pack_payload(
             {
@@ -132,6 +235,20 @@ def test_create_research_run_success(monkeypatch):
     assert response.headers["X-Request-Id"]
     assert response.json()["run_id"] == "run_123"
     assert response.json()["metrics"]["total_return"] == 0.12
+    opinion = response.json()["opinion_artifact"]
+    assert opinion["state"] == "viable"
+    assert opinion["manual_adoption_only"] is True
+    assert opinion["buy_candidates"][0]["symbol"] == "2330"
+    assert opinion["sell_or_avoid"] == []
+    assert opinion["watch"] == []
+    checks = {item["check"]: item for item in opinion["review_checks"]}
+    assert checks["strategy_lifecycle"]["status"] == "pass"
+    assert checks["strategy_lifecycle"]["result"]["metrics_present"] is True
+    assert checks["source_artifact_audit"]["status"] == "warning"
+    assert (
+        checks["source_artifact_audit"]["result"]["raw_provider_parser_audit_available"]
+        is False
+    )
 
 
 def test_legacy_backtest_route_is_not_public():
@@ -283,6 +400,8 @@ def test_get_research_run(monkeypatch):
     assert response.status_code == 200
     assert response.json()["run_id"] == "run_abc"
     assert response.json()["status"] == "succeeded"
+    assert response.json()["opinion_artifact"]["buy_candidates"][0]["symbol"] == "2330"
+    assert response.json()["opinion_artifact"]["review_checks"][0]["check"]
 
 
 def test_list_research_runs(monkeypatch):

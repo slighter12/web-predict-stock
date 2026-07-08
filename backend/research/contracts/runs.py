@@ -272,6 +272,79 @@ class ComparisonCaveat(BaseModel):
     severity: Literal["blocker", "note"] = "blocker"
 
 
+OpinionArtifactState = Literal["viable", "no-opinion", "do-not-adopt"]
+OpinionSourceArtifactName = Literal[
+    "request_payload",
+    "config_sources",
+    "fallback_audit",
+    "version_pack",
+    "model_diagnostics",
+    "signals",
+    "metrics",
+    "baselines",
+    "validation",
+    "warnings",
+    "artifact_completeness",
+    "comparison_caveats",
+]
+OpinionReviewCheckStatus = Literal["pass", "warning", "fail", "not_evaluated"]
+
+
+def _default_opinion_artifact() -> "OpinionArtifact":
+    return OpinionArtifact(
+        state="no-opinion",
+        state_reason="Opinion artifact has not been built from persisted research artifacts.",
+        buy_candidates=[],
+        sell_or_avoid=[],
+        watch=[],
+    )
+
+
+class OpinionSourceArtifactReference(BaseModel):
+    artifact: OpinionSourceArtifactName
+    field: str
+    symbol: Optional[str] = None
+    date: Optional[str] = None
+
+
+class OpinionRow(BaseModel):
+    symbol: str
+    model_score: float
+    position_signal: float
+    evidence_reason: str
+    risk_or_warning: str
+    invalidation_note: str
+    source_artifact_references: List[OpinionSourceArtifactReference] = Field(
+        default_factory=list,
+        min_length=1,
+    )
+
+
+class OpinionReviewCheck(BaseModel):
+    check: str
+    category: str
+    status: OpinionReviewCheckStatus
+    evidence_reason: str
+    risk_or_warning: str
+    source_artifact_references: List[OpinionSourceArtifactReference] = Field(
+        default_factory=list,
+        min_length=1,
+    )
+    result: Dict[str, object] = Field(default_factory=dict)
+
+
+class OpinionArtifact(BaseModel):
+    artifact_version: str = "phase2_opinion_artifact_v1"
+    state: OpinionArtifactState
+    state_reason: str
+    manual_adoption_only: Literal[True] = True
+    evidence_limitations: List[str] = Field(default_factory=list)
+    buy_candidates: List[OpinionRow] = Field(default_factory=list)
+    sell_or_avoid: List[OpinionRow] = Field(default_factory=list)
+    watch: List[OpinionRow] = Field(default_factory=list)
+    review_checks: List[OpinionReviewCheck] = Field(default_factory=list)
+
+
 class ReviewArtifactSummaryMixin(BaseModel):
     artifact_completeness: ArtifactCompleteness = "metadata_only"
     present_artifacts: List[ReviewArtifactName] = Field(default_factory=list)
@@ -295,6 +368,9 @@ class ResearchRunResponse(
     model_diagnostics: Optional[RegressionDiagnostics] = None
     baselines: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
+    opinion_artifact: OpinionArtifact = Field(
+        default_factory=_default_opinion_artifact
+    )
     runtime_mode: RuntimeMode
     default_bundle_version: Optional[DefaultBundleVersion] = None
     effective_strategy: EffectiveStrategyConfig
@@ -331,4 +407,7 @@ class ResearchRunRecordResponse(
     model_diagnostics: Optional[RegressionDiagnostics] = None
     baselines: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     warnings: List[str] = Field(default_factory=list)
+    opinion_artifact: OpinionArtifact = Field(
+        default_factory=_default_opinion_artifact
+    )
     created_at: datetime

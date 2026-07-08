@@ -35,12 +35,32 @@ stable across multiple implementation tasks.
 | `DEC-V1-011` | retained platform-era code is internal foundation inventory | accepted | code, metadata fields, and docs may mention execution, adaptive, peer, factor, external-signal, or tick foundations only as compatibility or future-promoted surfaces, not as v1 product commitments |
 | `DEC-V1-012` | artifact completeness is derived, not migrated | accepted | run review and compare use `artifact_completeness`, artifact lists, and backend caveats derived from existing row JSON fields |
 
+## Accepted Phase Direction Decisions
+
+| ID | Decision | Status | Impact |
+| --- | --- | --- | --- |
+| `DEC-PHASE-001` | External trading and research tools are reference material, not default dependencies | accepted | Jesse, UZI-Skill, a-stock-data, OpenBB, FinGPT, FinRL, and similar projects may inform local contracts and methods, but their runtimes should not be integrated by default |
+| `DEC-PHASE-002` | Jesse-style methods are valid research-method inputs | accepted | Strategy lifecycle, signal-to-position translation, robustness checks, parameter sensitivity, and backtest-report discipline may inform a future research method library without adopting Jesse's live trading runtime |
+| `DEC-PHASE-003` | Phase 2 prioritizes backend opinion artifacts before frontend expansion | accepted | Next product work should synthesize diagnostics, signals, backtests, baselines, and warnings into decision-useful opinion artifacts before adding large UI surfaces |
+| `DEC-PHASE-004` | Live trading concepts are deferred but retained for later guarded execution planning | accepted | Broker execution, live orders, paper/live separation, order lifecycle, reconciliation, audit logs, kill switches, and manual confirmations stay out of the current phase but remain reference material for future guarded execution work |
+| `DEC-PHASE-005` | Portfolio automation is deferred behind manual adoption tracking | accepted | Nearer-term portfolio work should record manual adoption, forward outcomes, and portfolio impact before any automatic rebalancing or account-control behavior |
+
 ## Open V1 Decisions
 
 | ID | Topic | Owner area | Blocks | Next action |
 | --- | --- | --- | --- | --- |
 | `TBD-V1-002` | persisted artifact retention and size bounds | research persistence | long-running experiment history, not the current usable loop | define whether diagnostic samples, signals, and equity curves are stored fully or bounded per run |
 | `TBD-V1-003` | comparison reason hardening | experiments UX | richer pairwise explanations, not basic compare usability | extend backend caveats beyond artifact completeness and keep UI-derived assumption mismatch labels aligned |
+
+## Open Phase Direction Decisions
+
+| ID | Topic | Owner area | Blocks | Acceptance trigger |
+| --- | --- | --- | --- | --- |
+| `TBD-PHASE-001` | research method library first slice | research services | Phase 2 method sequencing, not current v1 usability | accepted when the first method slice names its input artifacts, output artifact, validation check, persistence behavior, and comparison caveats |
+| `TBD-PHASE-002` | opinion artifact implementation schema and persistence path | research contracts | Phase 2 opinion artifact implementation | accepted when the `SPEC-OPINION-*` contract is mapped to exact serialized fields, persistence location, reload behavior, and API response shape |
+| `TBD-PHASE-003` | portfolio ledger and manual adoption model | portfolio research | Phase 3 feedback loop | accepted when manual adoption record fields, holdings context, forward outcome comparison, and portfolio-impact reporting are specified without automatic trading |
+| `TBD-PHASE-004` | guarded broker and live-order promotion criteria | execution planning | future guarded execution only | accepted when safety, audit, reconciliation, idempotency, manual-confirmation, and kill-switch gates are documented before broker integration can enter active planning |
+| `TBD-PHASE-005` | US daily data-source strategy | market expansion | US daily future lane | accepted when source contracts, raw-payload audit rules, market-calendar policy, and TW/US comparison semantics are documented |
 
 ## Deferred Platform Decisions
 
@@ -54,6 +74,8 @@ them into the main workflow.
 | `TBD-002` | tick archive storage details | open | data platform | needed before durable tick archive operational qualification |
 | `TBD-003` | simulation platform choice | open | execution integration | needed before simulation readback or execution platform qualification |
 | `TBD-004` | cross-model missing-feature default policy | open | model governance | needed before broad cross-family model governance |
+| `TBD-005` | guarded broker execution safety model | open | execution integration | needed before live-order routing, broker reconciliation, manual confirmation, or kill-switch behavior |
+| `TBD-006` | portfolio auto-control boundary | open | portfolio research | needed before any automatic rebalancing, position sizing against real holdings, or account-control behavior |
 
 ## Deferred Decision Details
 
@@ -98,3 +120,26 @@ them into the main workflow.
 - Next action:
   define the shared default behavior or explicitly decide no shared default
   will exist.
+
+### TBD-005
+
+- Topic: guarded broker execution safety model
+- Status: open
+- Deferred scope:
+  broker connectivity, live orders, order lifecycle reconciliation,
+  idempotent order submission, audit logs, kill switches, and required manual
+  confirmations.
+- Next action:
+  define a guarded execution safety model before any broker or live-order
+  integration moves into active planning.
+
+### TBD-006
+
+- Topic: portfolio auto-control boundary
+- Status: open
+- Deferred scope:
+  automatic rebalancing, account-level position sizing, holdings-aware order
+  generation, and portfolio control loops.
+- Next action:
+  define manual adoption tracking and portfolio-impact measurement before
+  considering automatic portfolio controls.

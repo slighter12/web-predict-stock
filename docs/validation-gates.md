@@ -30,7 +30,9 @@ researcher to create, inspect, reload, and compare TW daily ML experiments.
 - `KPI-RESEARCH-*`: persisted experiment completeness
 - `KPI-COMP-*`: experiment comparison clarity
 - `KPI-COST-*`: offline backtest cost and price-assumption completeness
+- `KPI-OPINION-*`: Phase 2 opinion artifact usefulness and safety
 - `GATE-V1-*`: v1 acceptance gates
+- `GATE-P2-*`: Phase 2 opinion-layer acceptance gates
 
 The following families are not v1 pass/fail gates:
 
@@ -60,6 +62,9 @@ drive the default workbench workflow.
 - Old-run fallback rule: older records without artifacts pass only when the API
   marks them `metadata_only` or `partial` and the UI clearly labels missing
   artifacts as unavailable on the record.
+- Opinion artifact rule: a Phase 2 opinion artifact passes only when it is
+  traceable to persisted research artifacts and can produce `no-opinion` or
+  `do-not-adopt` when evidence is insufficient.
 
 ## KPI Dictionary
 
@@ -101,6 +106,16 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-COST-001` | cost-model completeness | fees, slippage, and cost-model version are present or explicitly unavailable | required |
 | `KPI-COST-002` | price-basis clarity | label, entry, exit, and benchmark price-basis fields are present or explicitly unavailable | required |
+
+### Opinion Layer
+
+| ID | Metric | Definition | Gate |
+| --- | --- | --- | --- |
+| `KPI-OPINION-001` | opinion artifact shape | opinion output includes strategy-level state plus buy-candidate, sell-or-avoid, and watch lists | required for Phase 2 |
+| `KPI-OPINION-002` | row evidence completeness | each populated opinion row includes symbol, model score, strategy-derived position signal, evidence reason, risk or warning, invalidation note, and source artifact references | required for Phase 2 |
+| `KPI-OPINION-003` | evidence traceability | each populated row points to persisted diagnostics, signal, metric, baseline, validation, warning, completeness, or caveat artifacts | required for Phase 2 |
+| `KPI-OPINION-004` | insufficient-evidence handling | incomplete, missing, stale, partial, or metadata-only evidence can produce `no-opinion` or `do-not-adopt` instead of forced candidates | required for Phase 2 |
+| `KPI-OPINION-005` | manual-adoption boundary | opinion output does not imply broker routing, live-order readiness, automatic portfolio control, or personalized advice | required for Phase 2 |
 
 ## V1 Acceptance Gates
 
@@ -147,6 +162,61 @@ Passes when:
 - two or more runs can be compared
 - comparison shows model diagnostics, strategy metrics, baseline delta, and
   comparability caveats
+
+## Phase 2 Acceptance Gates
+
+Phase 2 gates do not block v1. They become pass/fail gates only when the
+opinion layer is promoted into active implementation.
+
+### GATE-P2-001: Opinion Artifact
+
+Passes when:
+
+- a complete successful research run can produce an opinion artifact
+- the artifact includes the `KPI-OPINION-001` shape
+- the artifact can represent empty buy, sell-or-avoid, or watch lists without
+  treating them as failures
+- the artifact can be reloaded or reconstructed from persisted research
+  artifacts without relying on the latest in-session response only
+
+### GATE-P2-002: Evidence Traceability
+
+Passes when:
+
+- each populated opinion row satisfies `KPI-OPINION-002`
+- each populated opinion row satisfies `KPI-OPINION-003`
+- unavailable artifacts are surfaced as evidence limitations, warnings,
+  invalidation notes, `no-opinion`, or `do-not-adopt`
+
+### GATE-P2-003: Invalidation Safety
+
+Passes when:
+
+- every actionable-looking row includes an invalidation note
+- insufficient evidence produces `no-opinion` or `do-not-adopt`
+- thresholds, confidence, or investability labels are provisional unless a
+  later versioned policy explicitly promotes them
+
+### GATE-P2-004: No Execution Creep
+
+Passes when:
+
+- opinion artifacts preserve the manual-adoption boundary
+- no Phase 2 API, contract, or UI copy implies broker routing, live orders,
+  automatic rebalancing, account control, or personalized investment advice
+- live trading and guarded execution concepts remain deferred references until
+  their own promotion criteria are met
+
+### GATE-P2-005: Backend-First Slice
+
+Passes when:
+
+- the first Phase 2 implementation defines backend opinion artifacts before
+  introducing a larger frontend workflow
+- the opinion layer uses existing persisted research-run artifacts before
+  adding external runtimes or data platforms
+- external references are implemented as local method or evidence concepts, not
+  as default runtime dependencies
 
 ## Deferred Gates
 

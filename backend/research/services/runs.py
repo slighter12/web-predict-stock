@@ -5,15 +5,17 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from backend.platform.errors import BacktestError, DataAccessError
-from backend.research.domain.artifact_summary import build_review_artifact_summary
-from backend.research.repositories.runs import (
-    get_research_run_record,
-    list_research_run_records,
-)
 from backend.research.contracts.runs import (
+    OpinionArtifact,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
+)
+from backend.research.domain.artifact_summary import build_review_artifact_summary
+from backend.research.domain.opinion import build_opinion_artifact
+from backend.research.repositories.runs import (
+    get_research_run_record,
+    list_research_run_records,
 )
 from backend.research.services.execution import execute_research_run
 from backend.research.services.registry import (
@@ -44,7 +46,34 @@ def _response_with_artifact_summary(
             "baselines": isinstance(response.baselines, dict),
         },
     )
-    return response.model_copy(update=summary)
+    opinion_payload = {
+        "status": "succeeded",
+        "request_payload": request.model_dump(mode="json"),
+        "effective_strategy": response.effective_strategy.model_dump(mode="json"),
+        "metrics": response.metrics.model_dump(mode="json"),
+        "model_diagnostics": response.model_diagnostics.model_dump(mode="json")
+        if response.model_diagnostics
+        else None,
+        "signals": [item.model_dump(mode="json") for item in response.signals],
+        "validation": response.validation.model_dump(mode="json")
+        if response.validation
+        else None,
+        "baselines": response.baselines,
+        "warnings": response.warnings,
+        "config_sources": response.config_sources.model_dump(mode="json"),
+        "fallback_audit": response.fallback_audit.model_dump(mode="json"),
+        "threshold_policy_version": response.threshold_policy_version,
+        "price_basis_version": response.price_basis_version,
+        **summary,
+    }
+    return response.model_copy(
+        update={
+            **summary,
+            "opinion_artifact": OpinionArtifact.model_validate(
+                build_opinion_artifact(opinion_payload)
+            ),
+        }
+    )
 
 
 def _record_registry_event(
