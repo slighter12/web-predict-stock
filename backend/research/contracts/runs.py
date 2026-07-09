@@ -315,7 +315,6 @@ class OpinionRow(BaseModel):
     risk_or_warning: str
     invalidation_note: str
     source_artifact_references: List[OpinionSourceArtifactReference] = Field(
-        default_factory=list,
         min_length=1,
     )
 
@@ -327,7 +326,6 @@ class OpinionReviewCheck(BaseModel):
     evidence_reason: str
     risk_or_warning: str
     source_artifact_references: List[OpinionSourceArtifactReference] = Field(
-        default_factory=list,
         min_length=1,
     )
     result: Dict[str, object] = Field(default_factory=dict)

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from copy import deepcopy
 
 import pytest
+from pydantic import ValidationError
 
 import backend.research.domain.opinion as opinion_domain
 import backend.research.services.runs as research_run_service
@@ -11,6 +12,8 @@ from backend.research.contracts.runs import (
     EffectiveStrategyConfig,
     FallbackAudit,
     Metrics,
+    OpinionReviewCheck,
+    OpinionRow,
     ResearchRunCreateRequest,
     ResearchRunResponse,
 )
@@ -116,6 +119,35 @@ def make_opinion_payload() -> dict:
     }
 
 
+def test_opinion_contract_requires_source_artifact_references():
+    row_payload = {
+        "symbol": "2330",
+        "model_score": 0.01,
+        "position_signal": 1.0,
+        "evidence_reason": "Latest persisted signal was checked.",
+        "risk_or_warning": "Persisted warning was checked.",
+        "invalidation_note": "Newer persisted data may supersede this signal.",
+    }
+    check_payload = {
+        "check": "risk_present",
+        "category": "self_review",
+        "status": "pass",
+        "evidence_reason": "Risk context was checked.",
+        "risk_or_warning": "Persisted warning was checked.",
+    }
+
+    with pytest.raises(ValidationError):
+        OpinionRow.model_validate(row_payload)
+    with pytest.raises(ValidationError):
+        OpinionRow.model_validate({**row_payload, "source_artifact_references": []})
+    with pytest.raises(ValidationError):
+        OpinionReviewCheck.model_validate(check_payload)
+    with pytest.raises(ValidationError):
+        OpinionReviewCheck.model_validate(
+            {**check_payload, "source_artifact_references": []}
+        )
+
+
 def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     payload = make_opinion_payload()
     payload["signals"] = [
@@ -191,6 +223,11 @@ def _assert_self_review_blocks_viability(artifact: dict, check_name: str) -> Non
     assert artifact["sell_or_avoid"] == []
     assert artifact["watch"] == []
     assert artifact["evidence_limitations"]
+    assert checks["insufficient_evidence_gate"]["status"] == "pass"
+    assert checks["insufficient_evidence_gate"]["result"] == {
+        "state": "no-opinion",
+        "limitation_count": len(artifact["evidence_limitations"]),
+    }
 
 
 def test_opinion_builder_missing_row_specific_signal_ref_blocks_viability(

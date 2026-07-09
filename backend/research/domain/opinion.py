@@ -63,12 +63,13 @@ def _signal_ref(field: str, signal: Mapping[str, Any]) -> dict[str, str]:
     return ref
 
 
-def _risk_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]]:
+def _risk_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]], str]:
     warnings = [str(item) for item in _as_list(payload.get("warnings"))]
     if warnings:
         return (
             f"Persisted warning: {warnings[0]}",
             _refs(("warnings", "warnings")),
+            "warning",
         )
 
     caveats = [_as_mapping(item) for item in _as_list(payload.get("comparison_caveats"))]
@@ -79,15 +80,17 @@ def _risk_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]
         return (
             f"Persisted caveat {code} with severity {severity}.",
             _refs(("comparison_caveats", "comparison_caveats")),
+            "caveat",
         )
 
     return (
         BOUNDARY_RISK,
         _refs(("warnings", "warnings"), ("comparison_caveats", "comparison_caveats")),
+        "checked_no_warning",
     )
 
 
-def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]]:
+def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]], str]:
     if payload.get("stale_mark_days_with_open_positions") or payload.get(
         "stale_risk_share"
     ):
@@ -97,15 +100,18 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
                 ("artifact_completeness", "stale_mark_days_with_open_positions"),
                 ("artifact_completeness", "stale_risk_share"),
             ),
+            "stale_freshness",
         )
     if _as_list(payload.get("comparison_caveats")):
         return (
             "Do not adopt if persisted comparison caveats still apply.",
             _refs(("comparison_caveats", "comparison_caveats")),
+            "comparison_caveats",
         )
     return (
         "Do not adopt if a newer persisted run or newer market data supersedes this signal.",
         _refs(("request_payload", "date_range"), ("signals", "date")),
+        "newer_run_or_market_data",
     )
 
 
@@ -154,8 +160,8 @@ def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]
 
 
 def _action_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    risk, risk_refs = _risk_context(payload)
-    invalidation, invalidation_refs = _invalidation_context(payload)
+    risk, risk_refs, _risk_family = _risk_context(payload)
+    invalidation, invalidation_refs, _invalidation_family = _invalidation_context(payload)
     rows: list[dict[str, Any]] = []
     for signal in _valid_latest_signals(payload):
         symbol = str(signal["symbol"])
@@ -311,41 +317,45 @@ def _row_has_traceable_signal(row: Mapping[str, Any]) -> bool:
     return bool(row.get("evidence_reason")) and _row_signal_reference_count(row) > 0
 
 
-def _row_has_concrete_risk(row: Mapping[str, Any]) -> bool:
+def _row_has_concrete_risk(
+    row: Mapping[str, Any],
+    context: tuple[str, list[dict[str, str]], str],
+) -> bool:
     refs = {
         _as_mapping(ref).get("artifact")
         for ref in _as_list(row.get("source_artifact_references"))
     }
-    text = str(row.get("risk_or_warning", "")).lower()
+    text, _context_refs, family = context
+    if row.get("risk_or_warning") != text:
+        return False
     return (
-        ("persisted warning:" in text and "warnings" in refs)
-        or ("persisted caveat" in text and "comparison_caveats" in refs)
+        (family == "warning" and "warnings" in refs)
+        or (family == "caveat" and "comparison_caveats" in refs)
         or (
-            "checked no-warning result" in text
+            family == "checked_no_warning"
             and {"warnings", "comparison_caveats"} <= refs
         )
-        or (
-            "stale" in text
-            and "artifact_completeness" in refs
-        )
     )
 
 
-def _row_has_concrete_invalidation(row: Mapping[str, Any]) -> bool:
+def _row_has_concrete_invalidation(
+    row: Mapping[str, Any],
+    context: tuple[str, list[dict[str, str]], str],
+) -> bool:
     refs = {
         _as_mapping(ref).get("artifact")
         for ref in _as_list(row.get("source_artifact_references"))
     }
-    text = str(row.get("invalidation_note", "")).lower()
-    families = (
-        "newer persisted run",
-        "newer market data",
-        "persisted comparison caveats",
-        "stale freshness risk",
-        "missing",
-    )
-    return bool(row.get("invalidation_note")) and any(item in text for item in families) and bool(
-        refs & {"signals", "comparison_caveats", "artifact_completeness", "request_payload"}
+    text, _context_refs, family = context
+    if not str(row.get("invalidation_note", "")).startswith(f"{text} Row signal date:"):
+        return False
+    return (
+        (family == "stale_freshness" and "artifact_completeness" in refs)
+        or (family == "comparison_caveats" and "comparison_caveats" in refs)
+        or (
+            family == "newer_run_or_market_data"
+            and {"request_payload", "signals"} <= refs
+        )
     )
 
 
@@ -553,10 +563,16 @@ def _review_checks(
         else [],
     }
     sensitivity = _parameter_sensitivity(payload)
+    risk_context = _risk_context(payload)
+    invalidation_context = _invalidation_context(payload)
     traceable_row_count = sum(1 for row in rows if _row_has_traceable_signal(row))
-    concrete_risk_row_count = sum(1 for row in rows if _row_has_concrete_risk(row))
+    concrete_risk_row_count = sum(
+        1 for row in rows if _row_has_concrete_risk(row, risk_context)
+    )
     concrete_invalidation_row_count = sum(
-        1 for row in rows if _row_has_concrete_invalidation(row)
+        1
+        for row in rows
+        if _row_has_concrete_invalidation(row, invalidation_context)
     )
     checks = [
         _check(
@@ -666,9 +682,9 @@ def _review_checks(
             "pass"
             if (rows and concrete_risk_row_count == len(rows)) or limitations
             else "fail",
-            "Rows were checked for concrete warning, caveat, artifact-risk, or no-warning evidence.",
-            _risk_context(payload)[0],
-            _risk_context(payload)[1],
+            "Rows were checked for concrete warning, caveat, or no-warning evidence.",
+            risk_context[0],
+            risk_context[1],
             {
                 "row_count": len(rows),
                 "concrete_risk_row_count": concrete_risk_row_count,
@@ -683,8 +699,8 @@ def _review_checks(
             if (rows and concrete_invalidation_row_count == len(rows)) or limitations
             else "fail",
             "Rows were checked for concrete invalidation families and supporting references.",
-            _invalidation_context(payload)[0],
-            _invalidation_context(payload)[1],
+            invalidation_context[0],
+            invalidation_context[1],
             {
                 "row_count": len(rows),
                 "concrete_invalidation_row_count": concrete_invalidation_row_count,
@@ -860,13 +876,17 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         "sell_or_avoid": sell_or_avoid,
         "watch": watch,
     }
-    artifact["review_checks"] = _review_checks(
+    initial_checks = _review_checks(
         {**payload, "state_reason": artifact["state_reason"]},
         rows,
         "viable",
         [],
     )
-    if any(item["status"] == "fail" for item in artifact["review_checks"]):
+    artifact["review_checks"] = initial_checks
+    failed_checks = {
+        item["check"]: item for item in initial_checks if item["status"] == "fail"
+    }
+    if failed_checks:
         artifact["state"] = "no-opinion"
         artifact["state_reason"] = "Self-review gates blocked a viable opinion."
         artifact["evidence_limitations"] = [
@@ -875,4 +895,14 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         artifact["buy_candidates"] = []
         artifact["sell_or_avoid"] = []
         artifact["watch"] = []
+        final_checks = _review_checks(
+            {**payload, "state_reason": artifact["state_reason"]},
+            rows,
+            artifact["state"],
+            artifact["evidence_limitations"],
+        )
+        for item in final_checks:
+            if item["check"] in failed_checks:
+                item.update(failed_checks[item["check"]])
+        artifact["review_checks"] = final_checks
     return artifact
