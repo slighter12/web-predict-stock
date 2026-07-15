@@ -54,10 +54,12 @@ def match_price(
 def build_signals(scores: pd.DataFrame, weights: pd.DataFrame) -> List[dict]:
     signals: List[dict] = []
     for dt, row in weights.iterrows():
-        active = row[row > 0]
-        if active.empty:
+        positions = row[row > 0]
+        if dt == weights.index[-1]:
+            positions = row.reindex(scores.loc[dt].dropna().index).fillna(0.0)
+        if positions.empty:
             continue
-        for symbol, position in active.items():
+        for symbol, position in positions.items():
             score = scores.at[dt, symbol]
             signals.append(
                 {

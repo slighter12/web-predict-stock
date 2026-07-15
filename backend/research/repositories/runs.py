@@ -142,7 +142,7 @@ def _run_row_to_dict(
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
     request_payload = json_loads(row.request_payload_json, None)
     metrics = json_loads(row.metrics_json, None)
-    signals = json_loads(row.signals_json, [])
+    signals = json_loads(row.signals_json, []) if include_artifacts else []
     baselines = json_loads(row.baselines_json, {})
     warnings = json_loads(row.warnings_json, [])
     payload = {
@@ -261,18 +261,7 @@ def _run_row_to_dict(
         )
     )
     payload["opinion_artifact"] = build_opinion_artifact(
-        {
-            **payload,
-            "summary_only": not include_artifacts,
-            "signals": signals if include_artifacts else [],
-            "warnings": warnings if include_artifacts else [],
-            "comparison_caveats": payload["comparison_caveats"]
-            if include_artifacts
-            else [],
-            "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
-            if include_artifacts
-            else None,
-        }
+        {**payload, "summary_only": not include_artifacts}
     )
     return payload
 

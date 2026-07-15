@@ -62,6 +62,10 @@ def _response_with_artifact_summary(
         "warnings": response.warnings,
         "config_sources": response.config_sources.model_dump(mode="json"),
         "fallback_audit": response.fallback_audit.model_dump(mode="json"),
+        "stale_mark_days_with_open_positions": (
+            response.stale_mark_days_with_open_positions
+        ),
+        "stale_risk_share": response.stale_risk_share,
         "threshold_policy_version": response.threshold_policy_version,
         "price_basis_version": response.price_basis_version,
         **summary,

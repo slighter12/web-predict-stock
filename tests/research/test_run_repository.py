@@ -124,7 +124,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
                 "threshold_policy_version": "static_absolute_gross_label_v1",
                 "price_basis_version": "label_open_to_open__entry_ohlc_default__exit_ohlc_default__benchmark_unset_v1",
                 "benchmark_comparability_gate": False,
-                "comparison_eligibility": "comparison_metadata_only",
+                "comparison_eligibility": "research_only_comparable",
                 "investability_screening_active": False,
                 "capacity_screening_version": "adv_ex_ante_buy_notional_0p5pct_v1",
                 "adv_basis_version": "raw_close_x_volume_active_session_v1",
@@ -139,7 +139,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
 
     assert loaded["run_id"] == "run_123"
     assert loaded["effective_strategy"] == {"threshold": 0.003, "top_n": 3}
-    assert loaded["comparison_eligibility"] == "comparison_metadata_only"
+    assert loaded["comparison_eligibility"] == "research_only_comparable"
     assert loaded["version_pack_status"]["adv_basis_version"] == "implemented"
     assert loaded["tradability_contract_version"] == "p3_tradability_monitoring_v1"
     assert loaded["liquidity_bucket_coverages"][0]["bucket_key"] == "50m_to_200m"
@@ -188,7 +188,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "flat_count": 1,
         "invalid_row_count": 1,
     }
-    assert checks["backtest_report_discipline"]["status"] == "warning"
+    assert checks["backtest_report_discipline"]["status"] == "pass"
     assert checks["backtest_report_discipline"]["result"]["metric_keys"] == [
         "max_drawdown",
         "sharpe",
@@ -233,15 +233,15 @@ def test_research_run_repository_roundtrip(monkeypatch):
         ],
         "missing_config_fallback_inputs": [],
     }
-    assert checks["text_evidence_summary"]["status"] == "warning"
-    assert checks["text_evidence_summary"]["result"]["caveat_count"] == 1
-    assert checks["text_evidence_summary"]["result"]["source_text_count"] == 1
-    assert checks["text_evidence_summary"]["result"]["summary_text"]
+    assert checks["text_evidence_summary"]["status"] == "not_evaluated"
+    assert checks["text_evidence_summary"]["result"]["caveat_count"] == 0
+    assert checks["text_evidence_summary"]["result"]["source_text_count"] == 0
+    assert checks["text_evidence_summary"]["result"]["summary_text"] == ""
     assert all(item["source_artifact_references"] for item in checks.values())
     assert all(
         reference.get("symbol") == opinion_row["symbol"]
         for reference in opinion_row["source_artifact_references"]
-        if reference["artifact"] == "signals"
+        if reference["artifact"] == "signals" and "symbol" in reference
     )
 
 

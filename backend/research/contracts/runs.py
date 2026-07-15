@@ -35,6 +35,10 @@ from backend.research.domain.artifact_summary import (
     ArtifactCompleteness,
     ReviewArtifactName,
 )
+from backend.research.domain.opinion import (
+    OpinionReviewCheckCategory,
+    OpinionReviewCheckName,
+)
 
 from .runtime_metadata import (
     ConfigSources,
@@ -320,8 +324,8 @@ class OpinionRow(BaseModel):
 
 
 class OpinionReviewCheck(BaseModel):
-    check: str
-    category: str
+    check: OpinionReviewCheckName
+    category: OpinionReviewCheckCategory
     status: OpinionReviewCheckStatus
     evidence_reason: str
     risk_or_warning: str

@@ -1,8 +1,30 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
+
+OpinionReviewCheckName = Literal[
+    "strategy_lifecycle",
+    "signal_to_position",
+    "backtest_report_discipline",
+    "robustness",
+    "parameter_sensitivity",
+    "evidence_traceability",
+    "risk_present",
+    "invalidation_present",
+    "manual_adoption_boundary",
+    "insufficient_evidence_gate",
+    "source_artifact_audit",
+    "text_evidence_summary",
+]
+OpinionReviewCheckCategory = Literal[
+    "method",
+    "self_review",
+    "source_provider_audit",
+    "evidence_summary",
+]
 
 OPINION_ARTIFACT_VERSION = "phase2_opinion_artifact_v1"
 OMITTED_DETAIL_LIMITATION = (
@@ -19,8 +41,8 @@ PROVISIONAL_POLICY = (
     "Local sensitivity scenarios are observational only and do not change action lists."
 )
 BOUNDARY_RISK = (
-    "Checked no-warning result: persisted warnings and comparison caveats were checked; "
-    "manual adoption review is still required."
+    "Checked no-warning result: warning_count=0 and caveat_count=0; manual adoption "
+    "review is still required."
 )
 
 
@@ -34,6 +56,34 @@ def _as_list(value: Any) -> list[Any]:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _has_metrics_evidence(value: Any) -> bool:
+    metrics = _as_mapping(value)
+    return any(
+        _is_number(metrics.get(field))
+        for field in (
+            "total_return",
+            "sharpe",
+            "max_drawdown",
+            "turnover",
+            "max_position_weight",
+        )
+    )
+
+
+def _has_diagnostics_evidence(value: Any) -> bool:
+    diagnostics = _as_mapping(value)
+    sample_count = diagnostics.get("sample_count")
+    return (
+        isinstance(sample_count, int)
+        and not isinstance(sample_count, bool)
+        and sample_count > 0
+        and any(
+            _is_number(diagnostics.get(field))
+            for field in ("rmse", "mae", "rank_ic", "linear_ic")
+        )
+    )
 
 
 def _signal_date_key(signal: Mapping[str, Any]) -> str | None:
@@ -58,18 +108,47 @@ def _signal_ref(field: str, signal: Mapping[str, Any]) -> dict[str, str]:
     ref = {"artifact": "signals", "field": field}
     if signal.get("symbol") is not None:
         ref["symbol"] = str(signal["symbol"])
-    if signal.get("date") is not None:
-        ref["date"] = str(signal["date"])
+    signal_date = _signal_date_key(signal)
+    if signal_date is not None:
+        ref["date"] = signal_date
     return ref
 
 
-def _risk_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]], str]:
+def _risk_context(
+    payload: Mapping[str, Any],
+    symbol: str | None = None,
+) -> tuple[str, list[dict[str, str]], str]:
     warnings = [str(item) for item in _as_list(payload.get("warnings"))]
     if warnings:
+        if symbol is None:
+            return (
+                "Persisted warnings were evaluated per symbol; unmatched warnings remain "
+                "run-level/unscoped.",
+                _refs(("warnings", "warnings")),
+                "warning_summary",
+            )
+        warning = next(
+            (
+                item
+                for item in warnings
+                if re.search(
+                    rf"(?<![A-Za-z0-9]){re.escape(symbol)}(?![A-Za-z0-9])",
+                    item,
+                    re.IGNORECASE,
+                )
+            ),
+            None,
+        )
+        if warning is not None:
+            return (
+                f"Persisted symbol-scoped warning for {symbol}: {warning}",
+                _refs(("warnings", "warnings")),
+                "warning",
+            )
         return (
-            f"Persisted warning: {warnings[0]}",
+            "Persisted run-level/unscoped warning has no reliable symbol match.",
             _refs(("warnings", "warnings")),
-            "warning",
+            "unscoped_warning",
         )
 
     caveats = [_as_mapping(item) for item in _as_list(payload.get("comparison_caveats"))]
@@ -78,7 +157,8 @@ def _risk_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[str, str]]
         code = str(caveat.get("code", "COMPARISON_CAVEAT"))
         severity = str(caveat.get("severity", "blocker"))
         return (
-            f"Persisted caveat {code} with severity {severity}.",
+            f"Persisted run-level caveat {code} with severity {severity} "
+            "applies to all symbols.",
             _refs(("comparison_caveats", "comparison_caveats")),
             "caveat",
         )
@@ -117,26 +197,20 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
 
 def _latest_signals(payload: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]], int]:
     latest_by_symbol: dict[str, Mapping[str, Any]] = {}
-    latest_date_by_symbol: dict[str, str | None] = {}
+    latest_dates: dict[str, str] = {}
     for item in _as_list(payload.get("signals")):
         signal = _as_mapping(item)
         symbol = signal.get("symbol")
-        if not symbol:
+        signal_date = _signal_date_key(signal)
+        if not symbol or signal_date is None:
             continue
         symbol_key = str(symbol)
-        signal_date = _signal_date_key(signal)
-        if symbol_key not in latest_by_symbol:
-            latest_by_symbol[symbol_key] = signal
-            latest_date_by_symbol[symbol_key] = signal_date
-            continue
-        current_date = latest_date_by_symbol[symbol_key]
-        if signal_date is not None and (
-            current_date is None or signal_date >= current_date
+        if (
+            symbol_key not in latest_dates
+            or signal_date >= latest_dates[symbol_key]
         ):
             latest_by_symbol[symbol_key] = signal
-            latest_date_by_symbol[symbol_key] = signal_date
-        elif signal_date is None and current_date is None:
-            latest_by_symbol[symbol_key] = signal
+            latest_dates[symbol_key] = signal_date
     latest = [latest_by_symbol[symbol] for symbol in sorted(latest_by_symbol)]
     invalid_count = sum(
         1
@@ -160,12 +234,12 @@ def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]
 
 
 def _action_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    risk, risk_refs, _risk_family = _risk_context(payload)
     invalidation, invalidation_refs, _invalidation_family = _invalidation_context(payload)
     rows: list[dict[str, Any]] = []
     for signal in _valid_latest_signals(payload):
         symbol = str(signal["symbol"])
-        signal_date = str(signal["date"])
+        signal_date = _signal_date_key(signal)
+        risk, risk_refs, _risk_family = _risk_context(payload, symbol)
         rows.append(
             {
                 "symbol": symbol,
@@ -253,6 +327,7 @@ def _manual_boundary_present(*texts: str) -> bool:
         "personalized advice",
         "place order",
         "order routing",
+        "execution route",
     )
     haystack = " ".join(texts).lower()
     return not any(term in haystack for term in forbidden)
@@ -284,8 +359,8 @@ def _opinion_texts(
 
 
 def _check(
-    check: str,
-    category: str,
+    check: OpinionReviewCheckName,
+    category: OpinionReviewCheckCategory,
     status: str,
     evidence_reason: str,
     risk_or_warning: str,
@@ -313,8 +388,24 @@ def _row_signal_reference_count(row: Mapping[str, Any]) -> int:
     )
 
 
-def _row_has_traceable_signal(row: Mapping[str, Any]) -> bool:
-    return bool(row.get("evidence_reason")) and _row_signal_reference_count(row) > 0
+def _row_has_traceable_signal(
+    row: Mapping[str, Any],
+    selected_signal_dates: Mapping[str, str],
+) -> bool:
+    symbol = str(row.get("symbol", ""))
+    expected_date = selected_signal_dates.get(symbol)
+    signal_refs = [
+        _as_mapping(ref)
+        for ref in _as_list(row.get("source_artifact_references"))
+        if _as_mapping(ref).get("artifact") == "signals"
+        and _as_mapping(ref).get("symbol") == symbol
+    ]
+    return (
+        bool(row.get("evidence_reason"))
+        and expected_date is not None
+        and bool(signal_refs)
+        and all(ref.get("date") == expected_date for ref in signal_refs)
+    )
 
 
 def _row_has_concrete_risk(
@@ -466,8 +557,13 @@ def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
         }
 
     scenario_sets = list(scenarios.values())
-    stable = sorted(set(base).intersection(*scenario_sets)) if base else []
-    changed = sorted(set().union(*scenario_sets).symmetric_difference(set(base)))
+    base_symbols = set(base)
+    stable = sorted(base_symbols.intersection(*scenario_sets)) if base else []
+    changed = sorted(
+        set().union(
+            *(scenario.symmetric_difference(base_symbols) for scenario in scenario_sets)
+        )
+    )
     return {
         "status": "warning" if invalid_count else "pass",
         "reason": "Local provisional sensitivity scenarios were computed.",
@@ -499,20 +595,28 @@ def _review_checks(
     caveats = _as_list(payload.get("comparison_caveats"))
     warnings = _as_list(payload.get("warnings"))
     latest, invalid_signal_count = _latest_signals(payload)
-    positive = sum(1 for item in _valid_latest_signals(payload) if float(item["position"]) > 0)
-    negative = sum(1 for item in _valid_latest_signals(payload) if float(item["position"]) < 0)
-    flat = sum(1 for item in _valid_latest_signals(payload) if float(item["position"]) == 0)
+    valid_latest = _valid_latest_signals(payload)
+    selected_signal_dates = {
+        str(item["symbol"]): signal_date
+        for item in valid_latest
+        if (signal_date := _signal_date_key(item)) is not None
+    }
+    positive = sum(1 for item in valid_latest if float(item["position"]) > 0)
+    negative = sum(1 for item in valid_latest if float(item["position"]) < 0)
+    flat = sum(1 for item in valid_latest if float(item["position"]) == 0)
+    metrics_present = _has_metrics_evidence(metrics)
+    diagnostics_present = _has_diagnostics_evidence(diagnostics)
     boundary_present = _manual_boundary_present(*_opinion_texts(payload, rows))
     lifecycle = {
         "request_present": bool(_as_mapping(payload.get("request_payload"))),
         "effective_strategy_present": bool(_as_mapping(payload.get("effective_strategy"))),
-        "diagnostics_present": bool(diagnostics),
+        "diagnostics_present": diagnostics_present,
         "signals_present": bool(signals),
-        "metrics_present": bool(metrics),
+        "metrics_present": metrics_present,
         "opinion_rows_emitted_or_limited": bool(rows) or bool(limitations),
     }
     backtest_result = {
-        "metric_keys": sorted(metrics),
+        "metric_keys": sorted(key for key, value in metrics.items() if _is_number(value)),
         "caveat_count": len(caveats),
         "threshold_policy_version_present": bool(payload.get("threshold_policy_version")),
         "price_basis_version_present": bool(payload.get("price_basis_version")),
@@ -565,9 +669,16 @@ def _review_checks(
     sensitivity = _parameter_sensitivity(payload)
     risk_context = _risk_context(payload)
     invalidation_context = _invalidation_context(payload)
-    traceable_row_count = sum(1 for row in rows if _row_has_traceable_signal(row))
+    traceable_row_count = sum(
+        1 for row in rows if _row_has_traceable_signal(row, selected_signal_dates)
+    )
     concrete_risk_row_count = sum(
-        1 for row in rows if _row_has_concrete_risk(row, risk_context)
+        1
+        for row in rows
+        if _row_has_concrete_risk(
+            row,
+            _risk_context(payload, str(row.get("symbol", ""))),
+        )
     )
     concrete_invalidation_row_count = sum(
         1
@@ -612,17 +723,17 @@ def _review_checks(
             "backtest_report_discipline",
             "method",
             "pass"
-            if metrics
+            if metrics_present
             and backtest_result["threshold_policy_version_present"]
             and backtest_result["price_basis_version_present"]
             and boundary_present
             and not caveats
             else "warning"
-            if metrics
+            if metrics_present
             else "fail",
             "Metrics, caveat count, version policy, and research-only boundary were checked.",
             "Caveats or missing policy metadata prevent a clean pass."
-            if caveats or not metrics
+            if caveats or not metrics_present
             else "Backtest context is present for research review.",
             _refs(
                 ("metrics", "metrics"),
@@ -829,9 +940,9 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         missing = [str(item) for item in _as_list(payload.get("missing_artifacts"))]
         detail = f" Missing artifacts: {', '.join(missing)}." if missing else ""
         limitations.append(f"Artifact completeness is {completeness}.{detail}")
-    if not _as_mapping(payload.get("metrics")):
+    if not _has_metrics_evidence(payload.get("metrics")):
         limitations.append("Strategy metrics artifact is unavailable.")
-    if not _as_mapping(payload.get("model_diagnostics")):
+    if not _has_diagnostics_evidence(payload.get("model_diagnostics")):
         limitations.append("Model diagnostics artifact is unavailable.")
     if not _as_list(payload.get("signals")):
         limitations.append("Signal artifact is unavailable.")

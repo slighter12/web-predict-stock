@@ -3,11 +3,28 @@ import pytest
 
 from backend.shared.analytics.backtest import (
     _build_execution_price,
+    build_signals,
     compute_max_position_weight,
     compute_metrics,
     compute_turnover,
 )
 from backend.shared.analytics.strategy import build_weights_from_scores
+
+
+def test_build_signals_preserves_latest_flat_decision_surface():
+    idx = pd.to_datetime(["2024-01-02", "2024-01-03"])
+    scores = pd.DataFrame(
+        {"A": [0.8, 0.2], "B": [float("nan"), 0.1]}, index=idx
+    )
+    weights = pd.DataFrame({"A": [1.0, 0.0], "B": [0.0, 0.0]}, index=idx)
+
+    signals = build_signals(scores, weights)
+
+    assert [(item["date"], item["symbol"], item["position"]) for item in signals] == [
+        (idx[0].date(), "A", 1.0),
+        (idx[1].date(), "A", 0.0),
+        (idx[1].date(), "B", 0.0),
+    ]
 
 
 def test_build_weights_from_scores_proactive():

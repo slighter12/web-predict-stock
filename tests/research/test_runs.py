@@ -1,5 +1,6 @@
-from types import SimpleNamespace
 from copy import deepcopy
+from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -101,7 +102,7 @@ def make_opinion_payload() -> dict:
         },
         "effective_strategy": {"threshold": 0.003, "top_n": 2},
         "metrics": {"total_return": 0.12, "sharpe": 1.1},
-        "model_diagnostics": {"task": "regression", "sample_count": 2},
+        "model_diagnostics": {"task": "regression", "sample_count": 2, "rmse": 0.1},
         "signals": [
             {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0},
             {"date": "2024-01-02", "symbol": "2317", "score": -0.02, "position": -1.0},
@@ -148,10 +149,33 @@ def test_opinion_contract_requires_source_artifact_references():
         )
 
 
+def test_opinion_contract_rejects_unknown_check_and_category():
+    payload = {
+        "check": "risk_present",
+        "category": "self_review",
+        "status": "pass",
+        "evidence_reason": "Risk context was checked.",
+        "risk_or_warning": "Persisted warning was checked.",
+        "source_artifact_references": [
+            {"artifact": "warnings", "field": "warnings"}
+        ],
+    }
+
+    with pytest.raises(ValidationError):
+        OpinionReviewCheck.model_validate({**payload, "check": "unknown"})
+    with pytest.raises(ValidationError):
+        OpinionReviewCheck.model_validate({**payload, "category": "unknown"})
+
+
 def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     payload = make_opinion_payload()
     payload["signals"] = [
-        {"date": "2024-01-03", "symbol": "2330", "score": 0.02, "position": 1.0},
+        {
+            "date": datetime(2024, 1, 4, 12, 30),
+            "symbol": "2330",
+            "score": 0.02,
+            "position": 1.0,
+        },
         {"date": "2024-01-01", "symbol": "2330", "score": -0.04, "position": -1.0},
         {"date": "2024-01-01", "symbol": "2317", "score": 0.04, "position": 1.0},
         {"date": "2024-01-04", "symbol": "2317", "score": -0.03, "position": -1.0},
@@ -167,17 +191,24 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     assert [row["symbol"] for row in artifact["sell_or_avoid"]] == ["2317"]
     assert [row["symbol"] for row in artifact["watch"]] == ["2454"]
     assert all(row["symbol"] != "8888" for row in artifact["buy_candidates"])
+    assert "warning_count=0 and caveat_count=0" in artifact["buy_candidates"][0][
+        "risk_or_warning"
+    ]
+    assert "on 2024-01-04 links" in artifact["buy_candidates"][0]["evidence_reason"]
+    assert "Row signal date: 2024-01-04 for 2330" in artifact["buy_candidates"][0][
+        "invalidation_note"
+    ]
     assert {
         ref["date"]
         for ref in artifact["buy_candidates"][0]["source_artifact_references"]
         if ref["artifact"] == "signals" and "date" in ref
-    } == {"2024-01-03"}
+    } == {"2024-01-04"}
     assert checks["signal_to_position"]["result"] == {
-        "checked_symbol_count": 5,
+        "checked_symbol_count": 4,
         "positive_count": 1,
         "negative_count": 1,
         "flat_count": 1,
-        "invalid_row_count": 2,
+        "invalid_row_count": 1,
     }
     assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
         "2330"
@@ -185,6 +216,38 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"][
         "top_n_minus_1"
     ] == 1
+
+
+def test_opinion_builder_parameter_sensitivity_reports_partial_scenario_change():
+    payload = make_opinion_payload()
+    payload["signals"] = [
+        {"date": "2024-01-02", "symbol": "2330", "score": 0.004, "position": 1.0},
+        {"date": "2024-01-02", "symbol": "2317", "score": 0.003, "position": 1.0},
+    ]
+
+    checks = {
+        item["check"]: item for item in build_opinion_artifact(payload)["review_checks"]
+    }
+
+    assert checks["parameter_sensitivity"]["result"]["changed_symbols"] == ["2317"]
+
+
+def test_opinion_builder_keeps_each_symbol_latest_parseable_signal():
+    payload = make_opinion_payload()
+    payload["signals"] = [
+        {"date": "2024-01-01", "symbol": "2330", "score": 0.01, "position": 1.0},
+        {"date": "2024-01-02", "symbol": "2317", "score": 0.02, "position": 1.0},
+    ]
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert [row["symbol"] for row in artifact["buy_candidates"]] == ["2317", "2330"]
+    assert checks["signal_to_position"]["result"]["checked_symbol_count"] == 2
+    assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
+        "2317",
+        "2330",
+    ]
 
 
 def test_opinion_builder_robustness_does_not_pass_empty_validation_metrics():
@@ -245,6 +308,18 @@ def test_opinion_builder_missing_row_specific_signal_ref_blocks_viability(
     _assert_self_review_blocks_viability(artifact, "evidence_traceability")
 
 
+def test_opinion_builder_wrong_signal_ref_date_blocks_viability(monkeypatch):
+    row = _valid_opinion_row()
+    for reference in row["source_artifact_references"]:
+        if reference["artifact"] == "signals":
+            reference["date"] = "2024-01-01"
+    monkeypatch.setattr(opinion_domain, "_action_rows", lambda payload: [row])
+
+    artifact = build_opinion_artifact(make_opinion_payload())
+
+    _assert_self_review_blocks_viability(artifact, "evidence_traceability")
+
+
 def test_opinion_builder_generic_risk_disclaimer_blocks_viability(monkeypatch):
     row = _valid_opinion_row()
     row["risk_or_warning"] = "Research-only opinion for manual review."
@@ -275,6 +350,7 @@ def test_opinion_builder_static_invalidation_template_blocks_viability(monkeypat
         "broker action from this signal",
         "account control instruction",
         "personalized investment advice",
+        "Execution route research_only produced 1 order record(s).",
     ],
 )
 def test_opinion_builder_manual_boundary_variants_downgrade_viability(
@@ -340,6 +416,92 @@ def test_opinion_builder_source_audit_names_missing_config_inputs():
     ] == ["config_sources", "fallback_audit"]
 
 
+@pytest.mark.parametrize(
+    ("metrics", "diagnostics"),
+    [
+        (
+            {
+                "total_return": None,
+                "sharpe": None,
+                "max_drawdown": None,
+                "turnover": None,
+                "max_position_weight": None,
+            },
+            {"task": "regression", "sample_count": 2, "rmse": 0.1},
+        ),
+        (
+            {"total_return": 0.0},
+            {
+                "task": "regression",
+                "sample_count": 0,
+                "rmse": 0.1,
+                "mae": None,
+                "rank_ic": None,
+                "linear_ic": None,
+            },
+        ),
+    ],
+)
+def test_opinion_builder_requires_numeric_metrics_and_diagnostics(
+    metrics,
+    diagnostics,
+):
+    payload = make_opinion_payload()
+    payload["metrics"] = metrics
+    payload["model_diagnostics"] = diagnostics
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+
+
+def test_opinion_builder_unscoped_warning_blocks_all_rows():
+    payload = make_opinion_payload()
+    payload["signals"] = [payload["signals"][0]]
+    payload["warnings"] = ["Data source degraded."]
+
+    artifact = build_opinion_artifact(payload)
+    check = next(
+        item for item in artifact["review_checks"] if item["check"] == "risk_present"
+    )
+
+    assert artifact["state"] == "no-opinion"
+    assert check["result"]["concrete_risk_row_count"] == 0
+    assert "run-level/unscoped" in check["risk_or_warning"]
+
+
+def test_opinion_builder_symbol_scoped_warning_does_not_cover_other_rows():
+    payload = make_opinion_payload()
+    payload["warnings"] = ["Data source degraded for 2330."]
+
+    artifact = build_opinion_artifact(payload)
+    check = next(
+        item for item in artifact["review_checks"] if item["check"] == "risk_present"
+    )
+
+    assert artifact["state"] == "no-opinion"
+    assert check["result"]["concrete_risk_row_count"] == 1
+    assert check["result"]["missing_risk_row_count"] == 1
+
+
+def test_opinion_builder_matches_each_row_against_all_symbol_warnings():
+    payload = make_opinion_payload()
+    payload["warnings"] = [
+        "Data source degraded for 2317.",
+        "Data source degraded for 2330.",
+    ]
+
+    artifact = build_opinion_artifact(payload)
+    check = next(
+        item for item in artifact["review_checks"] if item["check"] == "risk_present"
+    )
+
+    assert artifact["state"] == "viable"
+    assert check["result"]["concrete_risk_row_count"] == 2
+    assert check["result"]["missing_risk_row_count"] == 0
+
+
 def test_opinion_builder_stale_evidence_blocks_forced_rows():
     payload = make_opinion_payload()
     payload["stale_risk_share"] = 0.25
@@ -349,6 +511,18 @@ def test_opinion_builder_stale_evidence_blocks_forced_rows():
     assert artifact["state"] == "no-opinion"
     assert artifact["buy_candidates"] == []
     assert "Stale mark risk" in " ".join(artifact["evidence_limitations"])
+
+
+def test_create_response_stale_evidence_blocks_opinion_rows():
+    response = make_response().model_copy(update={"stale_risk_share": 0.25})
+
+    result = research_run_service._response_with_artifact_summary(
+        response,
+        make_request(),
+    )
+
+    assert result.opinion_artifact.state == "no-opinion"
+    assert result.opinion_artifact.buy_candidates == []
 
 
 def test_opinion_builder_text_evidence_summary_does_not_invent_prose():
