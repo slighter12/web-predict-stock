@@ -79,7 +79,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
             "feature_importance": [],
         },
         "warnings": [],
-        "tradability_state": "execution_ready",
+        "tradability_state": "research_only",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
         "capacity_screening_active": False,
         "missing_feature_policy_state": "native_missing_supported",
@@ -146,6 +146,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
     assert loaded["effective_strategy"] == {"threshold": 0.003, "top_n": 3}
     assert loaded["comparison_eligibility"] == "research_only_comparable"
     assert loaded["version_pack_status"]["adv_basis_version"] == "implemented"
+    assert loaded["tradability_state"] == "research_only"
     assert loaded["tradability_contract_version"] == "p3_tradability_monitoring_v1"
     assert loaded["liquidity_bucket_coverages"][0]["bucket_key"] == "50m_to_200m"
     assert loaded["monitor_observation_status"] == "persisted"

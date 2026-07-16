@@ -342,6 +342,11 @@ def _opinion_texts(
     checks: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     texts = [str(payload.get("state_reason", ""))]
+    for field, value in payload.items():
+        if field in {"execution_route", "tradability_state"} or field.startswith(
+            "live_control_"
+        ):
+            texts.extend(_string_values(value))
     for row in rows:
         texts.extend(
             str(row.get(field, ""))

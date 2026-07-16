@@ -62,6 +62,10 @@ def _response_with_artifact_summary(
         "warnings": response.warnings,
         "config_sources": response.config_sources.model_dump(mode="json"),
         "fallback_audit": response.fallback_audit.model_dump(mode="json"),
+        "execution_route": response.execution_route,
+        "tradability_state": response.tradability_state,
+        "live_control_profile_id": response.live_control_profile_id,
+        "live_control_version": response.live_control_version,
         "stale_mark_days_with_open_positions": (
             response.stale_mark_days_with_open_positions
         ),

@@ -373,6 +373,27 @@ def test_opinion_builder_manual_boundary_variants_downgrade_viability(
     assert artifact["evidence_limitations"]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("execution_route", "broker-routing-v1"),
+        ("tradability_state", "execution_ready"),
+        ("live_control_profile_id", "broker-routing-profile"),
+        ("live_control_version", "live_order_controls_v1"),
+    ],
+)
+def test_opinion_builder_manual_boundary_scans_execution_metadata(field, value):
+    payload = make_opinion_payload()
+    payload[field] = value
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert checks["manual_adoption_boundary"]["status"] == "fail"
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+
+
 def test_opinion_builder_manual_boundary_allows_broker_metadata_description():
     payload = make_opinion_payload()
     payload["warnings"] = ["Broker comparison metadata is unavailable."]
@@ -571,6 +592,22 @@ def test_create_response_stale_evidence_blocks_opinion_rows():
         make_request(),
     )
 
+    assert result.opinion_artifact.state == "no-opinion"
+    assert result.opinion_artifact.buy_candidates == []
+
+
+def test_create_response_execution_metadata_blocks_opinion_rows():
+    response = make_response().model_copy(
+        update={"tradability_state": "execution_ready"}
+    )
+
+    result = research_run_service._response_with_artifact_summary(
+        response,
+        make_request(),
+    )
+    checks = {item.check: item for item in result.opinion_artifact.review_checks}
+
+    assert checks["manual_adoption_boundary"].status == "fail"
     assert result.opinion_artifact.state == "no-opinion"
     assert result.opinion_artifact.buy_candidates == []
 
