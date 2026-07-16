@@ -56,7 +56,9 @@ def build_signals(scores: pd.DataFrame, weights: pd.DataFrame) -> List[dict]:
     for dt, row in weights.iterrows():
         positions = row[row > 0]
         if dt == weights.index[-1]:
-            positions = row.reindex(scores.loc[dt].dropna().index).fillna(0.0)
+            positions = row.reindex(
+                positions.index.union(scores.loc[dt].dropna().index)
+            ).fillna(0.0)
         if positions.empty:
             continue
         for symbol, position in positions.items():

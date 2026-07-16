@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
@@ -55,7 +56,11 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
 
 
 def _has_metrics_evidence(value: Any) -> bool:
@@ -215,8 +220,7 @@ def _latest_signals(payload: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]]
     invalid_count = sum(
         1
         for item in latest
-        if _signal_date_key(item) is None
-        or not _is_number(item.get("score"))
+        if not _is_number(item.get("score"))
         or not _is_number(item.get("position"))
     )
     return latest, invalid_count
@@ -884,14 +888,14 @@ def _review_checks(
                     "Caveats, missing policy metadata, or boundary wording prevent a clean pass."
                 )
             if (
-                item["result"]["metric_keys"]
+                metrics_present
                 and item["result"]["threshold_policy_version_present"]
                 and item["result"]["price_basis_version_present"]
                 and boundary_present
                 and item["result"]["caveat_count"] == 0
             ):
                 item["status"] = "pass"
-            elif item["result"]["metric_keys"]:
+            elif metrics_present:
                 item["status"] = "warning"
             else:
                 item["status"] = "fail"

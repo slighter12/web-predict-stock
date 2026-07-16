@@ -14,16 +14,27 @@ from backend.shared.analytics.strategy import build_weights_from_scores
 def test_build_signals_preserves_latest_flat_decision_surface():
     idx = pd.to_datetime(["2024-01-02", "2024-01-03"])
     scores = pd.DataFrame(
-        {"A": [0.8, 0.2], "B": [float("nan"), 0.1]}, index=idx
+        {
+            "A": [0.8, 0.2],
+            "B": [float("nan"), 0.1],
+            "C": [0.5, float("nan")],
+        },
+        index=idx,
     )
-    weights = pd.DataFrame({"A": [1.0, 0.0], "B": [0.0, 0.0]}, index=idx)
+    weights = pd.DataFrame(
+        {"A": [1.0, 0.0], "B": [0.0, 0.0], "C": [0.0, 0.4]}, index=idx
+    )
 
     signals = build_signals(scores, weights)
 
-    assert [(item["date"], item["symbol"], item["position"]) for item in signals] == [
-        (idx[0].date(), "A", 1.0),
-        (idx[1].date(), "A", 0.0),
-        (idx[1].date(), "B", 0.0),
+    assert [
+        (item["date"], item["symbol"], item["score"], item["position"])
+        for item in signals
+    ] == [
+        (idx[0].date(), "A", 0.8, 1.0),
+        (idx[1].date(), "A", 0.2, 0.0),
+        (idx[1].date(), "B", 0.1, 0.0),
+        (idx[1].date(), "C", 0.0, 0.4),
     ]
 
 

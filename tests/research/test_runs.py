@@ -199,10 +199,13 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
         "invalidation_note"
     ]
     assert {
-        ref["date"]
+        (ref["field"], ref.get("symbol"), ref.get("date"))
         for ref in artifact["buy_candidates"][0]["source_artifact_references"]
-        if ref["artifact"] == "signals" and "date" in ref
-    } == {"2024-01-04"}
+        if ref["artifact"] == "signals" and ref["field"] in {"score", "position"}
+    } == {
+        ("score", "2330", "2024-01-04"),
+        ("position", "2330", "2024-01-04"),
+    }
     assert checks["signal_to_position"]["result"] == {
         "checked_symbol_count": 4,
         "positive_count": 1,
@@ -439,6 +442,30 @@ def test_opinion_builder_source_audit_names_missing_config_inputs():
                 "rank_ic": None,
                 "linear_ic": None,
             },
+        ),
+        (
+            {"total_return": float("nan")},
+            {"task": "regression", "sample_count": 2, "rmse": 0.1},
+        ),
+        (
+            {"total_return": float("inf")},
+            {"task": "regression", "sample_count": 2, "rmse": 0.1},
+        ),
+        (
+            {"total_return": float("-inf")},
+            {"task": "regression", "sample_count": 2, "rmse": 0.1},
+        ),
+        (
+            {"total_return": 0.0},
+            {"task": "regression", "sample_count": 2, "rmse": float("nan")},
+        ),
+        (
+            {"total_return": 0.0},
+            {"task": "regression", "sample_count": 2, "rmse": float("inf")},
+        ),
+        (
+            {"total_return": 0.0},
+            {"task": "regression", "sample_count": 2, "rmse": float("-inf")},
         ),
     ],
 )
