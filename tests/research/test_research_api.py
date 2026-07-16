@@ -401,7 +401,11 @@ def test_get_research_run(monkeypatch):
     assert response.json()["run_id"] == "run_abc"
     assert response.json()["status"] == "succeeded"
     assert response.json()["opinion_artifact"]["buy_candidates"][0]["symbol"] == "2330"
-    assert response.json()["opinion_artifact"]["review_checks"][0]["check"]
+    checks = {
+        item["check"]: item
+        for item in response.json()["opinion_artifact"]["review_checks"]
+    }
+    assert checks["strategy_lifecycle"]["result"]["metrics_present"] is True
 
 
 def test_list_research_runs(monkeypatch):

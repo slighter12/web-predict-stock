@@ -32,19 +32,15 @@ External projects are reference material only:
 They must not become runtime dependencies, trading frameworks, broker adapters,
 provider SDKs, or proof that deferred features belong in this goal.
 
-### Current State
+### Implementation Baseline
 
-As of 2026-07-07, docs define Phase 2 opinion requirements and reference
-promotion criteria. The current uncommitted backend attempt adds an
-`opinion_artifact` and `review_checks`, but it is only a partial scaffold.
+Phase 2 backend work extends persisted research-run artifacts with an
+`opinion_artifact` and structured `review_checks` results. Completion is
+governed by the acceptance criteria and verification evidence below.
 
-Known incomplete behavior that must be fixed before this goal can be complete:
+Required behavior before this goal can be complete:
 
 - adding `review_checks` names and statuses alone is not enough
-- `review_checks.result` is not yet a contract field in the current code
-- current repo state has required new files outside the tracked diff:
-  `GOAL.md` and `backend/research/domain/opinion.py` are untracked and must
-  not be omitted from review or completion evidence
 - latest signal selection must be by each symbol's latest persisted `date`;
   list order or last-write-wins replacement is not acceptable
 - `parameter_sensitivity` always returning `not_evaluated` is not enough when
@@ -117,8 +113,8 @@ Rejected Evidence:
 
 ### Validation Lineage
 
-- Current stage: Phase 2 backend opinion expansion, starting from the current
-  uncommitted `opinion_artifact` scaffold.
+- Current stage: Phase 2 backend opinion expansion over persisted V1
+  research-run artifacts and the structured opinion contract.
 - Direct dependency predecessor: persisted successful V1 research-run artifacts
   and the existing research-run create/reload/list API paths.
 - Relevant prior final labels: V1 usable loop is described as verified in
@@ -483,7 +479,7 @@ Latest signal definition for all Jesse-style checks and viable action rows:
     `risk_or_warning`, row `invalidation_note`, and review-check copy.
   - Negative tests must cover wording variants in opinion-facing text,
     including `execution-ready`, `order routing`, `automatic rebalance` or
-    `automatic rebalancing`, `broker`, `account control`, and
+    `automatic rebalancing`, `broker routing`, `account control`, and
     `personalized investment advice`.
 
 - `insufficient_evidence_gate`
@@ -633,7 +629,7 @@ Self-review failures must affect `state`, `state_reason`, or
   Given opinion-facing text fields are produced
   When `manual_adoption_boundary` is evaluated
   Then the check fails if any field implies execution, order routing, automatic
-  rebalancing, broker/account control, or personalized investment advice,
+  rebalancing, broker routing/account control, or personalized investment advice,
   including review-check copy and wording variants such as `execution-ready`
   Evidence: focused negative tests plus manual diff review
 

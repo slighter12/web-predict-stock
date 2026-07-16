@@ -57,7 +57,12 @@ def test_research_run_repository_roundtrip(monkeypatch):
         },
         "equity_curve": [{"date": "2024-01-02", "equity": 1.0}],
         "signals": [
-            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0},
+            {
+                "date": datetime(2024, 1, 2, 12, 30, tzinfo=timezone.utc),
+                "symbol": "2330",
+                "score": 0.01,
+                "position": 1.0,
+            },
             {"date": "2024-01-02", "symbol": "2317", "score": -0.02, "position": -1.0},
             {"date": "2024-01-02", "symbol": "2454", "score": 0.0, "position": 0.0},
             {"date": "2024-01-02", "symbol": "9999", "score": None, "position": 1.0},
@@ -243,6 +248,11 @@ def test_research_run_repository_roundtrip(monkeypatch):
         for reference in opinion_row["source_artifact_references"]
         if reference["artifact"] == "signals" and "symbol" in reference
     )
+    assert {
+        reference["date"]
+        for reference in opinion_row["source_artifact_references"]
+        if reference["artifact"] == "signals" and "date" in reference
+    } == {"2024-01-02"}
 
 
 def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):

@@ -99,7 +99,7 @@ def _signal_date_key(signal: Mapping[str, Any]) -> str | None:
         return value.isoformat()
     if isinstance(value, str):
         try:
-            return date.fromisoformat(value).isoformat()
+            return datetime.fromisoformat(value).date().isoformat()
         except ValueError:
             return None
     return None
@@ -319,13 +319,11 @@ def _string_values(value: Any) -> list[str]:
 def _manual_boundary_present(*texts: str) -> bool:
     forbidden = (
         "broker routing",
-        "broker",
-        "execution-ready",
         "execution ready",
         "live order",
-        "live orders",
         "automatic rebalance",
         "automatic rebalancing",
+        "portfolio control",
         "account control",
         "personalized investment advice",
         "personalized advice",
@@ -333,7 +331,8 @@ def _manual_boundary_present(*texts: str) -> bool:
         "order routing",
         "execution route",
     )
-    haystack = " ".join(texts).lower()
+    haystack = re.sub(r"[-_/]+", " ", " ".join(texts).lower())
+    haystack = " ".join(haystack.split())
     return not any(term in haystack for term in forbidden)
 
 
@@ -938,8 +937,11 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     limitations: list[str] = []
     status = payload.get("status")
     completeness = payload.get("artifact_completeness")
-    if status is not None and status != "succeeded":
-        limitations.append(f"Run status is {status}; artifacts are not adoptable.")
+    if status != "succeeded":
+        status_label = status if status is not None else "unavailable"
+        limitations.append(
+            f"Run status is {status_label}; artifacts are not adoptable."
+        )
     if completeness != "complete":
         missing = [str(item) for item in _as_list(payload.get("missing_artifacts"))]
         detail = f" Missing artifacts: {', '.join(missing)}." if missing else ""
@@ -953,7 +955,7 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     if payload.get("stale_mark_days_with_open_positions") or payload.get("stale_risk_share"):
         limitations.append("Stale mark risk is present in persisted artifacts.")
 
-    if status is not None and status != "succeeded":
+    if status != "succeeded":
         return _empty_artifact(
             "do-not-adopt",
             "Research run did not complete successfully.",

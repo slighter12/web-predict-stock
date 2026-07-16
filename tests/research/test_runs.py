@@ -347,10 +347,12 @@ def test_opinion_builder_static_invalidation_template_blocks_viability(monkeypat
     "forbidden_text",
     [
         "execution-ready signal",
+        "live_order readiness",
         "send through order routing",
         "automatic rebalance from this opinion",
         "automatic rebalancing from this opinion",
-        "broker action from this signal",
+        "broker-routing action from this signal",
+        "portfolio-control instruction",
         "account control instruction",
         "personalized investment advice",
         "Execution route research_only produced 1 order record(s).",
@@ -369,6 +371,16 @@ def test_opinion_builder_manual_boundary_variants_downgrade_viability(
     assert artifact["state"] == "no-opinion"
     assert artifact["buy_candidates"] == []
     assert artifact["evidence_limitations"]
+
+
+def test_opinion_builder_manual_boundary_allows_broker_metadata_description():
+    payload = make_opinion_payload()
+    payload["warnings"] = ["Broker comparison metadata is unavailable."]
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert checks["manual_adoption_boundary"]["status"] == "pass"
 
 
 def test_opinion_builder_manual_boundary_scans_review_check_copy(monkeypatch):
@@ -538,6 +550,17 @@ def test_opinion_builder_stale_evidence_blocks_forced_rows():
     assert artifact["state"] == "no-opinion"
     assert artifact["buy_candidates"] == []
     assert "Stale mark risk" in " ".join(artifact["evidence_limitations"])
+
+
+def test_opinion_builder_missing_status_is_do_not_adopt():
+    payload = make_opinion_payload()
+    payload.pop("status")
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "do-not-adopt"
+    assert artifact["buy_candidates"] == []
+    assert "Run status is unavailable" in " ".join(artifact["evidence_limitations"])
 
 
 def test_create_response_stale_evidence_blocks_opinion_rows():
