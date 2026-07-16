@@ -97,7 +97,7 @@ def make_opinion_payload() -> dict:
     return {
         "status": "succeeded",
         "request_payload": {
-            "symbols": ["2330"],
+            "symbols": ["2330", "2317"],
             "strategy": {"threshold": 0.003, "top_n": 2},
         },
         "effective_strategy": {"threshold": 0.003, "top_n": 2},
@@ -169,6 +169,7 @@ def test_opinion_contract_rejects_unknown_check_and_category():
 
 def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     payload = make_opinion_payload()
+    payload["symbols"] = ["2330", "2317", "2454", "9999", "8888"]
     payload["signals"] = [
         {
             "date": datetime(2024, 1, 4, 12, 30),
@@ -219,6 +220,26 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"][
         "top_n_minus_1"
     ] == 1
+
+
+def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
+    payload = make_opinion_payload()
+    payload["signals"].append(
+        {
+            "date": "2024-01-02",
+            "symbol": "2454",
+            "score": 0.03,
+            "position": 1.0,
+        }
+    )
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+    assert "outside the declared run universe: 2454" in " ".join(
+        artifact["evidence_limitations"]
+    )
 
 
 def test_opinion_builder_parameter_sensitivity_reports_partial_scenario_change():
@@ -321,6 +342,20 @@ def test_opinion_builder_wrong_signal_ref_date_blocks_viability(monkeypatch):
     artifact = build_opinion_artifact(make_opinion_payload())
 
     _assert_self_review_blocks_viability(artifact, "evidence_traceability")
+
+
+def test_opinion_builder_nonexistent_invalidation_signal_field_blocks_viability(
+    monkeypatch,
+):
+    row = _valid_opinion_row()
+    for reference in row["source_artifact_references"]:
+        if reference["artifact"] == "signals":
+            reference["field"] = "missing"
+    monkeypatch.setattr(opinion_domain, "_action_rows", lambda payload: [row])
+
+    artifact = build_opinion_artifact(make_opinion_payload())
+
+    _assert_self_review_blocks_viability(artifact, "invalidation_present")
 
 
 def test_opinion_builder_generic_risk_disclaimer_blocks_viability(monkeypatch):

@@ -31,7 +31,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "request_id": "req_123",
         "status": "succeeded",
         "market": "TW",
-        "symbols": ["2330"],
+        "symbols": ["2330", "2317", "2454", "9999"],
         "strategy_type": "research_v1",
         "runtime_mode": "runtime_compatibility_mode",
         "default_bundle_version": None,
@@ -48,7 +48,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         },
         "validation_outcome": {"ok": True},
         "rejection_reason": None,
-        "request_payload": {"symbols": ["2330"]},
+        "request_payload": {"symbols": ["2330", "2317", "2454", "9999"]},
         "metrics": {
             "total_return": 0.12,
             "sharpe": 1.1,
@@ -174,6 +174,16 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "artifact_completeness",
         "comparison_caveats",
     }
+    for reference in opinion_row["source_artifact_references"]:
+        if reference["artifact"] == "signals":
+            assert any(
+                str(signal["symbol"]) == reference["symbol"]
+                and str(signal["date"])[:10] == reference["date"]
+                and reference["field"] in signal
+                for signal in loaded["signals"]
+            )
+        else:
+            assert reference["field"] in loaded
     checks = {
         item["check"]: item for item in loaded["opinion_artifact"]["review_checks"]
     }

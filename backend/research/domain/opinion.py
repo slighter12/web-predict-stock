@@ -4,28 +4,12 @@ import math
 import re
 from collections.abc import Mapping
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any
 
-OpinionReviewCheckName = Literal[
-    "strategy_lifecycle",
-    "signal_to_position",
-    "backtest_report_discipline",
-    "robustness",
-    "parameter_sensitivity",
-    "evidence_traceability",
-    "risk_present",
-    "invalidation_present",
-    "manual_adoption_boundary",
-    "insufficient_evidence_gate",
-    "source_artifact_audit",
-    "text_evidence_summary",
-]
-OpinionReviewCheckCategory = Literal[
-    "method",
-    "self_review",
-    "source_provider_audit",
-    "evidence_summary",
-]
+from backend.research.contracts.runs import (
+    OpinionReviewCheckCategory,
+    OpinionReviewCheckName,
+)
 
 OPINION_ARTIFACT_VERSION = "phase2_opinion_artifact_v1"
 OMITTED_DETAIL_LIMITATION = (
@@ -195,21 +179,35 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
         )
     return (
         "Do not adopt if a newer persisted run or newer market data supersedes this signal.",
-        _refs(("request_payload", "date_range"), ("signals", "date")),
+        [],
         "newer_run_or_market_data",
     )
 
 
-def _latest_signals(payload: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]], int]:
+def _latest_signals(
+    payload: Mapping[str, Any],
+) -> tuple[list[Mapping[str, Any]], int, list[str]]:
+    declared = _as_list(payload.get("symbols")) or _as_list(
+        _as_mapping(payload.get("request_payload")).get("symbols")
+    )
+    allowed_symbols = {str(symbol) for symbol in declared if symbol}
     latest_by_symbol: dict[str, Mapping[str, Any]] = {}
     latest_dates: dict[str, str] = {}
+    unexpected_symbols: set[str] = set()
+    unexpected_signal_count = 0
     for item in _as_list(payload.get("signals")):
         signal = _as_mapping(item)
         symbol = signal.get("symbol")
-        signal_date = _signal_date_key(signal)
-        if not symbol or signal_date is None:
+        if not symbol:
             continue
         symbol_key = str(symbol)
+        if allowed_symbols and symbol_key not in allowed_symbols:
+            unexpected_symbols.add(symbol_key)
+            unexpected_signal_count += 1
+            continue
+        signal_date = _signal_date_key(signal)
+        if signal_date is None:
+            continue
         if (
             symbol_key not in latest_dates
             or signal_date >= latest_dates[symbol_key]
@@ -223,11 +221,11 @@ def _latest_signals(payload: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]]
         if not _is_number(item.get("score"))
         or not _is_number(item.get("position"))
     )
-    return latest, invalid_count
+    return latest, invalid_count + unexpected_signal_count, sorted(unexpected_symbols)
 
 
 def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    latest, _ = _latest_signals(payload)
+    latest, _, _ = _latest_signals(payload)
     return [
         item
         for item in latest
@@ -440,6 +438,7 @@ def _row_has_concrete_risk(
 def _row_has_concrete_invalidation(
     row: Mapping[str, Any],
     context: tuple[str, list[dict[str, str]], str],
+    selected_signal_dates: Mapping[str, str],
 ) -> bool:
     refs = {
         _as_mapping(ref).get("artifact")
@@ -448,12 +447,22 @@ def _row_has_concrete_invalidation(
     text, _context_refs, family = context
     if not str(row.get("invalidation_note", "")).startswith(f"{text} Row signal date:"):
         return False
+    symbol = str(row.get("symbol", ""))
+    expected_date = selected_signal_dates.get(symbol)
+    dated_signal_ref_present = any(
+        _as_mapping(ref).get("artifact") == "signals"
+        and _as_mapping(ref).get("field") in {"score", "position"}
+        and _as_mapping(ref).get("symbol") == symbol
+        and _as_mapping(ref).get("date") == expected_date
+        for ref in _as_list(row.get("source_artifact_references"))
+    )
     return (
         (family == "stale_freshness" and "artifact_completeness" in refs)
         or (family == "comparison_caveats" and "comparison_caveats" in refs)
         or (
             family == "newer_run_or_market_data"
-            and {"request_payload", "signals"} <= refs
+            and expected_date is not None
+            and dated_signal_ref_present
         )
     )
 
@@ -488,7 +497,7 @@ def _summary_checks() -> list[dict[str, Any]]:
 
 
 def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
-    latest, invalid_count = _latest_signals(payload)
+    latest, invalid_count, _ = _latest_signals(payload)
     valid = _valid_latest_signals(payload)
     threshold = _strategy_threshold(payload)
     top_n = _strategy_top_n(payload)
@@ -602,7 +611,7 @@ def _review_checks(
     baselines = _as_mapping(payload.get("baselines"))
     caveats = _as_list(payload.get("comparison_caveats"))
     warnings = _as_list(payload.get("warnings"))
-    latest, invalid_signal_count = _latest_signals(payload)
+    latest, invalid_signal_count, _ = _latest_signals(payload)
     valid_latest = _valid_latest_signals(payload)
     selected_signal_dates = {
         str(item["symbol"]): signal_date
@@ -677,6 +686,17 @@ def _review_checks(
     sensitivity = _parameter_sensitivity(payload)
     risk_context = _risk_context(payload)
     invalidation_context = _invalidation_context(payload)
+    invalidation_refs = invalidation_context[1]
+    if invalidation_context[2] == "newer_run_or_market_data":
+        invalidation_refs = [
+            dict(_as_mapping(ref))
+            for row in rows
+            for ref in _as_list(row.get("source_artifact_references"))
+            if _as_mapping(ref).get("artifact") == "signals"
+            and _as_mapping(ref).get("field") in {"score", "position"}
+            and _as_mapping(ref).get("symbol")
+            and _as_mapping(ref).get("date")
+        ] or _refs(("signals", "signals"))
     traceable_row_count = sum(
         1 for row in rows if _row_has_traceable_signal(row, selected_signal_dates)
     )
@@ -691,7 +711,11 @@ def _review_checks(
     concrete_invalidation_row_count = sum(
         1
         for row in rows
-        if _row_has_concrete_invalidation(row, invalidation_context)
+        if _row_has_concrete_invalidation(
+            row,
+            invalidation_context,
+            selected_signal_dates,
+        )
     )
     checks = [
         _check(
@@ -819,7 +843,7 @@ def _review_checks(
             else "fail",
             "Rows were checked for concrete invalidation families and supporting references.",
             invalidation_context[0],
-            invalidation_context[1],
+            invalidation_refs,
             {
                 "row_count": len(rows),
                 "concrete_invalidation_row_count": concrete_invalidation_row_count,
@@ -957,6 +981,13 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         limitations.append("Model diagnostics artifact is unavailable.")
     if not _as_list(payload.get("signals")):
         limitations.append("Signal artifact is unavailable.")
+    else:
+        _, _, unexpected_symbols = _latest_signals(payload)
+        if unexpected_symbols:
+            limitations.append(
+                "Signal artifact contains symbols outside the declared run universe: "
+                f"{', '.join(unexpected_symbols)}."
+            )
     if payload.get("stale_mark_days_with_open_positions") or payload.get("stale_risk_share"):
         limitations.append("Stale mark risk is present in persisted artifacts.")
 

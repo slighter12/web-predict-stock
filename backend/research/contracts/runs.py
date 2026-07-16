@@ -35,11 +35,6 @@ from backend.research.domain.artifact_summary import (
     ArtifactCompleteness,
     ReviewArtifactName,
 )
-from backend.research.domain.opinion import (
-    OpinionReviewCheckCategory,
-    OpinionReviewCheckName,
-)
-
 from .runtime_metadata import (
     ConfigSources,
     EffectiveStrategyConfig,
@@ -277,6 +272,26 @@ class ComparisonCaveat(BaseModel):
 
 
 OpinionArtifactState = Literal["viable", "no-opinion", "do-not-adopt"]
+OpinionReviewCheckName = Literal[
+    "strategy_lifecycle",
+    "signal_to_position",
+    "backtest_report_discipline",
+    "robustness",
+    "parameter_sensitivity",
+    "evidence_traceability",
+    "risk_present",
+    "invalidation_present",
+    "manual_adoption_boundary",
+    "insufficient_evidence_gate",
+    "source_artifact_audit",
+    "text_evidence_summary",
+]
+OpinionReviewCheckCategory = Literal[
+    "method",
+    "self_review",
+    "source_provider_audit",
+    "evidence_summary",
+]
 OpinionSourceArtifactName = Literal[
     "request_payload",
     "config_sources",

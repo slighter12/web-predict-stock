@@ -97,11 +97,21 @@ def make_opinion_artifact() -> dict:
                 "model_score": 0.01,
                 "position_signal": 1.0,
                 "evidence_reason": "Latest persisted signal links model score to strategy position for this symbol.",
-                "risk_or_warning": "Research-only opinion for manual adoption review; not an execution or personalized-advice signal.",
+                "risk_or_warning": "Research-only opinion for manual adoption review.",
                 "invalidation_note": "Do not adopt if newer data invalidates this persisted run.",
                 "source_artifact_references": [
-                    {"artifact": "signals", "field": "score"},
-                    {"artifact": "signals", "field": "position"},
+                    {
+                        "artifact": "signals",
+                        "field": "score",
+                        "symbol": "2330",
+                        "date": "2024-01-02",
+                    },
+                    {
+                        "artifact": "signals",
+                        "field": "position",
+                        "symbol": "2330",
+                        "date": "2024-01-02",
+                    },
                     {"artifact": "model_diagnostics", "field": "model_diagnostics"},
                     {"artifact": "metrics", "field": "metrics"},
                     {
@@ -239,6 +249,15 @@ def test_create_research_run_success(monkeypatch):
     assert opinion["state"] == "viable"
     assert opinion["manual_adoption_only"] is True
     assert opinion["buy_candidates"][0]["symbol"] == "2330"
+    signal_refs = {
+        (ref["field"], ref["symbol"], ref["date"])
+        for ref in opinion["buy_candidates"][0]["source_artifact_references"]
+        if ref["artifact"] == "signals"
+    }
+    assert signal_refs == {
+        ("score", "2330", "2024-01-02"),
+        ("position", "2330", "2024-01-02"),
+    }
     assert opinion["sell_or_avoid"] == []
     assert opinion["watch"] == []
     checks = {item["check"]: item for item in opinion["review_checks"]}
@@ -401,6 +420,17 @@ def test_get_research_run(monkeypatch):
     assert response.json()["run_id"] == "run_abc"
     assert response.json()["status"] == "succeeded"
     assert response.json()["opinion_artifact"]["buy_candidates"][0]["symbol"] == "2330"
+    signal_refs = {
+        (ref["field"], ref["symbol"], ref["date"])
+        for ref in response.json()["opinion_artifact"]["buy_candidates"][0][
+            "source_artifact_references"
+        ]
+        if ref["artifact"] == "signals"
+    }
+    assert signal_refs == {
+        ("score", "2330", "2024-01-02"),
+        ("position", "2330", "2024-01-02"),
+    }
     checks = {
         item["check"]: item
         for item in response.json()["opinion_artifact"]["review_checks"]
