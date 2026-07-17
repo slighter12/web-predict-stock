@@ -40,11 +40,12 @@ stable across multiple implementation tasks.
 | ID | Decision | Status | Impact |
 | --- | --- | --- | --- |
 | `DEC-PHASE-001` | External trading and research tools are reference material, not default dependencies | accepted | Jesse, UZI-Skill, a-stock-data, OpenBB, FinGPT, FinRL, and similar projects may inform local contracts and methods, but their runtimes should not be integrated by default |
-| `DEC-PHASE-002` | Jesse-style methods are valid research-method inputs | accepted | Strategy lifecycle, signal-to-position translation, robustness checks, parameter sensitivity, and backtest-report discipline may inform a future research method library without adopting Jesse's live trading runtime |
+| `DEC-PHASE-002` | Jesse-style methods are valid research-method inputs | accepted | Strategy lifecycle, signal-to-position translation, robustness checks, parameter sensitivity, and backtest-report discipline are implemented locally without adopting Jesse's live trading runtime |
 | `DEC-PHASE-003` | Phase 2 prioritizes backend opinion artifacts before frontend expansion | accepted | Next product work should synthesize diagnostics, signals, backtests, baselines, and warnings into decision-useful opinion artifacts before adding large UI surfaces |
 | `DEC-PHASE-004` | Live trading concepts are deferred but retained for later guarded execution planning | accepted | Broker execution, live orders, paper/live separation, order lifecycle, reconciliation, audit logs, kill switches, and manual confirmations stay out of the current phase but remain reference material for future guarded execution work |
 | `DEC-PHASE-005` | Portfolio automation is deferred behind manual adoption tracking | accepted | Nearer-term portfolio work should record manual adoption, forward outcomes, and portfolio impact before any automatic rebalancing or account-control behavior |
 | `DEC-PHASE-006` | Phase 2 opinion artifact contract and reconstruction path are fixed | accepted | `opinion_artifact` serializes state, action rows, source references, and review checks in research responses; POST builds from current response artifacts, detail reload reconstructs from persisted run artifacts, and list responses remain summary-only |
+| `DEC-PHASE-007` | The first local research-method slice is accepted | accepted | Persisted request, strategy, diagnostic, signal, metric, validation, baseline, warning, and comparison-caveat artifacts feed `opinion_artifact.review_checks`; focused contract, domain, and API validation covers the slice, detail reload reconstructs it deterministically, and comparison caveats remain explicit |
 
 ## Open V1 Decisions
 
@@ -57,7 +58,6 @@ stable across multiple implementation tasks.
 
 | ID | Topic | Owner area | Blocks | Acceptance trigger |
 | --- | --- | --- | --- | --- |
-| `TBD-PHASE-001` | research method library first slice | research services | Phase 2 method sequencing, not current v1 usability | accepted when the first method slice names its input artifacts, output artifact, validation check, persistence behavior, and comparison caveats |
 | `TBD-PHASE-003` | portfolio ledger and manual adoption model | portfolio research | Phase 3 feedback loop | accepted when manual adoption record fields, holdings context, forward outcome comparison, and portfolio-impact reporting are specified without automatic trading |
 | `TBD-PHASE-004` | guarded broker and live-order promotion criteria | execution planning | future guarded execution only | accepted when safety, audit, reconciliation, idempotency, manual-confirmation, and kill-switch gates are documented before broker integration can enter active planning |
 | `TBD-PHASE-005` | US daily data-source strategy | market expansion | US daily future lane | accepted when source contracts, raw-payload audit rules, market-calendar policy, and TW/US comparison semantics are documented |

@@ -349,6 +349,12 @@ class OpinionReviewCheck(BaseModel):
     )
     result: Dict[str, object] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def require_result_for_evaluated_check(self) -> "OpinionReviewCheck":
+        if self.status != "not_evaluated" and not self.result:
+            raise ValueError("evaluated review checks require a non-empty result")
+        return self
+
 
 class OpinionArtifact(BaseModel):
     artifact_version: str = "phase2_opinion_artifact_v1"

@@ -167,6 +167,44 @@ def test_opinion_contract_rejects_unknown_check_and_category():
         OpinionReviewCheck.model_validate({**payload, "category": "unknown"})
 
 
+@pytest.mark.parametrize("status", ["pass", "warning", "fail"])
+def test_opinion_contract_requires_result_for_evaluated_checks(status):
+    payload = {
+        "check": "risk_present",
+        "category": "self_review",
+        "status": status,
+        "evidence_reason": "Risk context was checked.",
+        "risk_or_warning": "Persisted warning was checked.",
+        "source_artifact_references": [
+            {"artifact": "warnings", "field": "warnings"}
+        ],
+        "result": {},
+    }
+
+    with pytest.raises(
+        ValidationError,
+        match="evaluated review checks require a non-empty result",
+    ):
+        OpinionReviewCheck.model_validate(payload)
+
+
+def test_opinion_contract_allows_default_result_for_not_evaluated_check():
+    check = OpinionReviewCheck.model_validate(
+        {
+            "check": "risk_present",
+            "category": "self_review",
+            "status": "not_evaluated",
+            "evidence_reason": "Persisted warnings are unavailable.",
+            "risk_or_warning": "Risk could not be evaluated.",
+            "source_artifact_references": [
+                {"artifact": "warnings", "field": "warnings"}
+            ],
+        }
+    )
+
+    assert check.result == {}
+
+
 def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     payload = make_opinion_payload()
     payload["symbols"] = ["2330", "2317", "2454", "9999", "8888"]
