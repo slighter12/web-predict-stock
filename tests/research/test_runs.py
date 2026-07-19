@@ -135,6 +135,7 @@ def test_opinion_contract_requires_source_artifact_references():
         "status": "pass",
         "evidence_reason": "Risk context was checked.",
         "risk_or_warning": "Persisted warning was checked.",
+        "result": {"risk_checked": True},
     }
 
     with pytest.raises(ValidationError):
@@ -159,6 +160,7 @@ def test_opinion_contract_rejects_unknown_check_and_category():
         "source_artifact_references": [
             {"artifact": "warnings", "field": "warnings"}
         ],
+        "result": {"risk_checked": True},
     }
 
     with pytest.raises(ValidationError):
@@ -221,6 +223,7 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
         {"date": "2024-01-04", "symbol": "2454", "score": 0.0, "position": 0.0},
         {"date": "2024-01-04", "symbol": "9999", "score": None, "position": 1.0},
         {"date": "not-a-date", "symbol": "8888", "score": 0.5, "position": 1.0},
+        {"date": "2024-01-04", "score": 0.5, "position": 1.0},
     ]
 
     artifact = build_opinion_artifact(payload)
@@ -250,7 +253,7 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
         "positive_count": 1,
         "negative_count": 1,
         "flat_count": 1,
-        "invalid_row_count": 1,
+        "invalid_row_count": 3,
     }
     assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
         "2330"

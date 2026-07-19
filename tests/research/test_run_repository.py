@@ -492,6 +492,54 @@ def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeyp
     }
 
 
+def test_list_research_run_records_preserves_non_success_opinion_states(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+            MicrostructureObservation.__table__,
+        ],
+    )
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+    statuses = ("running", "rejected", "validation_failed", "failed")
+
+    with testing_session_local() as session:
+        for status in statuses:
+            row = ResearchRun(run_id=f"run_{status}")
+            row.request_id = f"req_{status}"
+            row.status = status
+            row.market = "TW"
+            row.symbols_json = '["2330"]'
+            row.strategy_type = "research_v1"
+            row.request_payload_json = research_run_repository.json_dumps(
+                {"symbols": ["2330"], "baselines": []}
+            )
+            row.comparison_eligibility = "comparison_metadata_only"
+            row.warnings_json = "[]"
+            session.add(row)
+        session.commit()
+
+    listed_by_status = {
+        item["status"]: item
+        for item in research_run_repository.list_research_run_records()
+    }
+
+    assert set(listed_by_status) == set(statuses)
+    for status in statuses:
+        opinion = listed_by_status[status]["opinion_artifact"]
+        assert opinion["state"] == "do-not-adopt"
+        assert opinion["buy_candidates"] == []
+        assert opinion["sell_or_avoid"] == []
+        assert opinion["watch"] == []
+        assert opinion["evidence_limitations"] == [
+            f"Run status is {status}; artifacts are not adoptable.",
+            "Detail artifacts are omitted; reload the run detail for row-level opinion review.",
+        ]
+
+
 def test_research_run_repository_reassigns_existing_observation_run_id(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)

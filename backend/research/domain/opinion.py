@@ -195,10 +195,12 @@ def _latest_signals(
     latest_dates: dict[str, str] = {}
     unexpected_symbols: set[str] = set()
     unexpected_signal_count = 0
+    malformed_signal_count = 0
     for item in _as_list(payload.get("signals")):
         signal = _as_mapping(item)
         symbol = signal.get("symbol")
         if not symbol:
+            malformed_signal_count += 1
             continue
         symbol_key = str(symbol)
         if allowed_symbols and symbol_key not in allowed_symbols:
@@ -207,6 +209,7 @@ def _latest_signals(
             continue
         signal_date = _signal_date_key(signal)
         if signal_date is None:
+            malformed_signal_count += 1
             continue
         if (
             symbol_key not in latest_dates
@@ -221,7 +224,11 @@ def _latest_signals(
         if not _is_number(item.get("score"))
         or not _is_number(item.get("position"))
     )
-    return latest, invalid_count + unexpected_signal_count, sorted(unexpected_symbols)
+    return (
+        latest,
+        invalid_count + unexpected_signal_count + malformed_signal_count,
+        sorted(unexpected_symbols),
+    )
 
 
 def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -950,13 +957,25 @@ def _empty_artifact(
 
 
 def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
+    status = payload.get("status")
     if payload.get("summary_only"):
+        limitations = [OMITTED_DETAIL_LIMITATION]
+        if status != "succeeded":
+            status_label = status if status is not None else "unavailable"
+            limitations.insert(
+                0,
+                f"Run status is {status_label}; artifacts are not adoptable.",
+            )
         return {
             "artifact_version": OPINION_ARTIFACT_VERSION,
-            "state": "no-opinion",
-            "state_reason": OMITTED_DETAIL_LIMITATION,
+            "state": "no-opinion" if status == "succeeded" else "do-not-adopt",
+            "state_reason": (
+                OMITTED_DETAIL_LIMITATION
+                if status == "succeeded"
+                else "Research run did not complete successfully."
+            ),
             "manual_adoption_only": True,
-            "evidence_limitations": [OMITTED_DETAIL_LIMITATION],
+            "evidence_limitations": limitations,
             "buy_candidates": [],
             "sell_or_avoid": [],
             "watch": [],
@@ -964,7 +983,6 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         }
 
     limitations: list[str] = []
-    status = payload.get("status")
     completeness = payload.get("artifact_completeness")
     if status != "succeeded":
         status_label = status if status is not None else "unavailable"

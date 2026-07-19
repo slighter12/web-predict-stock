@@ -325,10 +325,12 @@ List/summary responses:
   caveats, diagnostic samples, or source text
 - evaluated check results and hidden-derived counts must be omitted or replaced
   with omission-only placeholders
-- default safe behavior for `include_artifacts=False`: action lists are empty,
-  `state` is `no-opinion`, and `state_reason` or `evidence_limitations`
-  explains that detail artifacts are omitted and detail reload is required for
-  row-level opinion review
+- default safe behavior for `include_artifacts=False` on a successful run:
+  action lists are empty, `state` is `no-opinion`, and `state_reason` or
+  `evidence_limitations` explains that detail artifacts are omitted and detail
+  reload is required for row-level opinion review
+- non-successful summary responses retain the downgrade matrix state
+  `do-not-adopt` while also explaining that detail artifacts are omitted
 
 ### Required Local Methods
 
@@ -344,6 +346,9 @@ Latest signal definition for all Jesse-style checks and viable action rows:
   differ.
 - A row without a parseable `date` must not satisfy row-specific
   latest-date traceability for a viable populated opinion row.
+- `invalid_row_count` includes rows without a symbol, rows without a parseable
+  date, rows outside an available declared run universe, and selected latest
+  rows without a finite numeric `score` or `position`.
 - Focused tests must include unsorted multi-date signal rows for the same
   symbol and prove older rows do not drive action rows, bucket counts, or
   `parameter_sensitivity`.
