@@ -47,31 +47,9 @@ def _response_with_artifact_summary(
         },
     )
     opinion_payload = {
+        **response.model_dump(mode="json", exclude={"opinion_artifact"}),
         "status": "succeeded",
         "request_payload": request.model_dump(mode="json"),
-        "effective_strategy": response.effective_strategy.model_dump(mode="json"),
-        "metrics": response.metrics.model_dump(mode="json"),
-        "model_diagnostics": response.model_diagnostics.model_dump(mode="json")
-        if response.model_diagnostics
-        else None,
-        "signals": [item.model_dump(mode="json") for item in response.signals],
-        "validation": response.validation.model_dump(mode="json")
-        if response.validation
-        else None,
-        "baselines": response.baselines,
-        "warnings": response.warnings,
-        "config_sources": response.config_sources.model_dump(mode="json"),
-        "fallback_audit": response.fallback_audit.model_dump(mode="json"),
-        "execution_route": response.execution_route,
-        "tradability_state": response.tradability_state,
-        "live_control_profile_id": response.live_control_profile_id,
-        "live_control_version": response.live_control_version,
-        "stale_mark_days_with_open_positions": (
-            response.stale_mark_days_with_open_positions
-        ),
-        "stale_risk_share": response.stale_risk_share,
-        "threshold_policy_version": response.threshold_policy_version,
-        "price_basis_version": response.price_basis_version,
         **summary,
     }
     return response.model_copy(
