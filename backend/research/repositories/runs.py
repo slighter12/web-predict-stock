@@ -12,16 +12,17 @@ from backend.database import (
     ResearchRunLiquidityCoverage,
     SessionLocal,
 )
-from backend.research.domain.artifact_summary import build_review_artifact_summary
-from backend.research.domain.version_pack import build_version_pack_payload
-from backend.platform.errors import DataAccessError, DataNotFoundError
-from backend.platform.time import utc_now
 from backend.platform.db.repository_helpers import (
     clone_payload,
     json_dumps,
     json_loads,
     normalize_created_at,
 )
+from backend.platform.errors import DataAccessError, DataNotFoundError
+from backend.platform.time import utc_now
+from backend.research.domain.artifact_summary import build_review_artifact_summary
+from backend.research.domain.opinion import build_opinion_artifact
+from backend.research.domain.version_pack import build_version_pack_payload
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,9 @@ def _review_artifact_summary_from_row(
     )
 
 
-def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dict[str, Any]:
+def _run_row_to_dict(
+    row: ResearchRun, *, include_artifacts: bool = True
+) -> dict[str, Any]:
     effective_strategy = None
     if row.effective_threshold is not None and row.effective_top_n is not None:
         effective_strategy = {
@@ -138,6 +141,10 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
     validation_outcome = json_loads(row.validation_outcome_json, None)
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
     request_payload = json_loads(row.request_payload_json, None)
+    metrics = json_loads(row.metrics_json, None)
+    signals = json_loads(row.signals_json, []) if include_artifacts else []
+    baselines = json_loads(row.baselines_json, {})
+    warnings = json_loads(row.warnings_json, [])
     payload = {
         "run_id": row.run_id,
         "request_id": row.request_id,
@@ -154,17 +161,17 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
         "validation_outcome": validation_outcome,
         "rejection_reason": row.rejection_reason,
         "request_payload": request_payload,
-        "metrics": json_loads(row.metrics_json, None),
+        "metrics": metrics,
         "equity_curve": json_loads(row.equity_curve_json, [])
         if include_artifacts
         else [],
-        "signals": json_loads(row.signals_json, []) if include_artifacts else [],
+        "signals": signals if include_artifacts else [],
         "validation": _validation_summary_from_payload(validation_outcome),
         "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
         if include_artifacts
         else _summarize_model_diagnostics(model_diagnostics),
-        "baselines": json_loads(row.baselines_json, {}),
-        "warnings": json_loads(row.warnings_json, []),
+        "baselines": baselines,
+        "warnings": warnings,
         "factor_catalog_version": row.factor_catalog_version,
         "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
         "external_signal_policy_version": row.external_signal_policy_version,
@@ -253,6 +260,9 @@ def _run_row_to_dict(row: ResearchRun, *, include_artifacts: bool = True) -> dic
             }
         )
     )
+    payload["opinion_artifact"] = build_opinion_artifact(
+        {**payload, "summary_only": not include_artifacts}
+    )
     return payload
 
 
@@ -309,9 +319,7 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             row.metrics_json = json_dumps(record.get("metrics"))
             row.equity_curve_json = json_dumps(record.get("equity_curve", []))
             row.signals_json = json_dumps(record.get("signals", []))
-            row.model_diagnostics_json = json_dumps(
-                record.get("model_diagnostics")
-            )
+            row.model_diagnostics_json = json_dumps(record.get("model_diagnostics"))
             row.baselines_json = json_dumps(record.get("baselines", {}))
             row.warnings_json = json_dumps(record.get("warnings", []))
             row.factor_catalog_version = record.get("factor_catalog_version")

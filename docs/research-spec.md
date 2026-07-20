@@ -39,6 +39,9 @@ The v1 spec has six layers:
 5. Offline backtest contract
 6. Persisted experiment and comparison contract
 
+Phase 2 adds an opinion layer on top of the persisted research artifacts. The
+opinion layer is not a broker, live-order, or portfolio-control contract.
+
 ## Dataset Contract
 
 ### SPEC-DATA-001: TW daily default
@@ -301,6 +304,80 @@ hide model diagnostics or persisted artifacts.
 Artifact completeness caveats are blocking comparison context. A run that is
 `partial` or `metadata_only`, or a run that did not finish successfully, must
 not be treated as a complete comparable result.
+
+## Phase 2 Opinion Contract
+
+### SPEC-OPINION-001: Opinion artifact shape
+
+A Phase 2 opinion artifact must be derived from an existing persisted research
+run. It must include:
+
+- strategy-level opinion state: `viable`, `no-opinion`, or `do-not-adopt`
+- buy-candidate list
+- sell-or-avoid list
+- watch list
+- evidence and risk context for each populated list item
+- invalidation notes explaining when the opinion should not be adopted
+
+Each populated symbol row must include:
+
+- symbol
+- model score
+- strategy-derived weight or position signal
+- evidence reason
+- risk or warning
+- invalidation note
+- source artifact references
+
+Candidate lists may be empty. If the evidence is insufficient, the artifact
+must return `no-opinion` or `do-not-adopt` instead of forcing a buy, sell, or
+watch result.
+
+### SPEC-OPINION-002: Evidence traceability
+
+Each populated opinion row must point back to at least one persisted research
+artifact that explains the row. Valid source artifact families include:
+
+- model diagnostics
+- score, prediction, signal, or position output
+- strategy metrics
+- baseline deltas
+- validation summary
+- warnings
+- artifact completeness or comparison caveats
+
+When a required artifact is missing, partial, metadata-only, or not evaluated,
+the opinion artifact must make that limitation visible through the evidence
+reason, risk or warning, invalidation note, or strategy-level state.
+
+### SPEC-OPINION-003: Research-method references
+
+External tools may inform local research methods, but they must not become
+implicit runtime dependencies. Jesse-style strategy lifecycle, signal-to-position
+translation, robustness checks, parameter sensitivity, and report discipline may
+be implemented locally when they improve opinion quality.
+
+Research methods added from external references must preserve:
+
+- persisted request and result artifacts
+- model-first diagnostics before strategy claims
+- offline backtest posture
+- explicit source, version, or policy metadata
+- comparison caveats when assumptions differ
+
+### SPEC-OPINION-004: Opinion boundary
+
+An opinion artifact is a model-backed research opinion for manual adoption. It
+must not imply:
+
+- personalized investment advice
+- broker routing
+- live-order readiness
+- automatic rebalancing
+- account-level portfolio control
+
+Direct action-language labels are allowed only when the artifact preserves the
+manual-adoption boundary and can also output `no-opinion` or `do-not-adopt`.
 
 ## Hidden Advanced Modules
 

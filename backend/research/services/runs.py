@@ -5,15 +5,17 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from backend.platform.errors import BacktestError, DataAccessError
-from backend.research.domain.artifact_summary import build_review_artifact_summary
-from backend.research.repositories.runs import (
-    get_research_run_record,
-    list_research_run_records,
-)
 from backend.research.contracts.runs import (
+    OpinionArtifact,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
+)
+from backend.research.domain.artifact_summary import build_review_artifact_summary
+from backend.research.domain.opinion import build_opinion_artifact
+from backend.research.repositories.runs import (
+    get_research_run_record,
+    list_research_run_records,
 )
 from backend.research.services.execution import execute_research_run
 from backend.research.services.registry import (
@@ -44,7 +46,20 @@ def _response_with_artifact_summary(
             "baselines": isinstance(response.baselines, dict),
         },
     )
-    return response.model_copy(update=summary)
+    opinion_payload = {
+        **response.model_dump(mode="json", exclude={"opinion_artifact"}),
+        "status": "succeeded",
+        "request_payload": request.model_dump(mode="json"),
+        **summary,
+    }
+    return response.model_copy(
+        update={
+            **summary,
+            "opinion_artifact": OpinionArtifact.model_validate(
+                build_opinion_artifact(opinion_payload)
+            ),
+        }
+    )
 
 
 def _record_registry_event(
