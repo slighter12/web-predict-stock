@@ -1,9 +1,14 @@
 import pandas as pd
 import pytest
 
+import backend.shared.analytics.models as model_service
+
 from backend.shared.analytics.models import (
+    build_classifier,
     compute_return_target,
+    fit_calibrated_direction_classifier,
     prepare_training_data,
+    target_lookahead,
     time_series_split,
 )
 
@@ -52,6 +57,21 @@ def test_compute_return_target_invalid():
         compute_return_target(df, "bad_target", 1)
 
 
+@pytest.mark.parametrize(
+    ("return_target", "horizon_days", "expected"),
+    [
+        ("open_to_open", 5, 5),
+        ("close_to_close", 5, 5),
+        ("open_to_close", 5, 4),
+        ("open_to_close", 1, 0),
+    ],
+)
+def test_target_lookahead_matches_target_window(
+    return_target, horizon_days, expected
+):
+    assert target_lookahead(return_target, horizon_days) == expected
+
+
 def test_time_series_split_basic():
     X = pd.DataFrame({"x": range(10)})
     y = pd.Series(range(10))
@@ -67,6 +87,101 @@ def test_time_series_split_invalid():
     y = pd.Series(range(10))
     with pytest.raises(ValueError):
         time_series_split(X, y, test_size=1.0)
+
+
+def test_time_series_split_purges_overlapping_training_targets():
+    X = pd.DataFrame({"x": range(10)})
+    y = pd.Series(range(10))
+
+    X_train, X_test, y_train, _ = time_series_split(
+        X, y, test_size=0.2, purge=2
+    )
+
+    assert list(X_train.index) == list(range(6))
+    assert list(y_train.index) == list(range(6))
+    assert list(X_test.index) == [8, 9]
+
+
+def test_direction_calibration_uses_chronological_tail_and_purge():
+    X = pd.DataFrame({"x": range(100)})
+    y = pd.Series([0, 1] * 50)
+
+    model, reason, calibration_size = fit_calibrated_direction_classifier(
+        model_type="extra_trees",
+        X_train=X,
+        y_train=y,
+        model_params={"n_estimators": 5},
+        purge=2,
+    )
+
+    train_indices, calibration_indices = model.cv[0]
+    assert reason is None
+    assert calibration_size == 20
+    assert list(train_indices) == list(range(78))
+    assert list(calibration_indices) == list(range(80, 100))
+    assert model.predict_proba(X.tail(1)).shape == (1, 2)
+
+
+@pytest.mark.parametrize("model_type", ["random_forest", "extra_trees"])
+def test_build_classifier_supports_regression_model_families(model_type):
+    model = build_classifier(model_type=model_type, model_params={"n_estimators": 5})
+
+    assert model.get_params()["n_estimators"] == 5
+
+
+def test_build_classifier_supports_xgboost_without_loading_native_runtime(monkeypatch):
+    class _Classifier:
+        def __init__(self, **params):
+            self.params = params
+
+        def get_params(self):
+            return self.params
+
+    monkeypatch.setattr(
+        model_service, "_load_xgboost_classifier", lambda: _Classifier
+    )
+
+    model = build_classifier(model_type="xgboost", model_params={"n_estimators": 5})
+
+    assert model.get_params()["n_estimators"] == 5
+
+
+def test_direction_calibration_requires_both_classes_in_calibration_tail():
+    X = pd.DataFrame({"x": range(100)})
+    y = pd.Series([0, 1] * 40 + [0] * 4 + [1] * 16)
+
+    model, reason, calibration_size = fit_calibrated_direction_classifier(
+        model_type="random_forest",
+        X_train=X,
+        y_train=y,
+        model_params={"n_estimators": 5},
+    )
+
+    assert model is None
+    assert reason == (
+        "Provisional direction model calibration window requires at least 5 rows "
+        "per class (chronological_tail_20pct_min20_class5_v1)."
+    )
+    assert calibration_size == 0
+
+
+def test_direction_calibration_requires_enough_rows_for_provisional_gate():
+    X = pd.DataFrame({"x": range(39)})
+    y = pd.Series([0, 1] * 19 + [0])
+
+    model, reason, calibration_size = fit_calibrated_direction_classifier(
+        model_type="random_forest",
+        X_train=X,
+        y_train=y,
+        model_params={"n_estimators": 5},
+    )
+
+    assert model is None
+    assert reason == (
+        "Insufficient rows for provisional chronological direction calibration "
+        "(chronological_tail_20pct_min20_class5_v1)."
+    )
+    assert calibration_size == 0
 
 
 def test_prepare_training_data_ignores_nullable_metadata_columns():

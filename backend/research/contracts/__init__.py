@@ -12,6 +12,8 @@ from .governance import (
 from .runs import (
     BacktestRequest,
     DateRange,
+    DirectionClassificationDiagnostics,
+    DirectionModelConfig,
     EquityPoint,
     ExecutionConfig,
     FeatureDefinition,
@@ -54,6 +56,8 @@ __all__ = [
     "ResearchPhaseGateResponse",
     "BacktestRequest",
     "DateRange",
+    "DirectionClassificationDiagnostics",
+    "DirectionModelConfig",
     "EquityPoint",
     "ExecutionConfig",
     "FeatureDefinition",

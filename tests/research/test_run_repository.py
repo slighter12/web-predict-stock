@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,6 +12,112 @@ from backend.database import (
     ResearchRunLiquidityCoverage,
 )
 from backend.research.domain.version_pack import build_version_pack_payload
+
+
+def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
+    payload = research_run_repository._validation_summary_from_payload(
+        {"method": "walk_forward", "metrics": {}}
+    )
+
+    assert payload == {
+        "method": "walk_forward",
+        "evaluation_status": "not_evaluated",
+        "status_reason": (
+            "Legacy validation record has no metrics or persisted status reason."
+        ),
+        "metrics": {},
+    }
+
+
+def test_legacy_validation_remains_present_in_artifact_summary():
+    row = SimpleNamespace(
+        status="succeeded",
+        comparison_eligibility="research_only_comparable",
+        metrics_json="{}",
+        equity_curve_json="[]",
+        signals_json="[]",
+        baselines_json=None,
+    )
+
+    summary = research_run_repository._review_artifact_summary_from_row(
+        row,
+        request_payload={
+            "validation": {
+                "method": "walk_forward",
+                "splits": 3,
+                "test_size": 0.2,
+            },
+            "baselines": [],
+        },
+        validation_outcome={"method": "walk_forward", "metrics": {}},
+        model_diagnostics={"task": "regression", "sample_count": 0},
+    )
+
+    assert summary["artifact_completeness"] == "complete"
+    assert "validation" in summary["present_artifacts"]
+    assert "validation" not in summary["missing_artifacts"]
+
+
+def test_requested_missing_baseline_remains_partial_after_reload():
+    row = SimpleNamespace(
+        status="succeeded",
+        comparison_eligibility="research_only_comparable",
+        metrics_json="{}",
+        equity_curve_json="[]",
+        signals_json="[]",
+        baselines_json='{"buy_and_hold": {"sharpe": 0.5}}',
+    )
+
+    summary = research_run_repository._review_artifact_summary_from_row(
+        row,
+        request_payload={
+            "validation": None,
+            "baselines": ["buy_and_hold", "naive_momentum"],
+        },
+        validation_outcome=None,
+        model_diagnostics={"task": "regression", "sample_count": 0},
+    )
+
+    assert summary["artifact_completeness"] == "partial"
+    assert "baselines" in summary["missing_artifacts"]
+    assert "baselines" not in summary["present_artifacts"]
+
+
+def test_model_diagnostics_parser_preserves_direction_diagnostics():
+    payload = research_run_repository._model_diagnostics_from_payload(
+        {
+            "task": "regression",
+            "sample_count": 2,
+            "direction_classification": {
+                "task": "binary_classification",
+                "evaluation_status": "evaluated",
+                "sample_count": 2,
+                "positive_return_threshold": 0.0,
+                "confirmation_probability_threshold": 0.5,
+                "calibration_method": "sigmoid",
+                "confirmation_policy_version": (
+                    "regression_threshold_direction_probability_v1"
+                ),
+                "calibration_sample_count": 4,
+                "positive_prevalence": 0.5,
+                "confusion_matrix": [[1, 0], [0, 1]],
+                "precision": 1.0,
+                "recall": 1.0,
+                "roc_auc": 1.0,
+                "pr_auc": 1.0,
+                "brier": 0.04,
+            },
+        }
+    )
+
+    assert payload["direction_classification"]["evaluation_status"] == "evaluated"
+    assert payload["direction_classification"]["calibration_policy_version"] == (
+        "chronological_tail_20pct_min20_class5_v1"
+    )
+    assert payload["direction_classification"]["confusion_matrix"] == [
+        [1, 0],
+        [0, 1],
+    ]
 
 
 def test_research_run_repository_roundtrip(monkeypatch):
@@ -48,7 +155,13 @@ def test_research_run_repository_roundtrip(monkeypatch):
         },
         "validation_outcome": {"ok": True},
         "rejection_reason": None,
-        "request_payload": {"symbols": ["2330", "2317", "2454", "9999"]},
+        "request_payload": {
+            "symbols": ["2330", "2317", "2454", "9999"],
+            "direction_model": {"confirmation_probability_threshold": 0.5},
+            "features": [
+                {"name": "ma", "window": 5, "source": "close", "shift": 0}
+            ],
+        },
         "metrics": {
             "total_return": 0.12,
             "sharpe": 1.1,
@@ -62,10 +175,25 @@ def test_research_run_repository_roundtrip(monkeypatch):
                 "symbol": "2330",
                 "score": 0.01,
                 "position": 1.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.8,
+                "predicted_direction": "up",
             },
-            {"date": "2024-01-02", "symbol": "2317", "score": -0.02, "position": -1.0},
-            {"date": "2024-01-02", "symbol": "2454", "score": 0.0, "position": 0.0},
-            {"date": "2024-01-02", "symbol": "9999", "score": None, "position": 1.0},
+            {
+                "date": "2024-01-02", "symbol": "2317", "score": -0.02,
+                "position": 0.0, "signal_kind": "forward_opinion",
+                "up_probability": 0.2, "predicted_direction": "down",
+            },
+            {
+                "date": "2024-01-02", "symbol": "2454", "score": 0.0,
+                "position": 0.0, "signal_kind": "forward_opinion",
+                "up_probability": 0.7, "predicted_direction": "up",
+            },
+            {
+                "date": "2024-01-02", "symbol": "9999", "score": 0.02,
+                "position": 0.0, "signal_kind": "forward_opinion",
+                "up_probability": 0.8, "predicted_direction": "up",
+            },
         ],
         "model_diagnostics": {
             "task": "regression",
@@ -77,6 +205,11 @@ def test_research_run_repository_roundtrip(monkeypatch):
             "actual_vs_predicted": [],
             "residuals": [],
             "feature_importance": [],
+            "direction_classification": {
+                "task": "binary_classification",
+                "evaluation_status": "evaluated",
+                "sample_count": 4,
+            },
         },
         "warnings": [],
         "tradability_state": "research_only",
@@ -143,6 +276,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
     loaded = research_run_repository.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
+    assert loaded["request_payload"]["features"][0]["shift"] == 0
     assert loaded["effective_strategy"] == {"threshold": 0.003, "top_n": 3}
     assert loaded["comparison_eligibility"] == "research_only_comparable"
     assert loaded["version_pack_status"]["adv_basis_version"] == "implemented"
@@ -158,7 +292,8 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "2317"
     ]
     assert [row["symbol"] for row in loaded["opinion_artifact"]["watch"]] == [
-        "2454"
+        "2454",
+        "9999",
     ]
     opinion_row = loaded["opinion_artifact"]["buy_candidates"][0]
     assert opinion_row["symbol"] == "2330"
@@ -196,13 +331,13 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "metrics_present": True,
         "opinion_rows_emitted_or_limited": True,
     }
-    assert checks["signal_to_position"]["status"] == "warning"
+    assert checks["signal_to_position"]["status"] == "pass"
     assert checks["signal_to_position"]["result"] == {
         "checked_symbol_count": 4,
         "positive_count": 1,
-        "negative_count": 1,
-        "flat_count": 1,
-        "invalid_row_count": 1,
+        "negative_count": 0,
+        "flat_count": 3,
+        "invalid_row_count": 0,
     }
     assert checks["backtest_report_discipline"]["status"] == "pass"
     assert checks["backtest_report_discipline"]["result"]["metric_keys"] == [
@@ -222,15 +357,15 @@ def test_research_run_repository_roundtrip(monkeypatch):
     ]
     assert checks["robustness"]["status"] == "warning"
     assert checks["robustness"]["result"]["baseline_keys"] == []
-    assert checks["parameter_sensitivity"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["status"] == "pass"
     assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
         "2330"
     ]
     assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"] == {
-        "strict_threshold": 1,
-        "loose_threshold": 1,
+        "strict_threshold": 2,
+        "loose_threshold": 2,
         "top_n_minus_1": 2,
-        "top_n_plus_1": 3,
+        "top_n_plus_1": 4,
     }
     assert checks["parameter_sensitivity"]["result"]["stable_symbols"] == ["2330"]
     assert checks["parameter_sensitivity"]["result"]["provisional_policy"]

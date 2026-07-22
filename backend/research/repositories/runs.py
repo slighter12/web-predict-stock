@@ -20,7 +20,11 @@ from backend.platform.db.repository_helpers import (
 )
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.platform.time import utc_now
-from backend.research.domain.artifact_summary import build_review_artifact_summary
+from backend.research.contracts.runs import ValidationSummary
+from backend.research.domain.artifact_summary import (
+    build_review_artifact_summary,
+    has_requested_baselines,
+)
 from backend.research.domain.opinion import build_opinion_artifact
 from backend.research.domain.version_pack import build_version_pack_payload
 
@@ -44,19 +48,72 @@ def _validation_summary_from_payload(value: Any) -> dict[str, Any] | None:
         return None
     if "method" not in value or "metrics" not in value:
         return None
-    if value["method"] not in {
-        "holdout",
-        "walk_forward",
-        "rolling_window",
-        "expanding_window",
-    }:
-        return None
     if not isinstance(value["metrics"], dict):
         return None
-    for metric_value in value["metrics"].values():
-        if not isinstance(metric_value, int | float):
+    payload = dict(value)
+    if "evaluation_status" not in payload:
+        if payload["metrics"]:
+            payload["evaluation_status"] = "evaluated"
+        else:
+            payload["evaluation_status"] = "not_evaluated"
+            payload["status_reason"] = (
+                "Legacy validation record has no metrics or persisted status reason."
+            )
+    try:
+        return ValidationSummary.model_validate(payload).model_dump(mode="json")
+    except ValueError:
+        return None
+
+
+def _direction_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or value.get("task") != "binary_classification":
+        return None
+    if value.get("evaluation_status") not in {"evaluated", "not_evaluated"}:
+        return None
+    payload = {
+        "task": "binary_classification",
+        "evaluation_status": value["evaluation_status"],
+        "status_reason": value.get("status_reason"),
+        "sample_count": value.get("sample_count", 0),
+        "positive_return_threshold": value.get("positive_return_threshold", 0.0),
+        "confirmation_probability_threshold": value.get(
+            "confirmation_probability_threshold", 0.5
+        ),
+        "calibration_method": value.get("calibration_method", "sigmoid"),
+        "calibration_policy_version": value.get(
+            "calibration_policy_version",
+            "chronological_tail_20pct_min20_class5_v1",
+        ),
+        "confirmation_policy_version": value.get(
+            "confirmation_policy_version",
+            "regression_threshold_direction_probability_v1",
+        ),
+        "calibration_sample_count": value.get("calibration_sample_count", 0),
+        "positive_prevalence": value.get("positive_prevalence"),
+        "confusion_matrix": value.get("confusion_matrix", []),
+        "precision": value.get("precision"),
+        "recall": value.get("recall"),
+        "roc_auc": value.get("roc_auc"),
+        "pr_auc": value.get("pr_auc"),
+        "brier": value.get("brier"),
+    }
+    for key in (
+        "sample_count",
+        "positive_return_threshold",
+        "confirmation_probability_threshold",
+        "calibration_sample_count",
+        "positive_prevalence",
+        "precision",
+        "recall",
+        "roc_auc",
+        "pr_auc",
+        "brier",
+    ):
+        if payload[key] is not None and not isinstance(payload[key], int | float):
             return None
-    return value
+    if not isinstance(payload["confusion_matrix"], list):
+        return None
+    return payload
 
 
 def _model_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
@@ -79,6 +136,9 @@ def _model_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
         "actual_vs_predicted": value.get("actual_vs_predicted", []),
         "residuals": value.get("residuals", []),
         "feature_importance": value.get("feature_importance", []),
+        "direction_classification": _direction_diagnostics_from_payload(
+            value.get("direction_classification")
+        ),
     }
     for key in ("rmse", "mae", "rank_ic", "linear_ic"):
         if payload[key] is not None and not isinstance(payload[key], int | float):
@@ -108,6 +168,7 @@ def _review_artifact_summary_from_row(
     validation_outcome: Any,
     model_diagnostics: Any,
 ) -> dict[str, Any]:
+    baselines = json_loads(row.baselines_json, None)
     return build_review_artifact_summary(
         status=row.status,
         request_payload=request_payload,
@@ -123,7 +184,7 @@ def _review_artifact_summary_from_row(
             "validation": _validation_summary_from_payload(validation_outcome)
             is not None,
             "baselines": row.baselines_json is not None
-            and isinstance(json_loads(row.baselines_json, None), dict),
+            and has_requested_baselines(request_payload, baselines),
         },
     )
 

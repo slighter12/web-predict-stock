@@ -17,6 +17,47 @@
             <p class="eyebrow">Model Diagnostics</p>
             <h3>Regression Quality</h3>
         </div>
+
+        {#if diagnostics.direction_classification}
+            <div>
+                <div class="surface-header">
+                    <div>
+                        <p class="eyebrow">Direction Confirmation</p>
+                        <h4>Up-probability quality</h4>
+                    </div>
+                    <strong>{diagnostics.direction_classification.evaluation_status}</strong>
+                </div>
+                {#if diagnostics.direction_classification.evaluation_status === "evaluated"}
+                    <div class="diagnostic-grid direction-grid">
+                        <div>
+                            <span>Precision</span>
+                            <strong>{formatNumber(diagnostics.direction_classification.precision)}</strong>
+                        </div>
+                        <div>
+                            <span>Recall</span>
+                            <strong>{formatNumber(diagnostics.direction_classification.recall)}</strong>
+                        </div>
+                        <div>
+                            <span>ROC AUC</span>
+                            <strong>{formatNumber(diagnostics.direction_classification.roc_auc)}</strong>
+                        </div>
+                        <div>
+                            <span>PR AUC</span>
+                            <strong>{formatNumber(diagnostics.direction_classification.pr_auc)}</strong>
+                        </div>
+                        <div>
+                            <span>Brier</span>
+                            <strong>{formatNumber(diagnostics.direction_classification.brier)}</strong>
+                        </div>
+                    </div>
+                {:else}
+                    <p class="muted">
+                        {diagnostics.direction_classification.status_reason ??
+                            "Direction confirmation could not be evaluated."}
+                    </p>
+                {/if}
+            </div>
+        {/if}
     </div>
 
     {#if diagnostics}
@@ -153,6 +194,10 @@
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: var(--space-3);
+    }
+
+    .direction-grid {
+        margin-top: var(--space-3);
     }
 
     .diagnostic-grid > div,

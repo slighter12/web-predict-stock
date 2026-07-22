@@ -6,6 +6,7 @@ def generate_splits(
     method: str,
     splits: int,
     test_size: float,
+    purge: int = 0,
 ) -> List[Tuple[range, range]]:
     if length <= 0:
         raise ValueError("length must be positive")
@@ -13,6 +14,8 @@ def generate_splits(
         raise ValueError("test_size must be between 0 and 1")
     if splits < 1:
         raise ValueError("splits must be >= 1")
+    if purge < 0:
+        raise ValueError("purge must be >= 0")
 
     test_len = int(length * test_size)
     if test_len <= 0:
@@ -22,7 +25,9 @@ def generate_splits(
     if method == "holdout":
         if length <= test_len:
             raise ValueError("Not enough data for holdout split")
-        train_range = range(0, length - test_len)
+        train_range = range(0, length - test_len - purge)
+        if not train_range:
+            raise ValueError("Not enough training data after purge")
         test_range = range(length - test_len, length)
         return [(train_range, test_range)]
 
@@ -37,7 +42,10 @@ def generate_splits(
             train_end = train_len + i * test_len
             test_start = train_end
             test_end = test_start + test_len
-            split_ranges.append((range(0, train_end), range(test_start, test_end)))
+            train_range = range(0, train_end - purge)
+            if not train_range:
+                raise ValueError("Not enough training data after purge")
+            split_ranges.append((train_range, range(test_start, test_end)))
         return split_ranges
 
     if method == "rolling_window":
@@ -46,9 +54,10 @@ def generate_splits(
             train_end = train_start + train_len
             test_start = train_end
             test_end = test_start + test_len
-            split_ranges.append(
-                (range(train_start, train_end), range(test_start, test_end))
-            )
+            train_range = range(train_start, train_end - purge)
+            if not train_range:
+                raise ValueError("Not enough training data after purge")
+            split_ranges.append((train_range, range(test_start, test_end)))
         return split_ranges
 
     raise ValueError(f"Unknown validation method: {method}")

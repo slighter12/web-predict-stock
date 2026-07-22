@@ -32,6 +32,7 @@ def make_request() -> ResearchRunCreateRequest:
         horizon_days=1,
         features=[{"name": "ma", "window": 5, "source": "close", "shift": 1}],
         model={"type": "xgboost", "params": {}},
+        direction_model={"type": "extra_trees", "params": {}},
         strategy={
             "type": "research_v1",
             "threshold": 0.003,
@@ -43,6 +44,14 @@ def make_request() -> ResearchRunCreateRequest:
     )
 
 
+def test_new_research_request_rejects_unshifted_features():
+    payload = make_request().model_dump(mode="json")
+    payload["features"][0]["shift"] = 0
+
+    with pytest.raises(ValidationError):
+        ResearchRunCreateRequest.model_validate(payload)
+
+
 def make_response(run_id: str = "run_123") -> ResearchRunResponse:
     return ResearchRunResponse(
         run_id=run_id,
@@ -51,7 +60,15 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
         ),
         equity_curve=[{"date": "2024-01-02", "equity": 1.0}],
         signals=[
-            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0}
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "score": 0.01,
+                "position": 1.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.8,
+                "predicted_direction": "up",
+            }
         ],
         validation=None,
         model_diagnostics={
@@ -64,6 +81,10 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
             "actual_vs_predicted": [],
             "residuals": [],
             "feature_importance": [],
+            "direction_classification": {
+                "evaluation_status": "evaluated",
+                "sample_count": 2,
+            },
         },
         baselines={},
         warnings=[],
@@ -93,19 +114,57 @@ def make_response(run_id: str = "run_123") -> ResearchRunResponse:
     )
 
 
+def test_requested_missing_baseline_marks_response_partial():
+    request = make_request()
+    request.baselines = ["buy_and_hold", "naive_momentum"]
+    response = make_response("run_missing_baseline").model_copy(
+        update={"baselines": {"buy_and_hold": {"sharpe": 0.5}}}
+    )
+
+    response = research_run_service._response_with_artifact_summary(
+        response, request
+    )
+
+    assert response.artifact_completeness == "partial"
+    assert "baselines" in response.missing_artifacts
+    assert "baselines" not in response.present_artifacts
+
+
 def make_opinion_payload() -> dict:
     return {
         "status": "succeeded",
         "request_payload": {
             "symbols": ["2330", "2317"],
             "strategy": {"threshold": 0.003, "top_n": 2},
+            "direction_model": {"confirmation_probability_threshold": 0.5},
         },
         "effective_strategy": {"threshold": 0.003, "top_n": 2},
         "metrics": {"total_return": 0.12, "sharpe": 1.1},
-        "model_diagnostics": {"task": "regression", "sample_count": 2, "rmse": 0.1},
+        "model_diagnostics": {
+            "task": "regression",
+            "sample_count": 2,
+            "rmse": 0.1,
+            "direction_classification": {"evaluation_status": "evaluated"},
+        },
         "signals": [
-            {"date": "2024-01-02", "symbol": "2330", "score": 0.01, "position": 1.0},
-            {"date": "2024-01-02", "symbol": "2317", "score": -0.02, "position": -1.0},
+            {
+                "date": "2024-01-02",
+                "symbol": "2330",
+                "score": 0.01,
+                "position": 1.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.8,
+                "predicted_direction": "up",
+            },
+            {
+                "date": "2024-01-02",
+                "symbol": "2317",
+                "score": -0.02,
+                "position": 0.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.2,
+                "predicted_direction": "down",
+            },
         ],
         "validation": {"method": "walk_forward", "metrics": {"rmse": 0.1}},
         "baselines": {"buy_hold": {"total_return": 0.05}},
@@ -125,6 +184,9 @@ def test_opinion_contract_requires_source_artifact_references():
         "symbol": "2330",
         "model_score": 0.01,
         "position_signal": 1.0,
+        "signal_date": "2024-01-02",
+        "up_probability": 0.8,
+        "confirmation_state": "confirmed",
         "evidence_reason": "Latest persisted signal was checked.",
         "risk_or_warning": "Persisted warning was checked.",
         "invalidation_note": "Newer persisted data may supersede this signal.",
@@ -229,38 +291,12 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     artifact = build_opinion_artifact(payload)
     checks = {item["check"]: item for item in artifact["review_checks"]}
 
-    assert [row["symbol"] for row in artifact["buy_candidates"]] == ["2330"]
-    assert [row["symbol"] for row in artifact["sell_or_avoid"]] == ["2317"]
-    assert [row["symbol"] for row in artifact["watch"]] == ["2454"]
-    assert all(row["symbol"] != "8888" for row in artifact["buy_candidates"])
-    assert "warning_count=0 and caveat_count=0" in artifact["buy_candidates"][0][
-        "risk_or_warning"
-    ]
-    assert "on 2024-01-04 links" in artifact["buy_candidates"][0]["evidence_reason"]
-    assert "Row signal date: 2024-01-04 for 2330" in artifact["buy_candidates"][0][
-        "invalidation_note"
-    ]
-    assert {
-        (ref["field"], ref.get("symbol"), ref.get("date"))
-        for ref in artifact["buy_candidates"][0]["source_artifact_references"]
-        if ref["artifact"] == "signals" and ref["field"] in {"score", "position"}
-    } == {
-        ("score", "2330", "2024-01-04"),
-        ("position", "2330", "2024-01-04"),
-    }
-    assert checks["signal_to_position"]["result"] == {
-        "checked_symbol_count": 4,
-        "positive_count": 1,
-        "negative_count": 1,
-        "flat_count": 1,
-        "invalid_row_count": 3,
-    }
-    assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
-        "2330"
-    ]
-    assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"][
-        "top_n_minus_1"
-    ] == 1
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+    assert checks["signal_to_position"]["status"] == "fail"
+    assert "holdout evaluation signals are not investment opinions" in " ".join(
+        artifact["evidence_limitations"]
+    )
 
 
 def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
@@ -271,6 +307,9 @@ def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
             "symbol": "2454",
             "score": 0.03,
             "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
         }
     )
 
@@ -283,36 +322,107 @@ def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
     )
 
 
+@pytest.mark.parametrize(
+    "up_probability",
+    [float("nan"), float("inf"), float("-inf"), -0.01, 1.01],
+)
+def test_opinion_builder_rejects_invalid_persisted_up_probability(up_probability):
+    payload = make_opinion_payload()
+    payload["signals"][0]["up_probability"] = up_probability
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+    assert "exactly one valid row" in " ".join(artifact["evidence_limitations"])
+
+
 def test_opinion_builder_parameter_sensitivity_reports_partial_scenario_change():
     payload = make_opinion_payload()
     payload["signals"] = [
-        {"date": "2024-01-02", "symbol": "2330", "score": 0.004, "position": 1.0},
-        {"date": "2024-01-02", "symbol": "2317", "score": 0.003, "position": 1.0},
+        {
+            "date": "2024-01-02", "symbol": "2330", "score": 0.004,
+            "position": 1.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
+        {
+            "date": "2024-01-02", "symbol": "2317", "score": 0.003,
+            "position": 1.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
     ]
 
     checks = {
         item["check"]: item for item in build_opinion_artifact(payload)["review_checks"]
     }
 
-    assert checks["parameter_sensitivity"]["result"]["changed_symbols"] == ["2317"]
+    result = checks["parameter_sensitivity"]["result"]
+    assert result["scenario_candidate_counts"] == {
+        "strict_threshold": 1,
+        "loose_threshold": 2,
+        "top_n_minus_1": 1,
+        "top_n_plus_1": 2,
+    }
+    assert result["changed_symbols"] == ["2317"]
+
+
+def test_opinion_builder_uses_hybrid_action_rules():
+    payload = make_opinion_payload()
+    payload["request_payload"]["symbols"] = ["BUY", "CONFLICT", "SELL", "RANKED_OUT"]
+    payload["signals"] = [
+        {
+            "date": "2024-01-02", "symbol": "BUY", "score": 0.02,
+            "position": 1.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
+        {
+            "date": "2024-01-02", "symbol": "CONFLICT", "score": 0.02,
+            "position": 0.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.2, "predicted_direction": "down",
+        },
+        {
+            "date": "2024-01-02", "symbol": "SELL", "score": -0.01,
+            "position": 0.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.2, "predicted_direction": "down",
+        },
+        {
+            "date": "2024-01-02", "symbol": "RANKED_OUT", "score": 0.01,
+            "position": 0.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
+    ]
+
+    artifact = build_opinion_artifact(payload)
+
+    assert [row["symbol"] for row in artifact["buy_candidates"]] == ["BUY"]
+    assert [row["symbol"] for row in artifact["sell_or_avoid"]] == ["SELL"]
+    assert [row["symbol"] for row in artifact["watch"]] == [
+        "CONFLICT",
+        "RANKED_OUT",
+    ]
 
 
 def test_opinion_builder_keeps_each_symbol_latest_parseable_signal():
     payload = make_opinion_payload()
     payload["signals"] = [
-        {"date": "2024-01-01", "symbol": "2330", "score": 0.01, "position": 1.0},
-        {"date": "2024-01-02", "symbol": "2317", "score": 0.02, "position": 1.0},
+        {
+            "date": "2024-01-01", "symbol": "2330", "score": 0.01,
+            "position": 1.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
+        {
+            "date": "2024-01-02", "symbol": "2317", "score": 0.02,
+            "position": 1.0, "signal_kind": "forward_opinion",
+            "up_probability": 0.8, "predicted_direction": "up",
+        },
     ]
 
     artifact = build_opinion_artifact(payload)
     checks = {item["check"]: item for item in artifact["review_checks"]}
 
-    assert [row["symbol"] for row in artifact["buy_candidates"]] == ["2317", "2330"]
-    assert checks["signal_to_position"]["result"]["checked_symbol_count"] == 2
-    assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
-        "2317",
-        "2330",
-    ]
+    assert artifact["state"] == "no-opinion"
+    assert artifact["buy_candidates"] == []
+    assert checks["signal_to_position"]["status"] == "warning"
 
 
 def test_opinion_builder_robustness_does_not_pass_empty_validation_metrics():
@@ -480,6 +590,15 @@ def test_opinion_builder_manual_boundary_allows_broker_metadata_description():
     assert checks["manual_adoption_boundary"]["status"] == "pass"
 
 
+def test_opinion_builder_manual_boundary_allows_research_only_tradability():
+    payload = make_opinion_payload()
+    payload["tradability_state"] = "research_only"
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "viable"
+
+
 def test_opinion_builder_manual_boundary_scans_review_check_copy(monkeypatch):
     def fake_parameter_sensitivity(payload):
         return {
@@ -634,6 +753,10 @@ def test_opinion_builder_matches_each_row_against_all_symbol_warnings():
     )
 
     assert artifact["state"] == "viable"
+    assert "reviewable, traceable model output" in artifact["state_reason"]
+    assert "do not establish out-of-sample skill or investment viability" in artifact[
+        "state_reason"
+    ]
     assert check["result"]["concrete_risk_row_count"] == 2
     assert check["result"]["missing_risk_row_count"] == 0
 

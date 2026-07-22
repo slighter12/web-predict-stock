@@ -356,6 +356,18 @@ export const buildResearchRunPayloadFromWorkflow = (
         : draft.modelFamily.variantId,
     params: {},
   },
+  direction_model: {
+    type:
+      draft.modelFamily.variantId === "lstm"
+        ? "xgboost"
+        : draft.modelFamily.variantId,
+    params: {},
+    positive_return_threshold: 0,
+    confirmation_probability_threshold: 0.5,
+    calibration_policy_version: "chronological_tail_20pct_min20_class5_v1",
+    confirmation_policy_version:
+      "regression_threshold_direction_probability_v1",
+  },
   strategy: {
     type: "research_v1",
     threshold: draft.modelFamily.threshold ?? undefined,

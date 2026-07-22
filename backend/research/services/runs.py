@@ -11,7 +11,10 @@ from backend.research.contracts.runs import (
     ResearchRunRecordResponse,
     ResearchRunResponse,
 )
-from backend.research.domain.artifact_summary import build_review_artifact_summary
+from backend.research.domain.artifact_summary import (
+    build_review_artifact_summary,
+    has_requested_baselines,
+)
 from backend.research.domain.opinion import build_opinion_artifact
 from backend.research.repositories.runs import (
     get_research_run_record,
@@ -43,7 +46,9 @@ def _response_with_artifact_summary(
             "equity_curve": True,
             "signals": True,
             "validation": response.validation is not None,
-            "baselines": isinstance(response.baselines, dict),
+            "baselines": has_requested_baselines(
+                request.model_dump(mode="json"), response.baselines
+            ),
         },
     )
     opinion_payload = {
