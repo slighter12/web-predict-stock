@@ -206,7 +206,9 @@ empty list and a warning instead of inventing values.
 ### SPEC-BACKTEST-001: Backtest posture
 
 The strategy backtest is an offline research artifact. It is not broker
-execution and must not imply live-order readiness.
+execution and must not imply live-order readiness. A run using
+`execution_route="research_only"` remains `tradability_state="research_only"`;
+`execution_ready` requires an explicitly non-research execution route.
 
 ### SPEC-BACKTEST-002: Strategy defaults
 

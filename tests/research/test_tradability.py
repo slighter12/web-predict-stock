@@ -234,8 +234,23 @@ def test_build_p3_summary_treats_deterministic_event_as_non_blocking(monkeypatch
     )
 
     assert result["corporate_event_state"] == "clear"
-    assert result["tradability_state"] == "execution_ready"
+    assert result["tradability_state"] == "research_only"
     assert result["execution_universe_count"] == 1
+
+    execution_result = p3_screening_service.build_p3_summary(
+        request=_make_request(
+            symbols=["2330"], execution_route="simulation_internal_v1"
+        ),
+        strategy=ResearchStrategyConfig(
+            type="research_v1",
+            threshold=0.003,
+            top_n=1,
+            allow_proactive_sells=True,
+        ),
+        weights=weights,
+        volume_df=volume_df,
+    )
+    assert execution_result["tradability_state"] == "execution_ready"
 
 
 def test_build_p3_summary_marks_listing_status_change_without_lifecycle_as_unresolved(
@@ -341,7 +356,7 @@ def test_build_p3_summary_resolves_ticker_change_to_successor_symbol(monkeypatch
     )
 
     assert result["corporate_event_state"] == "clear"
-    assert result["tradability_state"] == "execution_ready"
+    assert result["tradability_state"] == "research_only"
     assert result["execution_universe_count"] == 1
     assert result["liquidity_bucket_coverages"][2]["execution_universe_count"] == 1
 
@@ -472,5 +487,5 @@ def test_build_p3_summary_allows_dividend_with_resolved_ticker_change(monkeypatc
     )
 
     assert result["corporate_event_state"] == "clear"
-    assert result["tradability_state"] == "execution_ready"
+    assert result["tradability_state"] == "research_only"
     assert result["execution_universe_count"] == 1
