@@ -23,6 +23,7 @@
     import EquityChart from "./EquityChart.svelte";
     import ResearchRunDiagnostics from "./research-runs/ResearchRunDiagnostics.svelte";
     import ResearchRunMetrics from "./research-runs/ResearchRunMetrics.svelte";
+    import ResearchRunOpinion from "./research-runs/ResearchRunOpinion.svelte";
     import ResearchRunSignals from "./research-runs/ResearchRunSignals.svelte";
     import ResearchRunValidation from "./research-runs/ResearchRunValidation.svelte";
 
@@ -1089,6 +1090,10 @@
                             for this run.
                         </p>
                     </div>
+                {/if}
+
+                {#if activeRun?.opinion_artifact}
+                    <ResearchRunOpinion opinion={activeRun.opinion_artifact} />
                 {/if}
 
                 {#if activeRun?.signals?.length}

@@ -64,6 +64,14 @@ export interface ResearchRunCreateRequest {
     type: ModelType;
     params: Record<string, unknown>;
   };
+  direction_model?: {
+    type: ModelType;
+    params: Record<string, unknown>;
+    positive_return_threshold: number;
+    confirmation_probability_threshold: number;
+    calibration_policy_version: "chronological_tail_20pct_min20_class5_v1";
+    confirmation_policy_version: "regression_threshold_direction_probability_v1";
+  };
   strategy: {
     type: "research_v1";
     threshold?: number;
@@ -95,12 +103,17 @@ export interface EquityPoint {
 export interface SignalPoint {
   date: string;
   symbol: string;
-  score: number;
+  score: number | null;
   position: number;
+  signal_kind: "holdout_evaluation" | "forward_opinion";
+  up_probability: number | null;
+  predicted_direction: "up" | "down" | null;
 }
 
 export interface ValidationSummary {
   method: ValidationMethod;
+  evaluation_status: "evaluated" | "not_evaluated";
+  status_reason: string | null;
   metrics: Record<string, number>;
 }
 
@@ -127,6 +140,74 @@ export interface RegressionDiagnostics {
   actual_vs_predicted: RegressionDiagnosticPoint[];
   residuals: RegressionDiagnosticPoint[];
   feature_importance: FeatureImportancePoint[];
+  direction_classification: DirectionClassificationDiagnostics | null;
+}
+
+export interface DirectionClassificationDiagnostics {
+  task: "binary_classification";
+  evaluation_status: "evaluated" | "not_evaluated";
+  status_reason: string | null;
+  sample_count: number;
+  positive_return_threshold: number;
+  confirmation_probability_threshold: number;
+  calibration_method: "sigmoid";
+  calibration_policy_version: "chronological_tail_20pct_min20_class5_v1";
+  confirmation_policy_version: "regression_threshold_direction_probability_v1";
+  calibration_sample_count: number;
+  positive_prevalence: number | null;
+  confusion_matrix: number[][];
+  precision: number | null;
+  recall: number | null;
+  roc_auc: number | null;
+  pr_auc: number | null;
+  brier: number | null;
+}
+
+export interface OpinionSourceArtifactReference {
+  artifact:
+    | "request_payload"
+    | "config_sources"
+    | "fallback_audit"
+    | "version_pack"
+    | "model_diagnostics"
+    | "signals"
+    | "metrics"
+    | "baselines"
+    | "validation"
+    | "warnings"
+    | "artifact_completeness"
+    | "comparison_caveats";
+  field: string;
+  symbol: string | null;
+  date: string | null;
+}
+
+export interface OpinionRow {
+  symbol: string;
+  model_score: number;
+  position_signal: number;
+  signal_date: string;
+  up_probability: number;
+  confirmation_state: "confirmed" | "conflict";
+  evidence_reason: string;
+  risk_or_warning: string;
+  invalidation_note: string;
+  source_artifact_references: [
+    OpinionSourceArtifactReference,
+    ...OpinionSourceArtifactReference[],
+  ];
+}
+
+export interface OpinionArtifact {
+  artifact_version: string;
+  state: "viable" | "no-opinion" | "do-not-adopt";
+  state_reason: string;
+  manual_adoption_only: true;
+  opinion_as_of: string | null;
+  evidence_limitations: string[];
+  buy_candidates: OpinionRow[];
+  sell_or_avoid: OpinionRow[];
+  watch: OpinionRow[];
 }
 
 export interface ComparisonCaveat {
@@ -157,6 +238,7 @@ export interface ResearchRunResponse
   model_diagnostics: RegressionDiagnostics | null;
   baselines: Record<string, Record<string, number>>;
   warnings: string[];
+  opinion_artifact: OpinionArtifact;
   runtime_mode: RuntimeMode;
   default_bundle_version: DefaultBundleVersion | null;
   effective_strategy: EffectiveStrategy;
@@ -192,5 +274,6 @@ export interface ResearchRunRecord
   model_diagnostics: RegressionDiagnostics | null;
   baselines: Record<string, Record<string, number>>;
   warnings: string[];
+  opinion_artifact: OpinionArtifact;
   created_at: string;
 }

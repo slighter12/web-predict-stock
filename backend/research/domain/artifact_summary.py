@@ -43,6 +43,19 @@ def _requests_baselines(request_payload: dict[str, Any] | None) -> bool | None:
     return isinstance(baselines, list) and len(baselines) > 0
 
 
+def has_requested_baselines(
+    request_payload: dict[str, Any] | None, baselines: Any
+) -> bool:
+    if not isinstance(baselines, dict):
+        return False
+    if request_payload is None:
+        return True
+    requested = request_payload.get("baselines")
+    if not isinstance(requested, list):
+        return True
+    return all(baseline in baselines for baseline in requested)
+
+
 def _required_artifacts(
     request_payload: dict[str, Any] | None,
 ) -> tuple[ReviewArtifactName, ...]:

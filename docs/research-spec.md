@@ -85,7 +85,9 @@ Every feature row must persist:
 - `shift`
 
 Feature shifts are part of the leakage-control contract and must remain visible
-in the request config.
+in the request config. New research-run requests require `shift >= 1`; persisted
+legacy request payloads with `shift=0` remain reviewable, but must be updated
+before rerun.
 
 ### SPEC-FEATURE-002: Feature lineage
 
@@ -102,8 +104,9 @@ The v1 workbench recognizes two prediction task families:
 - `regression`
 - `classification`
 
-The first implementation pass supports regression diagnostics. Classification
-is specified here so it can be added later without changing the workbench flow.
+The default workbench run uses regression as the primary ranking model and a
+binary direction classifier as a confirmation model. Regression-only requests
+remain supported, but they cannot emit a prospective hybrid opinion.
 
 ### SPEC-TASK-002: Regression target
 
@@ -122,7 +125,7 @@ remain selectable tree-regression variants.
 
 ### SPEC-TASK-003: Classification target
 
-Classification must persist, when implemented:
+Direction classification persists:
 
 - positive-class definition
 - class horizon
@@ -136,6 +139,34 @@ Classification diagnostics should include at least:
 - precision and recall
 - ROC AUC or PR AUC when sample size supports it
 - calibration summary when probabilities are shown
+
+The current chronological sigmoid calibration gate is provisional and versioned
+as `chronological_tail_20pct_min20_class5_v1`: the calibration tail uses at
+least 20 samples, and both the base-training and calibration windows require at
+least five samples from each class. These are minimum support checks, not proof
+of calibrated performance; the positive-return and confirmation thresholds
+remain separately identifiable in persisted run configuration and diagnostics.
+
+Holdout predictions are evaluation artifacts. A prospective opinion requires
+one finite regression score and calibrated up probability for every requested
+symbol on the same latest feature date; incomplete or mixed-date snapshots must
+return `no-opinion`.
+
+Direction diagnostic metrics are pooled across evaluated symbols. `sample_count`
+is the pooled holdout-row count and `calibration_sample_count` is the sum across
+symbols; neither field establishes per-symbol skill. Prospective full-data model
+fits and fold-level validation classifiers scale with the requested symbol and
+fold counts, so performance claims require separate profiling evidence.
+
+### SPEC-TASK-004: Validation outcome
+
+Cross-sectional validation must split one sorted intersection of model-ready
+symbol dates so every symbol in a fold uses the same train and test dates.
+Validation summaries expose `evaluation_status` and `status_reason`: an
+`evaluated` summary has non-empty metrics, while a `not_evaluated` summary has
+empty metrics and a concrete reason. An unavailable auxiliary validation result
+does not fail an otherwise successful research run, and its reason must also be
+persisted as a warning.
 
 ## Model Diagnostics Contract
 
@@ -175,7 +206,9 @@ empty list and a warning instead of inventing values.
 ### SPEC-BACKTEST-001: Backtest posture
 
 The strategy backtest is an offline research artifact. It is not broker
-execution and must not imply live-order readiness.
+execution and must not imply live-order readiness. A run using
+`execution_route="research_only"` remains `tradability_state="research_only"`;
+`execution_ready` requires an explicitly non-research execution route.
 
 ### SPEC-BACKTEST-002: Strategy defaults
 
@@ -332,6 +365,11 @@ Each populated symbol row must include:
 Candidate lists may be empty. If the evidence is insufficient, the artifact
 must return `no-opinion` or `do-not-adopt` instead of forcing a buy, sell, or
 watch result.
+
+Artifact completeness only means the model output is reviewable and traceable.
+It does not establish out-of-sample predictive skill or investment viability;
+the opinion builder does not invent a performance-quality threshold for either
+claim.
 
 ### SPEC-OPINION-002: Evidence traceability
 

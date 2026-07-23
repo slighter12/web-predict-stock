@@ -46,6 +46,9 @@ stable across multiple implementation tasks.
 | `DEC-PHASE-005` | Portfolio automation is deferred behind manual adoption tracking | accepted | Nearer-term portfolio work should record manual adoption, forward outcomes, and portfolio impact before any automatic rebalancing or account-control behavior |
 | `DEC-PHASE-006` | Phase 2 opinion artifact contract and reconstruction path are fixed | accepted | `opinion_artifact` serializes state, action rows, source references, and review checks in research responses; POST builds from current response artifacts, detail reload reconstructs from persisted run artifacts, and list responses remain summary-only |
 | `DEC-PHASE-007` | The first local research-method slice is accepted | accepted | Persisted request, strategy, diagnostic, signal, metric, validation, baseline, warning, and comparison-caveat artifacts feed `opinion_artifact.review_checks`; focused contract, domain, and API validation covers the slice, detail reload reconstructs it deterministically, and comparison caveats remain explicit |
+| `DEC-PHASE-008` | Prospective opinions use regression ranking plus calibrated direction confirmation | accepted | Holdout signals remain evaluation-only; a viable opinion requires a complete common-date forward snapshot and manual adoption review |
+| `DEC-PHASE-009` | Retain the existing hybrid review UI while Phase 2 remains backend-first | accepted | The current Opinion, direction-diagnostic, workflow-payload, and frontend type integration stays in place, but no further frontend feature or browser-acceptance work is part of the active backend phase |
+| `DEC-PHASE-010` | Current direction diagnostics are pooled across symbols | accepted | Pooled holdout metrics and summed calibration samples are research-level diagnostics, not per-symbol skill claims; per-symbol diagnostics and training-cost optimization remain deferred pending evidence |
 
 ## Open V1 Decisions
 

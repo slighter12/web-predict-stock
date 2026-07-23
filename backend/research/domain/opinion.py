@@ -47,6 +47,10 @@ def _is_number(value: Any) -> bool:
     )
 
 
+def _is_probability(value: Any) -> bool:
+    return _is_number(value) and 0.0 <= value <= 1.0
+
+
 def _has_metrics_evidence(value: Any) -> bool:
     metrics = _as_mapping(value)
     return any(
@@ -191,13 +195,15 @@ def _latest_signals(
         _as_mapping(payload.get("request_payload")).get("symbols")
     )
     allowed_symbols = {str(symbol) for symbol in declared if symbol}
-    latest_by_symbol: dict[str, Mapping[str, Any]] = {}
-    latest_dates: dict[str, str] = {}
+    forward_by_symbol: dict[str, Mapping[str, Any]] = {}
+    forward_dates: set[str] = set()
     unexpected_symbols: set[str] = set()
     unexpected_signal_count = 0
     malformed_signal_count = 0
     for item in _as_list(payload.get("signals")):
         signal = _as_mapping(item)
+        if signal.get("signal_kind") != "forward_opinion":
+            continue
         symbol = signal.get("symbol")
         if not symbol:
             malformed_signal_count += 1
@@ -211,18 +217,23 @@ def _latest_signals(
         if signal_date is None:
             malformed_signal_count += 1
             continue
-        if (
-            symbol_key not in latest_dates
-            or signal_date >= latest_dates[symbol_key]
-        ):
-            latest_by_symbol[symbol_key] = signal
-            latest_dates[symbol_key] = signal_date
-    latest = [latest_by_symbol[symbol] for symbol in sorted(latest_by_symbol)]
+        if symbol_key in forward_by_symbol:
+            malformed_signal_count += 1
+            continue
+        forward_by_symbol[symbol_key] = signal
+        forward_dates.add(signal_date)
+    latest = [forward_by_symbol[symbol] for symbol in sorted(forward_by_symbol)]
+    if allowed_symbols and set(forward_by_symbol) != allowed_symbols:
+        malformed_signal_count += len(allowed_symbols.symmetric_difference(forward_by_symbol))
+    if len(forward_dates) > 1:
+        malformed_signal_count += len(forward_dates)
     invalid_count = sum(
         1
         for item in latest
         if not _is_number(item.get("score"))
         or not _is_number(item.get("position"))
+        or not _is_probability(item.get("up_probability"))
+        or item.get("predicted_direction") not in {"up", "down"}
     )
     return (
         latest,
@@ -239,6 +250,8 @@ def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]
         if _signal_date_key(item) is not None
         and _is_number(item.get("score"))
         and _is_number(item.get("position"))
+        and _is_probability(item.get("up_probability"))
+        and item.get("predicted_direction") in {"up", "down"}
     ]
 
 
@@ -254,6 +267,11 @@ def _action_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "symbol": symbol,
                 "model_score": float(signal["score"]),
                 "position_signal": float(signal["position"]),
+                "signal_date": signal_date,
+                "up_probability": float(signal["up_probability"]),
+                "confirmation_state": "confirmed"
+                if signal["predicted_direction"] == "up"
+                else "conflict",
                 "evidence_reason": (
                     f"Latest persisted signal for {symbol} on {signal_date} links "
                     "numeric score to strategy position."
@@ -263,6 +281,7 @@ def _action_rows(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "source_artifact_references": [
                     _signal_ref("score", signal),
                     _signal_ref("position", signal),
+                    _signal_ref("up_probability", signal),
                     *_refs(
                         ("model_diagnostics", "model_diagnostics"),
                         ("metrics", "metrics"),
@@ -303,6 +322,14 @@ def _strategy_top_n(payload: Mapping[str, Any]) -> int | None:
     )
     top_n = strategy.get("top_n")
     return int(top_n) if isinstance(top_n, int) and not isinstance(top_n, bool) else None
+
+
+def _confirmation_threshold(payload: Mapping[str, Any]) -> float | None:
+    direction = _as_mapping(
+        _as_mapping(payload.get("request_payload")).get("direction_model")
+    )
+    threshold = direction.get("confirmation_probability_threshold")
+    return float(threshold) if _is_number(threshold) else None
 
 
 def _string_values(value: Any) -> list[str]:
@@ -544,10 +571,14 @@ def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
         skipped.append("threshold_missing_or_non_positive")
     else:
         scenarios["strict_threshold"] = {
-            str(item["symbol"]) for item in valid if float(item["score"]) >= threshold * 1.25
+            str(item["symbol"])
+            for item in valid
+            if float(item["score"]) >= threshold * 1.25
         }
         scenarios["loose_threshold"] = {
-            str(item["symbol"]) for item in valid if float(item["score"]) >= threshold * 0.75
+            str(item["symbol"])
+            for item in valid
+            if float(item["score"]) >= threshold * 0.75
         }
 
     ranked = sorted(valid, key=lambda item: float(item["score"]), reverse=True)
@@ -563,7 +594,8 @@ def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
         else:
             skipped.append("top_n_minus_1_requires_top_n_above_one")
         scenarios["top_n_plus_1"] = {
-            str(item["symbol"]) for item in ranked[: min(top_n + 1, len(ranked))]
+            str(item["symbol"])
+            for item in ranked[: min(top_n + 1, len(ranked))]
         }
 
     if not scenarios:
@@ -948,6 +980,7 @@ def _empty_artifact(
         "state": state,
         "state_reason": reason,
         "manual_adoption_only": True,
+        "opinion_as_of": None,
         "evidence_limitations": limitations,
         "buy_candidates": [],
         "sell_or_avoid": [],
@@ -975,6 +1008,7 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
                 else "Research run did not complete successfully."
             ),
             "manual_adoption_only": True,
+            "opinion_as_of": None,
             "evidence_limitations": limitations,
             "buy_candidates": [],
             "sell_or_avoid": [],
@@ -997,15 +1031,37 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         limitations.append("Strategy metrics artifact is unavailable.")
     if not _has_diagnostics_evidence(payload.get("model_diagnostics")):
         limitations.append("Model diagnostics artifact is unavailable.")
-    if not _as_list(payload.get("signals")):
+    signals = _as_list(payload.get("signals"))
+    if not signals:
         limitations.append("Signal artifact is unavailable.")
     else:
-        _, _, unexpected_symbols = _latest_signals(payload)
+        forward_signals, invalid_signal_count, unexpected_symbols = _latest_signals(
+            payload
+        )
+        if not forward_signals:
+            limitations.append(
+                "Prospective direction-confirmed signals are unavailable; "
+                "holdout evaluation signals are not investment opinions."
+            )
+        elif invalid_signal_count:
+            limitations.append(
+                "Prospective signals must contain exactly one valid row per declared "
+                "symbol on a common as-of date."
+            )
         if unexpected_symbols:
             limitations.append(
                 "Signal artifact contains symbols outside the declared run universe: "
                 f"{', '.join(unexpected_symbols)}."
             )
+    direction_diagnostics = _as_mapping(
+        _as_mapping(payload.get("model_diagnostics")).get(
+            "direction_classification"
+        )
+    )
+    if direction_diagnostics.get("evaluation_status") != "evaluated":
+        limitations.append(
+            "Direction classification diagnostics are unavailable or not evaluated."
+        )
     if payload.get("stale_mark_days_with_open_positions") or payload.get("stale_risk_share"):
         limitations.append("Stale mark risk is present in persisted artifacts.")
 
@@ -1019,7 +1075,7 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     if limitations:
         return _empty_artifact(
             "no-opinion",
-            "Persisted artifacts are insufficient for a traceable opinion.",
+            "Persisted artifacts are insufficient for reviewable, traceable model output.",
             limitations,
             payload,
         )
@@ -1034,14 +1090,50 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
             payload,
         )
 
-    buy_candidates = [row for row in rows if row["position_signal"] > 0]
-    sell_or_avoid = [row for row in rows if row["position_signal"] < 0]
-    watch = [row for row in rows if row["position_signal"] == 0]
+    regression_threshold = _strategy_threshold(payload)
+    confirmation_threshold = _confirmation_threshold(payload)
+    if regression_threshold is None or confirmation_threshold is None:
+        return _empty_artifact(
+            "no-opinion",
+            "Hybrid prediction policy is unavailable.",
+            ["Regression or direction confirmation threshold is unavailable."],
+            payload,
+        )
+    buy_candidates = [
+        row
+        for row in rows
+        if row["position_signal"] > 0
+        and row["up_probability"] >= confirmation_threshold
+    ]
+    sell_or_avoid = [
+        row
+        for row in rows
+        if row["model_score"] < regression_threshold
+        and row["up_probability"] < confirmation_threshold
+    ]
+    action_symbols = {
+        row["symbol"] for row in [*buy_candidates, *sell_or_avoid]
+    }
+    watch = [row for row in rows if row["symbol"] not in action_symbols]
+    for row in buy_candidates:
+        row["confirmation_state"] = "confirmed"
+    for row in [*sell_or_avoid, *watch]:
+        row["confirmation_state"] = (
+            "confirmed"
+            if (row["model_score"] < regression_threshold)
+            == (row["up_probability"] < confirmation_threshold)
+            else "conflict"
+        )
+    opinion_as_of = rows[0]["signal_date"]
     artifact = {
         "artifact_version": OPINION_ARTIFACT_VERSION,
         "state": "viable",
-        "state_reason": "Complete persisted research artifacts support traceable opinion rows.",
+        "state_reason": (
+            "Complete persisted artifacts support reviewable, traceable model output; "
+            "they do not establish out-of-sample skill or investment viability."
+        ),
         "manual_adoption_only": True,
+        "opinion_as_of": opinion_as_of,
         "evidence_limitations": [],
         "buy_candidates": buy_candidates,
         "sell_or_avoid": sell_or_avoid,
@@ -1059,7 +1151,7 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     }
     if failed_checks:
         artifact["state"] = "no-opinion"
-        artifact["state_reason"] = "Self-review gates blocked a viable opinion."
+        artifact["state_reason"] = "Self-review gates blocked reviewable model output."
         artifact["evidence_limitations"] = [
             "One or more self-review gates failed; reload details before adopting."
         ]

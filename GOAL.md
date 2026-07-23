@@ -80,11 +80,13 @@ Accepted Scope:
   research-run artifacts
 - add focused backend tests that would fail against the current shallow
   implementation
-- keep the work backend-first and research-only
+- keep the remaining work backend-first and research-only while retaining the
+  existing hybrid review integration
 
 Non-Claims:
 
-- no frontend workflow
+- no further frontend workflow expansion beyond the retained Opinion,
+  direction-diagnostic, workflow-payload, and type integration
 - no broker routing or live orders
 - no personalized investment advice
 - no automatic rebalancing or account-level portfolio control
@@ -157,7 +159,8 @@ Rejected Evidence:
 ### Constraints
 
 - Repository artifacts stay in English.
-- Keep edits minimal and backend-scoped.
+- Keep remaining implementation edits minimal and backend-scoped; retain the
+  existing hybrid review integration without expanding it.
 - Prefer extending existing `opinion_artifact` over adding new top-level API
   fields.
 - Prefer deterministic reconstruction from persisted run artifacts over adding
@@ -172,7 +175,8 @@ Rejected Evidence:
 
 ### Non-Goals
 
-- Frontend UI for opinions.
+- Further frontend opinion UI expansion beyond the retained hybrid review
+  surface.
 - Broker integration or live-order execution.
 - Paper/live execution loop.
 - Portfolio auto-control or automatic rebalancing.
@@ -241,9 +245,10 @@ evidence:
 - acceptance status for every AC below
 - manual audit against `docs/research-spec.md`, `docs/validation-gates.md`,
   `docs/decision-register.md`, and `docs/deferred-feature-plan.md`
-- explicit statement that no frontend, broker/live execution, portfolio
-  auto-control, US provider implementation, provider abstraction, adaptive/RL
-  workflow, crypto trading behavior, or external runtime dependency was added
+- explicit statement that no further frontend expansion, broker/live execution,
+  portfolio auto-control, US provider implementation, provider abstraction,
+  adaptive/RL workflow, crypto trading behavior, or external runtime dependency
+  was added; the existing hybrid review integration remains retained
 
 The evaluator must not assume hidden tool output, provider memory, unsurfaced
 local state, or latest in-session response content.
@@ -701,10 +706,11 @@ Self-review failures must affect `state`, `state_reason`, or
 - [ ] AC-18: No execution or dependency creep
   Given backend opinion expansion is implemented
   When API contracts, code paths, dependencies, and touched docs are inspected
-  Then they do not add or imply frontend workflow expansion, broker routing,
-  live orders, automatic rebalancing, account control, personalized investment
-  advice, US provider implementation, provider abstraction, adaptive/RL control,
-  crypto trading behavior, or external runtime adoption
+  Then they do not add or imply frontend workflow expansion beyond the retained
+  hybrid review integration, broker routing, live orders, automatic rebalancing,
+  account control, personalized investment advice, US provider implementation,
+  provider abstraction, adaptive/RL control, crypto trading behavior, or
+  external runtime adoption
   Evidence: manual diff/dependency review against `GATE-P2-004`,
   `GATE-P2-005`, and `docs/deferred-feature-plan.md`
 
@@ -774,9 +780,9 @@ Stop and report blocked if:
   by the docs
 - focused tests cannot run after one environment/tooling retry
 - the same blocker repeats for three consecutive attempts
-- completion would require frontend, broker/live execution, portfolio control,
-  US provider work, provider abstraction, adaptive/RL control, crypto runtime
-  behavior, or an external dependency
+- completion would require further frontend expansion, broker/live execution,
+  portfolio control, US provider work, provider abstraction, adaptive/RL
+  control, crypto runtime behavior, or an external dependency
 - checked docs conflict about acceptance or scope
 
 If a method cannot be evaluated from current artifacts, do not invent data.

@@ -13,8 +13,11 @@
                 <p class="eyebrow">Validation</p>
                 <h3>{validation?.method ?? "Not Requested"}</h3>
             </div>
+            {#if validation}
+                <strong>{validation.evaluation_status}</strong>
+            {/if}
         </div>
-        {#if validation}
+        {#if validation?.evaluation_status === "evaluated"}
             <div class="mini-grid">
                 {#each Object.entries(validation.metrics) as [metric, value]}
                     <div>
@@ -23,6 +26,10 @@
                     </div>
                 {/each}
             </div>
+        {:else if validation}
+            <p class="muted">
+                {validation.status_reason ?? "Validation could not be evaluated."}
+            </p>
         {:else}
             <p class="muted">{emptyMessage}</p>
         {/if}

@@ -9,7 +9,7 @@ from sklearn.metrics import mean_squared_error
 from backend.shared.analytics.features import add_features
 
 if TYPE_CHECKING:
-    from xgboost import XGBRegressor
+    from xgboost import XGBClassifier, XGBRegressor
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,11 @@ MODEL_FAMILY_BY_TYPE = {
     "extra_trees": "bagging_trees",
 }
 TRAINING_OUTPUT_CONTRACT_VERSION = "tabular_regression_scores_v1"
+DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION = (
+    "chronological_tail_20pct_min20_class5_v1"
+)
+DIRECTION_CALIBRATION_MIN_SAMPLES = 20
+DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT = 5
 
 
 def _load_xgboost_regressor():
@@ -29,6 +34,16 @@ def _load_xgboost_regressor():
             "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
         ) from exc
     return XGBRegressor
+
+
+def _load_xgboost_classifier():
+    try:
+        from xgboost import XGBClassifier
+    except Exception as exc:
+        raise RuntimeError(
+            "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
+        ) from exc
+    return XGBClassifier
 
 
 def _load_sklearn_regressor(model_type: str):
@@ -47,19 +62,42 @@ def _load_sklearn_regressor(model_type: str):
     return regressor_cls
 
 
+def _load_sklearn_classifier(model_type: str):
+    try:
+        from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
+    except Exception as exc:
+        raise RuntimeError(
+            "scikit-learn failed to import. Install project dependencies before using sklearn model families."
+        ) from exc
+    classifier_cls = {
+        "random_forest": RandomForestClassifier,
+        "extra_trees": ExtraTreesClassifier,
+    }.get(model_type)
+    if classifier_cls is None:
+        raise ValueError(f"Unsupported sklearn model type: {model_type}")
+    return classifier_cls
+
+
 def compute_return_target(
     df: pd.DataFrame, return_target: str, horizon_days: int
 ) -> pd.Series:
+    lookahead = target_lookahead(return_target, horizon_days)
+
+    if return_target == "open_to_open":
+        return df["open"].shift(-lookahead) / df["open"] - 1.0
+    if return_target == "close_to_close":
+        return df["close"].shift(-lookahead) / df["close"] - 1.0
+    return df["close"].shift(-lookahead) / df["open"] - 1.0
+
+
+def target_lookahead(return_target: str, horizon_days: int) -> int:
     if horizon_days < 1:
         raise ValueError("horizon_days must be >= 1")
 
-    if return_target == "open_to_open":
-        return df["open"].shift(-horizon_days) / df["open"] - 1.0
-    if return_target == "close_to_close":
-        return df["close"].shift(-horizon_days) / df["close"] - 1.0
+    if return_target in {"open_to_open", "close_to_close"}:
+        return horizon_days
     if return_target == "open_to_close":
-        shift = -(horizon_days - 1)
-        return df["close"].shift(shift) / df["open"] - 1.0
+        return horizon_days - 1
 
     raise ValueError(f"Unsupported return_target: {return_target}")
 
@@ -107,19 +145,25 @@ def time_series_split(
     X: pd.DataFrame,
     y: pd.Series,
     test_size: float = 0.2,
+    purge: int = 0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
     if not 0 < test_size < 1:
         raise ValueError("test_size must be between 0 and 1.")
 
+    if purge < 0:
+        raise ValueError("purge must be >= 0.")
+
     split_idx = int(len(X) * (1 - test_size))
-    if split_idx <= 0 or split_idx >= len(X):
+    train_end = split_idx - purge
+    if train_end <= 0 or split_idx >= len(X):
         raise ValueError(
-            f"Not enough data to create a train/test split with test_size={test_size}."
+            "Not enough data to create a train/test split with "
+            f"test_size={test_size} and purge={purge}."
         )
 
-    X_train = X.iloc[:split_idx]
+    X_train = X.iloc[:train_end]
     X_test = X.iloc[split_idx:]
-    y_train = y.iloc[:split_idx]
+    y_train = y.iloc[:train_end]
     y_test = y.iloc[split_idx:]
     logger.info("Created time-series split train=%s test=%s", len(X_train), len(X_test))
     return X_train, X_test, y_train, y_test
@@ -184,6 +228,90 @@ def fit_regressor(
             model_params=model_params,
         )
     raise ValueError(f"Unsupported model type: {model_type}")
+
+
+def build_classifier(
+    *,
+    model_type: str,
+    model_params: Dict[str, object] | None = None,
+):
+    params: Dict[str, object] = {
+        "n_estimators": 200,
+        "random_state": 42,
+        "n_jobs": -1,
+    }
+    if model_type == "xgboost":
+        params.update({"objective": "binary:logistic", "eval_metric": "logloss"})
+        classifier_cls = _load_xgboost_classifier()
+    elif model_type in {"random_forest", "extra_trees"}:
+        classifier_cls = _load_sklearn_classifier(model_type)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+    if model_params:
+        params.update(model_params)
+    return classifier_cls(**params)
+
+
+def fit_calibrated_direction_classifier(
+    *,
+    model_type: str,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    model_params: Dict[str, object] | None = None,
+    purge: int = 0,
+) -> tuple[object | None, str | None, int]:
+    from sklearn.calibration import CalibratedClassifierCV
+
+    calibration_size = max(
+        DIRECTION_CALIBRATION_MIN_SAMPLES,
+        int(len(X_train) * 0.2),
+    )
+    calibration_start = len(X_train) - calibration_size
+    base_end = calibration_start - purge
+    if base_end < DIRECTION_CALIBRATION_MIN_SAMPLES:
+        return (
+            None,
+            "Insufficient rows for provisional chronological direction calibration "
+            f"({DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION}).",
+            0,
+        )
+
+    base_labels = y_train.iloc[:base_end]
+    calibration_labels = y_train.iloc[calibration_start:]
+    if base_labels.value_counts().reindex([0, 1], fill_value=0).min() < (
+        DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT
+    ):
+        return (
+            None,
+            "Provisional direction model training window requires at least "
+            f"{DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT} rows per class "
+            f"({DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION}).",
+            0,
+        )
+    if calibration_labels.value_counts().reindex([0, 1], fill_value=0).min() < (
+        DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT
+    ):
+        return (
+            None,
+            "Provisional direction model calibration window requires at least "
+            f"{DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT} rows per class "
+            f"({DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION}).",
+            0,
+        )
+
+    model = CalibratedClassifierCV(
+        build_classifier(model_type=model_type, model_params=model_params),
+        method="sigmoid",
+        cv=[
+            (
+                np.arange(base_end),
+                np.arange(calibration_start, len(X_train)),
+            )
+        ],
+        ensemble=True,
+    )
+    model.fit(X_train, y_train)
+    return model, None, calibration_size
 
 
 def build_model_family(model_type: str) -> str:

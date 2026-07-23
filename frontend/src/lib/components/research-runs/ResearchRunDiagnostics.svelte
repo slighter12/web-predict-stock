@@ -9,6 +9,7 @@
     $: recentPredictionSamples =
         diagnostics?.actual_vs_predicted.slice(-8) ?? [];
     $: recentResidualSamples = diagnostics?.residuals.slice(-8) ?? [];
+    $: directionDiagnostics = diagnostics?.direction_classification ?? null;
 </script>
 
 <section class="surface diagnostics-surface">
@@ -17,6 +18,47 @@
             <p class="eyebrow">Model Diagnostics</p>
             <h3>Regression Quality</h3>
         </div>
+
+        {#if directionDiagnostics}
+            <div>
+                <div class="surface-header">
+                    <div>
+                        <p class="eyebrow">Direction Confirmation</p>
+                        <h4>Up-probability quality</h4>
+                    </div>
+                    <strong>{directionDiagnostics.evaluation_status}</strong>
+                </div>
+                {#if directionDiagnostics.evaluation_status === "evaluated"}
+                    <div class="diagnostic-grid direction-grid">
+                        <div>
+                            <span>Precision</span>
+                            <strong>{formatNumber(directionDiagnostics.precision)}</strong>
+                        </div>
+                        <div>
+                            <span>Recall</span>
+                            <strong>{formatNumber(directionDiagnostics.recall)}</strong>
+                        </div>
+                        <div>
+                            <span>ROC AUC</span>
+                            <strong>{formatNumber(directionDiagnostics.roc_auc)}</strong>
+                        </div>
+                        <div>
+                            <span>PR AUC</span>
+                            <strong>{formatNumber(directionDiagnostics.pr_auc)}</strong>
+                        </div>
+                        <div>
+                            <span>Brier</span>
+                            <strong>{formatNumber(directionDiagnostics.brier)}</strong>
+                        </div>
+                    </div>
+                {:else}
+                    <p class="muted">
+                        {directionDiagnostics.status_reason ??
+                            "Direction confirmation could not be evaluated."}
+                    </p>
+                {/if}
+            </div>
+        {/if}
     </div>
 
     {#if diagnostics}
@@ -153,6 +195,10 @@
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: var(--space-3);
+    }
+
+    .direction-grid {
+        margin-top: var(--space-3);
     }
 
     .diagnostic-grid > div,

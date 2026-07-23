@@ -51,7 +51,13 @@ def match_price(
     return min(open_price, high)
 
 
-def build_signals(scores: pd.DataFrame, weights: pd.DataFrame) -> List[dict]:
+def build_signals(
+    scores: pd.DataFrame,
+    weights: pd.DataFrame,
+    confirmation_probabilities: pd.DataFrame | None = None,
+    signal_kind: str = "holdout_evaluation",
+    confirmation_threshold: float = 0.5,
+) -> List[dict]:
     signals: List[dict] = []
     for dt, row in weights.iterrows():
         positions = row[row > 0]
@@ -67,8 +73,26 @@ def build_signals(scores: pd.DataFrame, weights: pd.DataFrame) -> List[dict]:
                 {
                     "date": dt.date() if hasattr(dt, "date") else dt,
                     "symbol": symbol,
-                    "score": float(score) if pd.notna(score) else 0.0,
+                    "score": float(score) if pd.notna(score) else None,
                     "position": float(position),
+                    "signal_kind": signal_kind,
+                    "up_probability": (
+                        float(confirmation_probabilities.at[dt, symbol])
+                        if confirmation_probabilities is not None
+                        and pd.notna(confirmation_probabilities.at[dt, symbol])
+                        else None
+                    ),
+                    "predicted_direction": (
+                        "up"
+                        if confirmation_probabilities is not None
+                        and pd.notna(confirmation_probabilities.at[dt, symbol])
+                        and confirmation_probabilities.at[dt, symbol]
+                        >= confirmation_threshold
+                        else "down"
+                        if confirmation_probabilities is not None
+                        and pd.notna(confirmation_probabilities.at[dt, symbol])
+                        else None
+                    ),
                 }
             )
     return signals
@@ -93,10 +117,17 @@ def compute_max_position_weight(weights: pd.DataFrame) -> float:
 def build_target_weights(
     scores: pd.DataFrame,
     strategy: StrategyConfig | ResearchStrategyConfig,
+    confirmation_probabilities: pd.DataFrame | None = None,
+    confirmation_threshold: float = 0.5,
 ) -> pd.DataFrame:
     strategy_config = resolve_strategy_config(strategy)
     runner = get_strategy_runner(strategy_config.type)
-    weights = runner.build_weights(scores=scores, strategy=strategy_config)
+    weights = runner.build_weights(
+        scores=scores,
+        strategy=strategy_config,
+        confirmation_probabilities=confirmation_probabilities,
+        confirmation_threshold=confirmation_threshold,
+    )
     return weights.reindex(scores.index).fillna(0.0).sort_index()
 
 
@@ -286,10 +317,17 @@ def run_backtest(
     execution: object,
     market: str,
     return_target: str,
+    confirmation_probabilities: pd.DataFrame | None = None,
+    confirmation_threshold: float = 0.5,
 ) -> Tuple[Dict[str, float], List[dict], List[dict], List[str]]:
     warnings: List[str] = []
     strategy_config = resolve_strategy_config(strategy)
-    weights = build_target_weights(scores=scores, strategy=strategy_config)
+    weights = build_target_weights(
+        scores=scores,
+        strategy=strategy_config,
+        confirmation_probabilities=confirmation_probabilities,
+        confirmation_threshold=confirmation_threshold,
+    )
     logger.info(
         "Running backtest strategy=%s market=%s symbols=%s periods=%s",
         strategy_config.type,
@@ -308,7 +346,12 @@ def run_backtest(
         market=market,
         return_target=return_target,
     )
-    signals = build_signals(scores, weights)
+    signals = build_signals(
+        scores,
+        weights,
+        confirmation_probabilities,
+        confirmation_threshold=confirmation_threshold,
+    )
 
     execution_price = _build_execution_price(
         weights=weights,

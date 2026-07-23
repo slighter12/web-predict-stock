@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Dict, Literal, Protocol
 
@@ -54,6 +55,8 @@ class StrategyRunner(Protocol):
         self,
         scores: pd.DataFrame,
         strategy: ResearchStrategyConfig,
+        confirmation_probabilities: pd.DataFrame | None = None,
+        confirmation_threshold: float = 0.5,
     ) -> pd.DataFrame: ...
 
 
@@ -71,13 +74,30 @@ def build_weights_from_scores(
     threshold: float,
     top_n: int,
     allow_proactive_sells: bool,
+    confirmation_probabilities: pd.DataFrame | None = None,
+    confirmation_threshold: float = 0.5,
 ) -> pd.DataFrame:
     weights = pd.DataFrame(0.0, index=scores.index, columns=scores.columns)
     current_holdings: set[str] = set()
+    aligned_probabilities = (
+        confirmation_probabilities.reindex(
+            index=scores.index, columns=scores.columns
+        )
+        if confirmation_probabilities is not None
+        else None
+    )
 
     for idx, row in scores.iterrows():
         row = row.dropna()
+        row = row[row.map(math.isfinite)]
         eligible = row[row >= threshold]
+        if aligned_probabilities is not None:
+            confirmed = aligned_probabilities.loc[idx]
+            eligible = eligible[
+                confirmed.reindex(eligible.index).between(
+                    confirmation_threshold, 1.0, inclusive="both"
+                )
+            ]
         selected = eligible.nlargest(top_n).index.tolist()
 
         if allow_proactive_sells:
@@ -102,12 +122,16 @@ class ResearchV1Runner:
         self,
         scores: pd.DataFrame,
         strategy: ResearchStrategyConfig,
+        confirmation_probabilities: pd.DataFrame | None = None,
+        confirmation_threshold: float = 0.5,
     ) -> pd.DataFrame:
         return build_weights_from_scores(
             scores=scores,
             threshold=strategy.threshold,
             top_n=strategy.top_n,
             allow_proactive_sells=strategy.allow_proactive_sells,
+            confirmation_probabilities=confirmation_probabilities,
+            confirmation_threshold=confirmation_threshold,
         )
 
 

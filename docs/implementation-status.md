@@ -15,7 +15,7 @@ in the v1 product navigation.
 
 ## Status Scope
 
-- status date: `2026-05-14`
+- status date: `2026-07-22`
 - status terms:
   - `implemented`: behavior exists and is usable in the current codebase
   - `partial`: meaningful foundation exists, but the v1 product expectation is
@@ -33,7 +33,8 @@ in the v1 product navigation.
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
 | Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, runtime metadata, and artifact completeness summaries; old metadata-only records show explicit fallback copy |
 | Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; backend caveats block metadata-only, partial, and unfinished records |
-| Classification | contract-defined | task and diagnostics are specified, but implementation is deferred |
+| Direction classification | implemented | provisionally calibrated tree classification confirms regression-ranked candidates and persists diagnostics; artifact completeness does not establish out-of-sample skill or investment viability |
+| Hybrid opinion review | implemented | the existing Opinion, direction-diagnostic, workflow-payload, and frontend type integration is retained; further frontend expansion is paused while backend contracts and evaluation mature |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
 
@@ -45,7 +46,7 @@ in the v1 product navigation.
   - task entry for baseline study, recent experiments, and data readiness
 - `Experiment Builder`
   - baseline TW daily research workflow
-  - currently regression-first; classification remains a documented future task
+  - regression ranking with direction-classification confirmation by default
 - `Experiments`
   - persisted run lookup, result review, filtering, sorting, and comparison
 - `Data Support`
@@ -139,6 +140,10 @@ These foundations are implementation inventory, not v1 product scope.
 
 ### Frontend
 
+- the existing hybrid Opinion review, direction diagnostics, workflow payload,
+  and type integration are retained
+- no additional frontend feature development is active; frontend work is
+  limited to backend-contract compatibility, typecheck, and build verification
 - legacy or platform-era component names should be cleaned up only after the
   current workbench surfaces fully replace them
 - residual diagnostics now have a dedicated sample section in the persisted run
@@ -148,7 +153,11 @@ These foundations are implementation inventory, not v1 product scope.
 
 ### Backend
 
-- classification remains specification-only
+- prospective opinions require a complete common-date hybrid snapshot; legacy
+  and regression-only runs remain reviewable but return `no-opinion`
+- direction metrics are currently pooled across symbols, and hybrid training
+  cost grows with symbol and validation-fold counts; per-symbol diagnostics and
+  performance optimization remain evidence-driven follow-up work
 - comparison caveat labels and reason codes still need deeper hardening for
   non-comparable runs, such as sample-window, target, feature, and cost-basis
   mismatch cases

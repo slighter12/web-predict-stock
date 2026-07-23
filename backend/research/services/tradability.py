@@ -626,7 +626,10 @@ def build_p3_summary(
         tradability_state = "unresolved_corporate_event"
     elif stale_mark_days_with_open_positions > 0:
         tradability_state = "stale_risk"
-    elif latest_execution_universe_count > 0:
+    elif (
+        latest_execution_universe_count > 0
+        and request.execution_route != "research_only"
+    ):
         tradability_state = "execution_ready"
     else:
         tradability_state = "research_only"

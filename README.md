@@ -17,16 +17,18 @@ The main workflow is:
 5. Strategy backtest
 6. Experiment comparison
 
-Prediction tasks include both regression and classification at the specification
-level. The first implementation pass supports regression diagnostics; the
-classification contract is documented so it can be added without changing the
-research workflow shape.
+The default prediction task combines forward-return regression with a
+provisionally calibrated direction classifier. Regression ranks predicted
+returns; classification confirms direction before the workbench emits
+prospective model output for review. Artifact completeness does not establish
+out-of-sample skill or investment viability.
 
 ## What This Repository Owns
 
 - TW daily research-run creation and persisted review
 - feature selection for model-ready daily data
 - tabular regression model diagnostics
+- calibrated direction-classification diagnostics
 - strategy backtest artifacts derived from model scores
 - experiment registry and comparison context
 - data-readiness diagnostics needed to explain research reliability
@@ -52,6 +54,7 @@ promotes them deliberately.
 | TW daily data readiness | implemented with diagnostics | ingestion, replay, lifecycle, important-event, and recovery surfaces support data trust checks |
 | Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
 | Regression diagnostics | implemented | successful regression runs return and reload model-quality artifacts before strategy interpretation |
+| Hybrid model opinion | implemented | regression ranking and direction confirmation produce a common-date, manual-review opinion; holdout signals remain evaluation-only |
 | Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, runtime metadata, and artifact completeness summaries |
 | Experiment comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; metadata-only and partial records expose backend caveats before comparison |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
@@ -85,7 +88,8 @@ diagnostic surfaces unless a future roadmap promotes them.
 
 ## Still Partial Or Deferred
 
-- classification is specified but not implemented in the first code pass
+- direction classification is implemented as provisional confirmation; its
+  calibration gates and pooled diagnostics do not establish per-symbol skill
 - richer pairwise comparison explanations can still improve review workflow, but
   incomplete artifacts and backend comparison caveats now block optimistic compare
 - execution, adaptive, peer, factor, and tick archive modules are deferred from

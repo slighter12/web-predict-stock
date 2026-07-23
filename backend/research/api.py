@@ -13,6 +13,7 @@ from backend.research.contracts.governance import (
 )
 from backend.research.contracts.runs import (
     DateRange,
+    DirectionModelConfig,
     ExecutionConfig,
     FeatureRegistryResponse,
     FeatureSpec,
@@ -57,6 +58,7 @@ class PublicResearchRunCreateRequest(RequestModel):
     horizon_days: conint(ge=1) = 1  # type: ignore[valid-type]
     features: list[FeatureSpec]
     model: ModelConfig = Field(default_factory=ModelConfig)
+    direction_model: DirectionModelConfig | None = None
     strategy: StrategyConfig
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     validation: ValidationConfig | None = None

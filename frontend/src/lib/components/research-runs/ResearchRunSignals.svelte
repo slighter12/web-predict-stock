@@ -29,7 +29,7 @@
                         <tr>
                             <td>{signal.date}</td>
                             <td>{signal.symbol}</td>
-                            <td>{signal.score.toFixed(4)}</td>
+                            <td>{signal.score?.toFixed(4) ?? "N/A"}</td>
                             <td>{signal.position.toFixed(3)}</td>
                         </tr>
                     {/each}

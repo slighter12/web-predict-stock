@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 import backend.app as backend_app
 import backend.research.api as research_runs_api
@@ -39,6 +40,31 @@ def make_payload() -> dict:
         "execution": {"slippage": 0.001, "fees": 0.002},
         "baselines": [],
     }
+
+
+def test_public_request_accepts_direction_model_defaults():
+    payload = make_payload()
+    payload["direction_model"] = {"type": "extra_trees", "params": {}}
+
+    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert request.direction_model.positive_return_threshold == 0.0
+    assert request.direction_model.confirmation_probability_threshold == 0.5
+    assert request.direction_model.calibration_policy_version == (
+        "chronological_tail_20pct_min20_class5_v1"
+    )
+
+
+def test_public_request_rejects_unknown_direction_calibration_policy():
+    payload = make_payload()
+    payload["direction_model"] = {
+        "type": "extra_trees",
+        "params": {},
+        "calibration_policy_version": "future_policy",
+    }
+
+    with pytest.raises(ValidationError):
+        research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
 
 
 def make_opinion_artifact() -> dict:
@@ -90,12 +116,16 @@ def make_opinion_artifact() -> dict:
         "state": "viable",
         "state_reason": "Complete persisted research artifacts support traceable opinion rows.",
         "manual_adoption_only": True,
+        "opinion_as_of": "2024-01-02",
         "evidence_limitations": [],
         "buy_candidates": [
             {
                 "symbol": "2330",
                 "model_score": 0.01,
                 "position_signal": 1.0,
+                "signal_date": "2024-01-02",
+                "up_probability": 0.8,
+                "confirmation_state": "confirmed",
                 "evidence_reason": "Latest persisted signal links model score to strategy position for this symbol.",
                 "risk_or_warning": "Research-only opinion for manual adoption review.",
                 "invalidation_note": "Do not adopt if newer data invalidates this persisted run.",

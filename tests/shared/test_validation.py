@@ -71,3 +71,24 @@ def test_generate_splits_expanding_window():
 def test_generate_splits_invalid_method():
     with pytest.raises(ValueError):
         generate_splits(length=100, method="bad", splits=1, test_size=0.2)
+
+
+@pytest.mark.parametrize(
+    ("method", "expected_stops"),
+    [
+        ("holdout", [77]),
+        ("walk_forward", [57, 77]),
+        ("expanding_window", [57, 77]),
+        ("rolling_window", [57, 77]),
+    ],
+)
+def test_generate_splits_purges_training_targets(method, expected_stops):
+    splits = generate_splits(
+        length=100, method=method, splits=2, test_size=0.2, purge=3
+    )
+
+    assert [train_range.stop for train_range, _ in splits] == expected_stops
+    assert all(
+        test_range.start - train_range.stop == 3
+        for train_range, test_range in splits
+    )

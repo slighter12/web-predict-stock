@@ -63,7 +63,7 @@ class FeatureSpec(RequestModel):
     name: FeatureName
     window: conint(ge=1)  # type: ignore[valid-type]
     source: PriceSource = "close"
-    shift: conint(ge=0) = 1  # type: ignore[valid-type]
+    shift: conint(ge=1) = 1  # type: ignore[valid-type]
 
 
 class FeatureDefinition(BaseModel):
@@ -82,6 +82,17 @@ class FeatureRegistryResponse(BaseModel):
 class ModelConfig(RequestModel):
     type: ModelType = Field(default="xgboost", description="Model identifier.")
     params: Dict[str, object] = Field(default_factory=dict)
+
+
+class DirectionModelConfig(ModelConfig):
+    positive_return_threshold: float = 0.0
+    confirmation_probability_threshold: confloat(ge=0, le=1) = 0.5  # type: ignore[valid-type]
+    calibration_policy_version: Literal[
+        "chronological_tail_20pct_min20_class5_v1"
+    ] = "chronological_tail_20pct_min20_class5_v1"
+    confirmation_policy_version: Literal[
+        "regression_threshold_direction_probability_v1"
+    ] = "regression_threshold_direction_probability_v1"
 
 
 class StrategyConfig(RequestModel):
@@ -114,6 +125,7 @@ class ResearchRunCreateRequest(RequestModel):
     horizon_days: conint(ge=1) = 1  # type: ignore[valid-type]
     features: List[FeatureSpec]
     model: ModelConfig = Field(default_factory=ModelConfig)
+    direction_model: Optional[DirectionModelConfig] = None
     strategy: StrategyConfig
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     validation: Optional[ValidationConfig] = None
@@ -231,13 +243,32 @@ class EquityPoint(BaseModel):
 class SignalPoint(BaseModel):
     date: date
     symbol: str
-    score: float
+    score: Optional[float]
     position: float
+    signal_kind: Literal["holdout_evaluation", "forward_opinion"] = (
+        "holdout_evaluation"
+    )
+    up_probability: Optional[float] = None
+    predicted_direction: Optional[Literal["up", "down"]] = None
 
 
 class ValidationSummary(BaseModel):
     method: ValidationMethod
+    evaluation_status: Literal["evaluated", "not_evaluated"]
+    status_reason: Optional[str] = None
     metrics: Dict[str, float]
+
+    @model_validator(mode="after")
+    def status_matches_metrics(self) -> "ValidationSummary":
+        if self.evaluation_status == "evaluated":
+            if not self.metrics:
+                raise ValueError("evaluated validation requires non-empty metrics")
+            return self
+        if self.metrics:
+            raise ValueError("not_evaluated validation must not include metrics")
+        if not self.status_reason:
+            raise ValueError("not_evaluated validation requires status_reason")
+        return self
 
 
 class RegressionDiagnosticPoint(BaseModel):
@@ -253,6 +284,36 @@ class FeatureImportancePoint(BaseModel):
     importance: float
 
 
+class DirectionClassificationDiagnostics(BaseModel):
+    task: Literal["binary_classification"] = "binary_classification"
+    evaluation_status: Literal["evaluated", "not_evaluated"]
+    status_reason: Optional[str] = None
+    sample_count: int = Field(
+        default=0,
+        description="Holdout rows pooled across all evaluated symbols.",
+    )
+    positive_return_threshold: float = 0.0
+    confirmation_probability_threshold: float = 0.5
+    calibration_method: Literal["sigmoid"] = "sigmoid"
+    calibration_policy_version: Literal[
+        "chronological_tail_20pct_min20_class5_v1"
+    ] = "chronological_tail_20pct_min20_class5_v1"
+    confirmation_policy_version: Literal[
+        "regression_threshold_direction_probability_v1"
+    ] = "regression_threshold_direction_probability_v1"
+    calibration_sample_count: int = Field(
+        default=0,
+        description="Sum of calibration rows across all evaluated symbols.",
+    )
+    positive_prevalence: Optional[float] = None
+    confusion_matrix: List[List[int]] = Field(default_factory=list)
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    roc_auc: Optional[float] = None
+    pr_auc: Optional[float] = None
+    brier: Optional[float] = None
+
+
 class RegressionDiagnostics(BaseModel):
     task: Literal["regression"] = "regression"
     sample_count: int = 0
@@ -263,6 +324,7 @@ class RegressionDiagnostics(BaseModel):
     actual_vs_predicted: List[RegressionDiagnosticPoint] = Field(default_factory=list)
     residuals: List[RegressionDiagnosticPoint] = Field(default_factory=list)
     feature_importance: List[FeatureImportancePoint] = Field(default_factory=list)
+    direction_classification: Optional[DirectionClassificationDiagnostics] = None
 
 
 class ComparisonCaveat(BaseModel):
@@ -330,6 +392,9 @@ class OpinionRow(BaseModel):
     symbol: str
     model_score: float
     position_signal: float
+    signal_date: date
+    up_probability: float
+    confirmation_state: Literal["confirmed", "conflict"]
     evidence_reason: str
     risk_or_warning: str
     invalidation_note: str
@@ -361,11 +426,24 @@ class OpinionArtifact(BaseModel):
     state: OpinionArtifactState
     state_reason: str
     manual_adoption_only: Literal[True] = True
+    opinion_as_of: Optional[date] = None
     evidence_limitations: List[str] = Field(default_factory=list)
     buy_candidates: List[OpinionRow] = Field(default_factory=list)
     sell_or_avoid: List[OpinionRow] = Field(default_factory=list)
     watch: List[OpinionRow] = Field(default_factory=list)
     review_checks: List[OpinionReviewCheck] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def opinion_rows_match_as_of(self) -> "OpinionArtifact":
+        rows = [*self.buy_candidates, *self.sell_or_avoid, *self.watch]
+        if rows and (
+            self.opinion_as_of is None
+            or any(row.signal_date != self.opinion_as_of for row in rows)
+        ):
+            raise ValueError(
+                "opinion rows must share the persisted opinion_as_of date"
+            )
+        return self
 
 
 class ReviewArtifactSummaryMixin(BaseModel):
