@@ -45,6 +45,7 @@
                                         <th>Predicted return</th>
                                         <th>Up probability</th>
                                         <th>Confirmation</th>
+                                        <th>Review context</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -55,6 +56,25 @@
                                             <td>{formatNumber(opinionRow.model_score)}</td>
                                             <td>{formatNumber(opinionRow.up_probability)}</td>
                                             <td>{opinionRow.confirmation_state}</td>
+                                            <td class="review-cell">
+                                                <details>
+                                                    <summary>Evidence &amp; risk</summary>
+                                                    <div class="review-context">
+                                                        <p><strong>Evidence:</strong> {opinionRow.evidence_reason}</p>
+                                                        <p><strong>Risk:</strong> {opinionRow.risk_or_warning}</p>
+                                                        <p><strong>Invalidation:</strong> {opinionRow.invalidation_note}</p>
+                                                        <ul>
+                                                            {#each opinionRow.source_artifact_references as reference}
+                                                                <li>
+                                                                    {reference.artifact}.{reference.field}
+                                                                    {#if reference.symbol} · {reference.symbol}{/if}
+                                                                    {#if reference.date} · {reference.date}{/if}
+                                                                </li>
+                                                            {/each}
+                                                        </ul>
+                                                    </div>
+                                                </details>
+                                            </td>
                                         </tr>
                                     {/each}
                                 </tbody>
@@ -129,5 +149,25 @@
         padding: 0.7rem 0.5rem;
         border-bottom: 1px solid rgba(148, 163, 184, 0.12);
         white-space: nowrap;
+    }
+
+    .review-cell {
+        min-width: 20rem;
+        white-space: normal;
+    }
+
+    .review-cell summary {
+        cursor: pointer;
+    }
+
+    .review-context {
+        display: grid;
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+    }
+
+    .review-context p,
+    .review-context ul {
+        margin: 0;
     }
 </style>

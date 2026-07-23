@@ -13,6 +13,7 @@ from backend.research.contracts.runs import (
     EffectiveStrategyConfig,
     FallbackAudit,
     Metrics,
+    OpinionArtifact,
     OpinionReviewCheck,
     OpinionRow,
     ResearchRunCreateRequest,
@@ -450,6 +451,33 @@ def _valid_opinion_row() -> dict:
     return deepcopy(
         build_opinion_artifact(make_opinion_payload())["buy_candidates"][0]
     )
+
+
+def test_opinion_artifact_rows_must_match_opinion_as_of():
+    row = _valid_opinion_row()
+    payload = {
+        "state": "viable",
+        "state_reason": "Persisted artifacts support a reviewable opinion.",
+        "buy_candidates": [row],
+    }
+
+    with pytest.raises(ValidationError, match="opinion_as_of"):
+        OpinionArtifact.model_validate(payload)
+    with pytest.raises(ValidationError, match="opinion_as_of"):
+        OpinionArtifact.model_validate({**payload, "opinion_as_of": "2024-01-03"})
+
+    artifact = OpinionArtifact.model_validate(
+        {**payload, "opinion_as_of": row["signal_date"]}
+    )
+    assert artifact.opinion_as_of == artifact.buy_candidates[0].signal_date
+
+    empty_artifact = OpinionArtifact.model_validate(
+        {
+            "state": "no-opinion",
+            "state_reason": "No reviewable rows are available.",
+        }
+    )
+    assert empty_artifact.opinion_as_of is None
 
 
 def _assert_self_review_blocks_viability(artifact: dict, check_name: str) -> None:

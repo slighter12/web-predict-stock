@@ -112,6 +112,8 @@ export interface SignalPoint {
 
 export interface ValidationSummary {
   method: ValidationMethod;
+  evaluation_status: "evaluated" | "not_evaluated";
+  status_reason: string | null;
   metrics: Record<string, number>;
 }
 
@@ -149,6 +151,8 @@ export interface DirectionClassificationDiagnostics {
   positive_return_threshold: number;
   confirmation_probability_threshold: number;
   calibration_method: "sigmoid";
+  calibration_policy_version: "chronological_tail_20pct_min20_class5_v1";
+  confirmation_policy_version: "regression_threshold_direction_probability_v1";
   calibration_sample_count: number;
   positive_prevalence: number | null;
   confusion_matrix: number[][];
@@ -157,6 +161,25 @@ export interface DirectionClassificationDiagnostics {
   roc_auc: number | null;
   pr_auc: number | null;
   brier: number | null;
+}
+
+export interface OpinionSourceArtifactReference {
+  artifact:
+    | "request_payload"
+    | "config_sources"
+    | "fallback_audit"
+    | "version_pack"
+    | "model_diagnostics"
+    | "signals"
+    | "metrics"
+    | "baselines"
+    | "validation"
+    | "warnings"
+    | "artifact_completeness"
+    | "comparison_caveats";
+  field: string;
+  symbol: string | null;
+  date: string | null;
 }
 
 export interface OpinionRow {
@@ -169,6 +192,10 @@ export interface OpinionRow {
   evidence_reason: string;
   risk_or_warning: string;
   invalidation_note: string;
+  source_artifact_references: [
+    OpinionSourceArtifactReference,
+    ...OpinionSourceArtifactReference[],
+  ];
 }
 
 export interface OpinionArtifact {

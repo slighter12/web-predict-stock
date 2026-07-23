@@ -88,7 +88,8 @@ diagnostic surfaces unless a future roadmap promotes them.
 
 ## Still Partial Or Deferred
 
-- classification is specified but not implemented in the first code pass
+- direction classification is implemented as provisional confirmation; its
+  calibration gates and pooled diagnostics do not establish per-symbol skill
 - richer pairwise comparison explanations can still improve review workflow, but
   incomplete artifacts and backend comparison caveats now block optimistic compare
 - execution, adaptive, peer, factor, and tick archive modules are deferred from

@@ -433,6 +433,18 @@ class OpinionArtifact(BaseModel):
     watch: List[OpinionRow] = Field(default_factory=list)
     review_checks: List[OpinionReviewCheck] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def opinion_rows_match_as_of(self) -> "OpinionArtifact":
+        rows = [*self.buy_candidates, *self.sell_or_avoid, *self.watch]
+        if rows and (
+            self.opinion_as_of is None
+            or any(row.signal_date != self.opinion_as_of for row in rows)
+        ):
+            raise ValueError(
+                "opinion rows must share the persisted opinion_as_of date"
+            )
+        return self
+
 
 class ReviewArtifactSummaryMixin(BaseModel):
     artifact_completeness: ArtifactCompleteness = "metadata_only"
