@@ -263,18 +263,21 @@ def _payload_declares_no_data(payload_body: str) -> bool:
         return True
     if str(payload.get("stat") or "").strip().lower() != "ok":
         return False
-    for table in payload.get("tables") or []:
-        if not isinstance(table, dict) or table.get("data") != []:
-            continue
+    tables = [item for item in (payload.get("tables") or []) if isinstance(item, dict)]
+    if not tables:
+        return False
+    for table in tables:
+        if table.get("data") != []:
+            return False
         total_count = table.get("totalCount")
         if isinstance(total_count, bool):
-            continue
+            return False
         try:
-            if float(total_count) == 0:
-                return True
+            if float(total_count) != 0:
+                return False
         except (TypeError, ValueError):
-            continue
-    return False
+            return False
+    return True
 
 
 def validate_ohlcv_with_report(

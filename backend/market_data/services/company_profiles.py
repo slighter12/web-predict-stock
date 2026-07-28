@@ -52,7 +52,9 @@ def list_active_tw_company_profiles(*, limit: int = 500, offset: int = 0) -> lis
     return records
 
 
-def count_active_tw_company_profiles() -> int:
-    total = count_tw_company_profiles(trading_status="active")
-    logger.info("Counted active TW company profiles total=%s", total)
+def count_active_tw_company_profiles(*, exchange: str | None = None) -> int:
+    total = count_tw_company_profiles(trading_status="active", exchange=exchange)
+    logger.info(
+        "Counted active TW company profiles total=%s exchange=%s", total, exchange
+    )
     return total

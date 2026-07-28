@@ -457,6 +457,17 @@ def test_payload_declares_provider_no_data_markers_and_explicit_zero(payload_bod
     assert scraper._payload_declares_no_data(payload_body) is True
 
 
+def test_payload_declares_no_data_requires_all_tables_to_be_empty():
+    payload_body = (
+        '{"stat":"OK","tables":['
+        '{"totalCount":1,"data":[["row"]]},'
+        '{"totalCount":0,"data":[]}'
+        ']}'
+    )
+
+    assert scraper._payload_declares_no_data(payload_body) is False
+
+
 @pytest.mark.parametrize(
     "payload_body",
     [

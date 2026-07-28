@@ -40,6 +40,7 @@ TWSE_COMPANY_SOURCE_NAME = "twse_company_profile"
 TPEX_COMPANY_SOURCE_NAME = "tpex_company_profile"
 TW_COMPANY_PARSER_VERSION = "tw_company_profile_v1"
 TW_COMPANY_SYMBOL = "TW_COMPANY_UNIVERSE"
+_RECONCILIATION_MINIMUM_COVERAGE_RATIO = 0.95
 _PAYLOAD_RECORD_KEYS = ("records", "data", "items", "result", "results", "response")
 
 
@@ -349,6 +350,9 @@ def _crawl_single_source(
             )
             errors.append(f"exchange={exchange} symbol={symbol}: {exc}")
     deduped_profiles, dedupe_summary = _dedupe_profile_payloads(built_profiles)
+    existing_active_count = (
+        count_active_tw_company_profiles(exchange=exchange) if records else 0
+    )
     upserted_count = 0
     created_count = 0
     updated_count = 0
@@ -372,13 +376,26 @@ def _crawl_single_source(
             )
     inactivated_count = 0
     if records and not errors:
-        try:
-            inactivated_count = mark_missing_active_tw_company_profiles_inactive(
-                exchange=exchange,
-                active_symbols=active_symbols,
+        if (
+            existing_active_count
+            and len(active_symbols)
+            < existing_active_count * _RECONCILIATION_MINIMUM_COVERAGE_RATIO
+        ):
+            logger.warning(
+                "Skipped TW company profile reconciliation due to low coverage "
+                "exchange=%s active_symbols=%s existing_active_count=%s",
+                exchange,
+                len(active_symbols),
+                existing_active_count,
             )
-        except Exception as exc:
-            errors.append(f"exchange={exchange} reconciliation: {exc}")
+        else:
+            try:
+                inactivated_count = mark_missing_active_tw_company_profiles_inactive(
+                    exchange=exchange,
+                    active_symbols=active_symbols,
+                )
+            except Exception as exc:
+                errors.append(f"exchange={exchange} reconciliation: {exc}")
     return {
         "source_name": source_name,
         "raw_payload_id": raw_payload_id,
