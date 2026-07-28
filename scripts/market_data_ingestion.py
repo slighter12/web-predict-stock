@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import re
 import sys
 import uuid
 from dataclasses import asdict, dataclass
@@ -256,9 +257,10 @@ def _payload_declares_no_data(payload_body: str) -> bool:
     detail = " ".join(
         str(payload.get(key) or "") for key in ("stat", "message", "msg")
     ).lower()
-    if any(
-        marker in detail
-        for marker in ("沒有符合條件", "查無資料", "no data")
+    if (
+        "沒有符合條件" in detail
+        or "查無資料" in detail
+        or re.search(r"\bno data\b", detail)
     ):
         return True
     if str(payload.get("stat") or "").strip().lower() != "ok":

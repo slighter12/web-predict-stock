@@ -145,16 +145,12 @@ def list_tw_company_profiles(
         raise DataAccessError("Failed to list TW company profiles.") from exc
 
 
-def count_tw_company_profiles(
-    *, trading_status: str | None = None, exchange: str | None = None
-) -> int:
+def count_tw_company_profiles(*, trading_status: str | None = None) -> int:
     try:
         with SessionLocal() as session:
             stmt = select(func.count(TwCompanyProfile.id))
             if trading_status is not None:
                 stmt = stmt.where(TwCompanyProfile.trading_status == trading_status)
-            if exchange is not None:
-                stmt = stmt.where(TwCompanyProfile.exchange == exchange)
             return int(session.execute(stmt).scalar_one() or 0)
     except Exception as exc:
         logger.exception("Failed to count TW company profiles")

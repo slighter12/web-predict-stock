@@ -449,6 +449,7 @@ def test_payload_declares_no_data_ignores_non_mapping_json(payload_body):
     [
         '{"stat":"OK","message":"查無資料"}',
         '{"stat":"OK","msg":"no data"}',
+        '{"stat":"很抱歉，沒有符合條件的資料!","type":"ALL"}',
         '{"stat":"OK","tables":[{"totalCount":0,"data":[]}]}',
         '{"stat":"ok","tables":[{"totalCount":"0","data":[]}]}',
     ],
@@ -476,6 +477,7 @@ def test_payload_declares_no_data_requires_all_tables_to_be_empty():
         '{"stat":"OK","tables":[{"totalCount":"0","data":[["row"]]}]}',
         '{"stat":"OK","tables":[{"totalCount":"x","data":[]}]}',
         '{"stat":"ERROR","tables":[{"totalCount":0,"data":[]}]}',
+        '{"stat":"OK","message":"no database available"}',
         '{"stat":"OK","tables":[]}',
     ],
 )

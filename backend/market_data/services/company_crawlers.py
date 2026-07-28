@@ -18,6 +18,7 @@ from backend.market_data.repositories.raw_ingest import (
 )
 from backend.market_data.services.company_profiles import (
     count_active_tw_company_profiles,
+    list_active_tw_company_profiles,
     save_tw_company_profile,
 )
 from backend.market_data.services.tls_helpers import request_with_tls_fallback
@@ -350,9 +351,11 @@ def _crawl_single_source(
             )
             errors.append(f"exchange={exchange} symbol={symbol}: {exc}")
     deduped_profiles, dedupe_summary = _dedupe_profile_payloads(built_profiles)
-    existing_active_count = (
-        count_active_tw_company_profiles(exchange=exchange) if records else 0
-    )
+    existing_active_symbols = {
+        str(record["symbol"]).strip().upper()
+        for record in list_active_tw_company_profiles(limit=0)
+        if str(record.get("exchange") or "").upper() == exchange
+    } if records else set()
     upserted_count = 0
     created_count = 0
     updated_count = 0
@@ -375,18 +378,19 @@ def _crawl_single_source(
                 f"exchange={payload['exchange']} symbol={payload['symbol']}: {exc}"
             )
     inactivated_count = 0
+    reconciliation_skipped = True
     if records and not errors:
         if (
-            existing_active_count
-            and len(active_symbols)
-            < existing_active_count * _RECONCILIATION_MINIMUM_COVERAGE_RATIO
+            existing_active_symbols
+            and len(active_symbols & existing_active_symbols)
+            < len(existing_active_symbols) * _RECONCILIATION_MINIMUM_COVERAGE_RATIO
         ):
             logger.warning(
                 "Skipped TW company profile reconciliation due to low coverage "
-                "exchange=%s active_symbols=%s existing_active_count=%s",
+                "exchange=%s existing_active_symbol_count=%s covered_symbol_count=%s",
                 exchange,
-                len(active_symbols),
-                existing_active_count,
+                len(existing_active_symbols),
+                len(active_symbols & existing_active_symbols),
             )
         else:
             try:
@@ -394,6 +398,7 @@ def _crawl_single_source(
                     exchange=exchange,
                     active_symbols=active_symbols,
                 )
+                reconciliation_skipped = False
             except Exception as exc:
                 errors.append(f"exchange={exchange} reconciliation: {exc}")
     return {
@@ -405,6 +410,7 @@ def _crawl_single_source(
         "updated_count": updated_count,
         "noop_count": noop_count,
         "inactivated_count": inactivated_count,
+        "reconciliation_skipped": reconciliation_skipped,
         "duplicate_symbol_count": dedupe_summary["duplicate_symbol_count"],
         "conflict_count": dedupe_summary["conflict_count"],
         "overwritten_count": dedupe_summary["overwritten_count"],
@@ -443,6 +449,9 @@ def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
         "updated_count": sum(item["updated_count"] for item in summaries),
         "noop_count": sum(item["noop_count"] for item in summaries),
         "inactivated_count": sum(item["inactivated_count"] for item in summaries),
+        "reconciliation_skipped": any(
+            item["reconciliation_skipped"] for item in summaries
+        ),
         "duplicate_symbol_count": sum(
             item["duplicate_symbol_count"] for item in summaries
         ),

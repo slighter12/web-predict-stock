@@ -83,6 +83,7 @@ def test_tw_company_crawl_response_includes_inactivated_count(monkeypatch):
             "processed_count": 2,
             "upserted_count": 2,
             "inactivated_count": 1,
+            "reconciliation_skipped": True,
             "active_symbol_count": 2,
             "errors": [],
         },
@@ -95,6 +96,7 @@ def test_tw_company_crawl_response_includes_inactivated_count(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["inactivated_count"] == 1
+    assert response.json()["reconciliation_skipped"] is True
 
 
 def test_replay_and_replay_list(monkeypatch):

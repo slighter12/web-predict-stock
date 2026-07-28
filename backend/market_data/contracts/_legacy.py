@@ -413,6 +413,7 @@ class TwCompanyCrawlerRunResponse(BaseModel):
     updated_count: int = 0
     noop_count: int = 0
     inactivated_count: int = 0
+    reconciliation_skipped: bool = False
     duplicate_symbol_count: int = 0
     conflict_count: int = 0
     overwritten_count: int = 0
