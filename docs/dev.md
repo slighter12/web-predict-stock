@@ -119,6 +119,65 @@ Run TW market daily batch ingestion when a broader local dataset is needed:
 .venv/bin/python -m scripts.crawl_tw_daily_batch 2026-03-20 --refresh-universe
 ```
 
+The batch command bootstraps the TWSE/TPEX company universe when it is empty.
+Use an explicit date range for resumable daily OHLCV backfills:
+
+```bash
+.venv/bin/python -m scripts.crawl_tw_daily_batch \
+  --start-date 2023-07-24 \
+  --end-date 2026-07-24 \
+  --refresh-universe \
+  --delay-seconds 1
+```
+
+For a safe resumable sequence, first run the canary date with a refreshed
+universe, then run the requested range without refreshing it:
+
+```bash
+.venv/bin/python -m scripts.crawl_tw_daily_batch 2026-07-24 --refresh-universe
+REFRESH_UNIVERSE=0 .venv/bin/python -m scripts.crawl_tw_daily_batch \
+  --start-date 2023-07-24 \
+  --end-date 2026-07-24 \
+  --delay-seconds 1
+```
+
+If `failed_dates` exists, the range continues remaining dates and exits
+non-zero. Retry each failed date with
+`.venv/bin/python -m scripts.crawl_tw_daily_batch YYYY-MM-DD` before rerunning
+the range. The current official TWSE/TPEX profile set is the canonical broad
+universe; `ingestion_watchlist` remains the heavier per-symbol scheduling
+surface.
+
+## Strict Prospective Evidence Cohorts
+
+Historical backtests and older forward signals are regression artifacts; they
+do not count as prospective evidence. After the official batch for a trading
+date has completed, create strict cohorts on that same Taiwan calendar date:
+
+```bash
+.venv/bin/python -m scripts.run_tw_prospective_cohorts \
+  --basis-date YYYY-MM-DD --dry-run
+.venv/bin/python -m scripts.run_tw_prospective_cohorts \
+  --basis-date YYYY-MM-DD --cohort both
+```
+
+The command creates the fixed 2330 and active-profile TW cohorts serially.
+The broad cohort is not created when its pre-decision model-ready coverage is
+below 95%. It does not refresh market data or call external providers.
+
+When each signal has two later research-eligible daily bars, inspect the
+read-only outcome scorecard:
+
+```bash
+.venv/bin/python -m scripts.evaluate_tw_prospective_cohorts --cohort 2330
+.venv/bin/python -m scripts.evaluate_tw_prospective_cohorts --cohort all
+```
+
+Only strict runs whose persisted `signal_frozen_at` and `basis_date` share the
+Taiwan calendar date are counted. Do not change the fixed cohort recipe while
+accumulating its first 120 completed trading days; a changed recipe starts a
+new cohort.
+
 ## V1 Usable-Loop Verification
 
 The core manual path is:
