@@ -49,6 +49,7 @@ stable across multiple implementation tasks.
 | `DEC-PHASE-008` | Prospective opinions use regression ranking plus calibrated direction confirmation | accepted | Holdout signals remain evaluation-only; a viable opinion requires a complete common-date forward snapshot and manual adoption review |
 | `DEC-PHASE-009` | Retain the existing hybrid review UI while Phase 2 remains backend-first | accepted | The current Opinion, direction-diagnostic, workflow-payload, and frontend type integration stays in place, but no further frontend feature or browser-acceptance work is part of the active backend phase |
 | `DEC-PHASE-010` | Current direction diagnostics are pooled across symbols | accepted | Pooled holdout metrics and summed calibration samples are research-level diagnostics, not per-symbol skill claims; per-symbol diagnostics and training-cost optimization remain deferred pending evidence |
+| `DEC-PHASE-011` | Official TWSE/TPEX profile-filled and reconciled `tw_company_profiles` is the canonical current-active universe for broad daily batches; `ingestion_watchlist` remains explicitly heavier per-symbol scheduling | accepted | Broad daily batch ingestion uses the current-active profile universe; per-symbol scheduling uses `ingestion_watchlist`; this decision does not claim a historical point-in-time or delisted universe |
 
 ## Open V1 Decisions
 

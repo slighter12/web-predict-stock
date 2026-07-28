@@ -8,6 +8,9 @@ from typing import Any
 
 import requests
 
+from backend.market_data.repositories.company_profiles import (
+    mark_missing_active_tw_company_profiles_inactive,
+)
 from backend.market_data.repositories.raw_ingest import (
     FETCH_STATUS_FAILED,
     FETCH_STATUS_SUCCESS,
@@ -350,9 +353,11 @@ def _crawl_single_source(
     created_count = 0
     updated_count = 0
     noop_count = 0
+    active_symbols: set[str] = set()
     for payload in deduped_profiles:
         try:
             saved = save_tw_company_profile(payload)
+            active_symbols.add(saved["symbol"])
             upserted_count += 1
             write_action = saved.get("write_action")
             if write_action == "created":
@@ -365,6 +370,15 @@ def _crawl_single_source(
             errors.append(
                 f"exchange={payload['exchange']} symbol={payload['symbol']}: {exc}"
             )
+    inactivated_count = 0
+    if records and not errors:
+        try:
+            inactivated_count = mark_missing_active_tw_company_profiles_inactive(
+                exchange=exchange,
+                active_symbols=active_symbols,
+            )
+        except Exception as exc:
+            errors.append(f"exchange={exchange} reconciliation: {exc}")
     return {
         "source_name": source_name,
         "raw_payload_id": raw_payload_id,
@@ -373,6 +387,7 @@ def _crawl_single_source(
         "created_count": created_count,
         "updated_count": updated_count,
         "noop_count": noop_count,
+        "inactivated_count": inactivated_count,
         "duplicate_symbol_count": dedupe_summary["duplicate_symbol_count"],
         "conflict_count": dedupe_summary["conflict_count"],
         "overwritten_count": dedupe_summary["overwritten_count"],
@@ -410,6 +425,7 @@ def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
         "created_count": sum(item["created_count"] for item in summaries),
         "updated_count": sum(item["updated_count"] for item in summaries),
         "noop_count": sum(item["noop_count"] for item in summaries),
+        "inactivated_count": sum(item["inactivated_count"] for item in summaries),
         "duplicate_symbol_count": sum(
             item["duplicate_symbol_count"] for item in summaries
         ),

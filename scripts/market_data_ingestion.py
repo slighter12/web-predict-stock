@@ -114,6 +114,7 @@ class BatchFetchResult:
     raw_row_count: int
     metadata: RawTraceMetadata | None = None
     error_message: str | None = None
+    provider_no_data: bool = False
 
 
 def persist_raw_ingest_record(
@@ -229,15 +230,51 @@ def _build_ohlcv_frame(
 
 
 def _empty_batch_result(
-    source_name: str, error_message: str | None = None
+    source_name: str,
+    error_message: str | None = None,
+    *,
+    metadata: RawTraceMetadata | None = None,
+    provider_no_data: bool = False,
 ) -> BatchFetchResult:
     return BatchFetchResult(
         source_name=source_name,
         dataframe=pd.DataFrame(),
         raw_row_count=0,
-        metadata=None,
+        metadata=metadata,
         error_message=error_message,
+        provider_no_data=provider_no_data,
     )
+
+
+def _payload_declares_no_data(payload_body: str) -> bool:
+    try:
+        payload = json.loads(payload_body)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    detail = " ".join(
+        str(payload.get(key) or "") for key in ("stat", "message", "msg")
+    ).lower()
+    if any(
+        marker in detail
+        for marker in ("沒有符合條件", "查無資料", "no data")
+    ):
+        return True
+    if str(payload.get("stat") or "").strip().lower() != "ok":
+        return False
+    for table in payload.get("tables") or []:
+        if not isinstance(table, dict) or table.get("data") != []:
+            continue
+        total_count = table.get("totalCount")
+        if isinstance(total_count, bool):
+            continue
+        try:
+            if float(total_count) == 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 def validate_ohlcv_with_report(
@@ -1040,6 +1077,16 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
         fetch_status=FETCH_STATUS_SUCCESS,
         payload_body=payload_body,
     )
+    metadata = RawTraceMetadata.from_ingest(
+        raw_payload_id, TWSE_MI_INDEX_PARSER_VERSION
+    )
+
+    if _payload_declares_no_data(payload_body):
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            metadata=metadata,
+            provider_no_data=True,
+        )
 
     try:
         dataframe, metadata = parse_twse_mi_index_payload_body(
@@ -1059,11 +1106,25 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
             error_message=f"TWSE batch parse failed: {exc}",
         )
 
+    if dataframe.empty:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TWSE_MI_INDEX} empty result",
+        )
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            metadata=metadata,
+            error_message="TWSE batch returned no rows without declaring no data.",
+        )
+
     return BatchFetchResult(
         source_name=SOURCE_TWSE_MI_INDEX,
         dataframe=dataframe,
         raw_row_count=len(dataframe),
         metadata=metadata,
+        provider_no_data=False,
     )
 
 
@@ -1118,6 +1179,16 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
         fetch_status=FETCH_STATUS_SUCCESS,
         payload_body=payload_body,
     )
+    metadata = RawTraceMetadata.from_ingest(
+        raw_payload_id, TPEX_AFTERTRADING_OTC_PARSER_VERSION
+    )
+
+    if _payload_declares_no_data(payload_body):
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            metadata=metadata,
+            provider_no_data=True,
+        )
 
     try:
         dataframe, metadata = parse_tpex_aftertrading_payload_body(
@@ -1137,11 +1208,25 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
             error_message=f"TPEX batch parse failed: {exc}",
         )
 
+    if dataframe.empty:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TPEX_AFTERTRADING_OTC} empty result",
+        )
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            metadata=metadata,
+            error_message="TPEX batch returned no rows without declaring no data.",
+        )
+
     return BatchFetchResult(
         source_name=SOURCE_TPEX_AFTERTRADING_OTC,
         dataframe=dataframe,
         raw_row_count=len(dataframe),
         metadata=metadata,
+        provider_no_data=False,
     )
 
 
@@ -1678,17 +1763,48 @@ def ingest_tw_market_batch(
 
     universe_by_exchange = resolve_tw_active_universe()
     universe_count = sum(len(symbols) for symbols in universe_by_exchange.values())
+    if universe_count == 0 and not refresh_universe:
+        universe_refresh_summary = crawl_tw_company_profiles()
+        universe_by_exchange = resolve_tw_active_universe()
+        universe_count = sum(
+            len(symbols) for symbols in universe_by_exchange.values()
+        )
     if universe_count == 0:
         raise ValueError("Active TW company universe is empty.")
 
     twse_result = fetch_twse_market_batch(trading_date)
     tpex_result = fetch_tpex_market_batch(trading_date)
+    source_results = (("TWSE", twse_result), ("TPEX", tpex_result))
+    skipped_non_trading_day = all(
+        result.provider_no_data for _, result in source_results
+    )
 
     filtered_frames = []
-    errors = []
+    errors = [
+        {
+            "source_name": "universe_refresh",
+            "message": str(error),
+        }
+        for error in (
+            universe_refresh_summary.get("errors", [])
+            if universe_refresh_summary is not None
+            else []
+        )
+    ]
     missing_symbol_count = 0
-    for exchange, result in (("TWSE", twse_result), ("TPEX", tpex_result)):
+    successful_source_count = 0
+    for exchange, result in source_results:
         allowed_symbols = universe_by_exchange[exchange]
+        if result.provider_no_data:
+            if not skipped_non_trading_day:
+                errors.append(
+                    {
+                        "source_name": result.source_name,
+                        "message": "Provider declared no data.",
+                    }
+                )
+                missing_symbol_count += len(allowed_symbols)
+            continue
         if result.error_message:
             errors.append(
                 {
@@ -1699,6 +1815,7 @@ def ingest_tw_market_batch(
             missing_symbol_count += len(allowed_symbols)
             continue
 
+        successful_source_count += 1
         filtered = _filter_batch_frame_to_universe(
             result.dataframe,
             allowed_symbols=allowed_symbols,
@@ -1716,9 +1833,16 @@ def ingest_tw_market_batch(
         else pd.DataFrame()
     )
     load_summary = load_to_db(combined_df)
+    if errors:
+        status = "partial" if successful_source_count else "failed"
+    elif skipped_non_trading_day:
+        status = "skipped_non_trading_day"
+    else:
+        status = "succeeded"
     summary = {
         "market": MARKET_TW,
         "trading_date": trading_date.isoformat(),
+        "status": status,
         "refresh_universe": refresh_universe,
         "universe_count": universe_count,
         "twse_rows": twse_result.raw_row_count,

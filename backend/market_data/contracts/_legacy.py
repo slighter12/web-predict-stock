@@ -412,6 +412,7 @@ class TwCompanyCrawlerRunResponse(BaseModel):
     created_count: int = 0
     updated_count: int = 0
     noop_count: int = 0
+    inactivated_count: int = 0
     duplicate_symbol_count: int = 0
     conflict_count: int = 0
     overwritten_count: int = 0

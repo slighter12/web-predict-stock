@@ -72,6 +72,31 @@ def test_create_data_ingestion(monkeypatch):
     assert response.json()["minute_supplement"]["status"] == "succeeded"
 
 
+def test_tw_company_crawl_response_includes_inactivated_count(monkeypatch):
+    monkeypatch.setattr(
+        data_plane_api,
+        "crawl_tw_company_profiles",
+        lambda **kwargs: {
+            "market": "TW",
+            "source_names": ["twse_company_profile"],
+            "raw_payload_ids": [1],
+            "processed_count": 2,
+            "upserted_count": 2,
+            "inactivated_count": 1,
+            "active_symbol_count": 2,
+            "errors": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/data/tw-company-crawls",
+        json={"include_tpex": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["inactivated_count"] == 1
+
+
 def test_replay_and_replay_list(monkeypatch):
     replay_payload = {
         "id": 9,
