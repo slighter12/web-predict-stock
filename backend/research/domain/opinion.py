@@ -195,8 +195,8 @@ def _latest_signals(
         _as_mapping(payload.get("request_payload")).get("symbols")
     )
     allowed_symbols = {str(symbol) for symbol in declared if symbol}
-    forward_by_symbol: dict[str, Mapping[str, Any]] = {}
-    forward_dates: set[str] = set()
+    forward_by_symbol: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    latest_date_counts: dict[str, int] = {}
     unexpected_symbols: set[str] = set()
     unexpected_signal_count = 0
     malformed_signal_count = 0
@@ -209,7 +209,7 @@ def _latest_signals(
             malformed_signal_count += 1
             continue
         symbol_key = str(symbol)
-        if allowed_symbols and symbol_key not in allowed_symbols:
+        if symbol_key not in allowed_symbols:
             unexpected_symbols.add(symbol_key)
             unexpected_signal_count += 1
             continue
@@ -217,22 +217,26 @@ def _latest_signals(
         if signal_date is None:
             malformed_signal_count += 1
             continue
-        if symbol_key in forward_by_symbol:
+        if not _is_number(signal.get("score")) or not _is_number(
+            signal.get("position")
+        ):
             malformed_signal_count += 1
-            continue
-        forward_by_symbol[symbol_key] = signal
-        forward_dates.add(signal_date)
-    latest = [forward_by_symbol[symbol] for symbol in sorted(forward_by_symbol)]
-    if allowed_symbols and set(forward_by_symbol) != allowed_symbols:
-        malformed_signal_count += len(allowed_symbols.symmetric_difference(forward_by_symbol))
+        current = forward_by_symbol.get(symbol_key)
+        if current is None or signal_date > current[0]:
+            forward_by_symbol[symbol_key] = (signal_date, signal)
+            latest_date_counts[symbol_key] = 1
+        elif signal_date == current[0]:
+            latest_date_counts[symbol_key] += 1
+    latest = [forward_by_symbol[symbol][1] for symbol in sorted(forward_by_symbol)]
+    malformed_signal_count += sum(count - 1 for count in latest_date_counts.values())
+    malformed_signal_count += len(allowed_symbols.difference(forward_by_symbol))
+    forward_dates = {item[0] for item in forward_by_symbol.values()}
     if len(forward_dates) > 1:
         malformed_signal_count += len(forward_dates)
     invalid_count = sum(
         1
         for item in latest
-        if not _is_number(item.get("score"))
-        or not _is_number(item.get("position"))
-        or not _is_probability(item.get("up_probability"))
+        if not _is_probability(item.get("up_probability"))
         or item.get("predicted_direction") not in {"up", "down"}
     )
     return (

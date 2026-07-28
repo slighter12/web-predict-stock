@@ -1,8 +1,14 @@
+from datetime import date, datetime, timedelta, timezone
+
 import pandas as pd
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import backend.research.services.execution as backtest_engine_service
+import backend.research.services.eligibility as eligibility_service
+from backend.database import Base, RawIngestAudit
 from backend.platform.errors import InsufficientDataError
 from backend.research.contracts.runs import (
     ResearchRunCreateRequest,
@@ -10,6 +16,211 @@ from backend.research.contracts.runs import (
     ValidationSummary,
 )
 from backend.shared.analytics.strategy import ResearchStrategyConfig
+
+
+def _eligibility_session(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(
+        autoflush=False, autocommit=False, bind=engine
+    )
+    Base.metadata.create_all(bind=engine, tables=[RawIngestAudit.__table__])
+    monkeypatch.setattr(eligibility_service, "SessionLocal", testing_session_local)
+    return testing_session_local
+
+
+def _official_audit(
+    *,
+    source_name: str,
+    trading_date: date,
+    payload_body: str,
+    offset: int = 0,
+    fetch_status: str = "success",
+) -> RawIngestAudit:
+    date_value = (
+        trading_date.strftime("%Y%m%d")
+        if source_name == eligibility_service._BATCH_SOURCES[0]
+        else trading_date.strftime("%Y/%m/%d")
+    )
+    return RawIngestAudit(
+        source_name=source_name,
+        symbol=(
+            "TWSE_BATCH_DAILY"
+            if source_name == eligibility_service._BATCH_SOURCES[0]
+            else "TPEX_BATCH_DAILY"
+        ),
+        market="TW",
+        fetch_timestamp=(
+            datetime(2026, 7, 1, tzinfo=timezone.utc) + timedelta(seconds=offset)
+        ),
+        parser_version="fixture",
+        fetch_status=fetch_status,
+        expected_symbol_context=f"market=TW;date={date_value};type=ALL",
+        payload_body=payload_body,
+    )
+
+
+def _non_official_frame(trading_date: date) -> pd.DataFrame:
+    return pd.DataFrame(
+        {"source": ["yfinance"], "close": [100.0]},
+        index=pd.to_datetime([trading_date]),
+    )
+
+
+def test_research_eligibility_excludes_non_official_row_on_official_no_data(
+    monkeypatch,
+):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                ),
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
+                ),
+            ]
+        )
+        session.commit()
+
+    dates = eligibility_service.load_official_no_data_dates(
+        start_date=trading_date, end_date=trading_date
+    )
+
+    assert dates == {trading_date}
+    assert eligibility_service.exclude_non_official_rows_on_official_no_data(
+        _non_official_frame(trading_date), dates
+    ).empty
+
+
+@pytest.mark.parametrize("include_tpex", [False, True])
+def test_research_eligibility_keeps_non_official_row_without_two_latest_no_data_audits(
+    monkeypatch, include_tpex
+):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    with session_local() as session:
+        session.add(
+            _official_audit(
+                source_name=eligibility_service._BATCH_SOURCES[0],
+                trading_date=trading_date,
+                payload_body='{"stat": "沒有符合條件"}',
+            )
+        )
+        if include_tpex:
+            session.add_all(
+                [
+                    _official_audit(
+                        source_name=eligibility_service._BATCH_SOURCES[1],
+                        trading_date=trading_date,
+                        payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
+                    ),
+                    _official_audit(
+                        source_name=eligibility_service._BATCH_SOURCES[1],
+                        trading_date=trading_date,
+                        payload_body='{"stat": "ok", "tables": [{"totalCount": 1, "data": [["row"]]}]}',
+                        offset=1,
+                    ),
+                ]
+            )
+        session.commit()
+
+    dates = eligibility_service.load_official_no_data_dates(
+        start_date=trading_date, end_date=trading_date
+    )
+
+    assert not dates
+    assert len(eligibility_service.exclude_non_official_rows_on_official_no_data(
+        _non_official_frame(trading_date), dates
+    )) == 1
+
+
+def test_research_eligibility_keeps_official_row_on_official_no_data(monkeypatch):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                ),
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
+                ),
+            ]
+        )
+        session.commit()
+
+    frame = _non_official_frame(trading_date).assign(
+        source=eligibility_service._BATCH_SOURCES[0]
+    )
+    dates = eligibility_service.load_official_no_data_dates(
+        start_date=trading_date, end_date=trading_date
+    )
+
+    assert len(eligibility_service.exclude_non_official_rows_on_official_no_data(
+        frame, dates
+    )) == 1
+
+
+def test_research_eligibility_keeps_fallback_when_latest_audit_failed(monkeypatch):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                ),
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
+                ),
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    trading_date=trading_date,
+                    payload_body="",
+                    offset=1,
+                    fetch_status="failed",
+                ),
+            ]
+        )
+        session.commit()
+
+    assert not eligibility_service.load_official_no_data_dates(
+        start_date=trading_date, end_date=trading_date
+    )
+
+
+def test_research_eligibility_keeps_rows_when_audit_query_fails(monkeypatch, caplog):
+    class _FailingSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, statement):
+            raise RuntimeError("audit query unavailable")
+
+    monkeypatch.setattr(eligibility_service, "SessionLocal", _FailingSession)
+
+    assert not eligibility_service.load_official_no_data_dates(
+        start_date=date(2026, 7, 10), end_date=date(2026, 7, 10)
+    )
+    assert "retaining all rows" in caplog.text
 
 
 def _make_request() -> ResearchRunCreateRequest:
@@ -244,6 +455,7 @@ def test_direction_diagnostics_fail_closed_for_partial_universe():
 
 def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch):
     request = _make_request()
+    request.symbols = ["2330", "2317"]
     request.baselines = ["buy_and_hold", "naive_momentum"]
     request.validation = ValidationConfig(
         method="holdout", splits=1, test_size=0.25
@@ -318,11 +530,19 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
         "build_run_peer_feature_map",
         lambda request: {},
     )
+    eligibility_dates = {date(2024, 1, 2)}
+    eligibility_load_calls: list[dict] = []
+    symbol_eligibility_dates: list[set[date]] = []
+    monkeypatch.setattr(
+        backtest_engine_service,
+        "load_official_no_data_dates",
+        lambda **kwargs: eligibility_load_calls.append(kwargs) or eligibility_dates,
+    )
     sample_index = pd.to_datetime(["2024-01-03"])
     monkeypatch.setattr(
         backtest_engine_service,
         "load_symbol_data",
-        lambda *args, **kwargs: {
+        lambda *args, **kwargs: symbol_eligibility_dates.append(args[7]) or {
             "symbol": args[2],
             "df_model": pd.DataFrame(
                 {
@@ -469,6 +689,10 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
     ]
     assert artifacts.warnings == artifacts.response.warnings
     assert exclusion_calls == ["run_foundation_response"]
+    assert eligibility_load_calls == [
+        {"start_date": request.date_range.start, "end_date": request.date_range.end}
+    ]
+    assert symbol_eligibility_dates == [eligibility_dates, eligibility_dates]
 
     monkeypatch.setattr(
         backtest_engine_service.backtest_service,
