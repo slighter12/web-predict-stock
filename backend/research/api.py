@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
-from pydantic import Field, confloat, conint, conlist, field_validator
+from pydantic import Field, confloat, conint, conlist, field_validator, model_validator
 
 from backend.platform.http.request_context import get_request_id
 from backend.research.contracts.governance import (
@@ -18,6 +18,7 @@ from backend.research.contracts.runs import (
     FeatureRegistryResponse,
     FeatureSpec,
     ModelConfig,
+    ProspectiveEvidenceConfig,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
@@ -65,6 +66,7 @@ class PublicResearchRunCreateRequest(RequestModel):
     baselines: list[BaselineName] = Field(default_factory=list)
     portfolio_aum: confloat(gt=0) | None = None  # type: ignore[valid-type]
     monitor_profile_id: ResearchMonitorProfileId | None = None
+    prospective_evidence: ProspectiveEvidenceConfig | None = None
 
     @field_validator("symbols")
     @classmethod
@@ -100,6 +102,24 @@ class PublicResearchRunCreateRequest(RequestModel):
         if value.end < value.start:
             raise ValueError("end must be on or after start")
         return value
+
+    @model_validator(mode="after")
+    def validate_prospective_evidence(self) -> "PublicResearchRunCreateRequest":
+        if self.prospective_evidence is None:
+            return self
+        if self.return_target != "open_to_open" or self.horizon_days != 1:
+            raise ValueError(
+                "strict prospective evidence requires open_to_open with horizon_days=1"
+            )
+        if any(feature.shift != 1 for feature in self.features):
+            raise ValueError("strict prospective evidence requires every feature shift=1")
+        full_universe = set(self.prospective_evidence.full_universe_symbols)
+        if not set(self.symbols).issubset(full_universe):
+            raise ValueError(
+                "strict prospective evidence symbols must be a subset of "
+                "full_universe_symbols"
+            )
+        return self
 
     def to_internal_request(self) -> ResearchRunCreateRequest:
         return ResearchRunCreateRequest(**self.model_dump())

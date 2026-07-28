@@ -224,6 +224,9 @@ def load_symbol_data(
         "predictions": predictions,
         "feature_names": list(X_train.columns),
         "prediction_features": df_features.reindex(columns=X.columns).dropna(),
+        "prospective_prediction_features": unshifted_features.reindex(
+            columns=X.columns
+        ).dropna(),
         "feature_importance": _extract_feature_importance(model, list(X_train.columns)),
         "open": df_model.loc[X_test.index, "open"].rename(symbol),
         "high": df_model.loc[X_test.index, "high"].rename(symbol),
@@ -295,7 +298,12 @@ def build_forward_opinion_signals(
             "requested universe.",
         )
 
-    latest_dates = [item["prediction_features"].index.max() for item in symbol_data]
+    feature_key = (
+        "prospective_prediction_features"
+        if request.prospective_evidence is not None
+        else "prediction_features"
+    )
+    latest_dates = [item[feature_key].index.max() for item in symbol_data]
     if any(pd.isna(value) for value in latest_dates) or len(set(latest_dates)) != 1:
         return (
             [],
@@ -303,13 +311,22 @@ def build_forward_opinion_signals(
             "latest feature date.",
         )
     as_of = latest_dates[0]
+    if (
+        request.prospective_evidence is not None
+        and as_of.date() != request.prospective_evidence.basis_date
+    ):
+        return (
+            [],
+            "Prospective opinion unavailable: strict evidence basis_date does not "
+            "match the latest unshifted feature date.",
+        )
 
     scores: dict[str, float] = {}
     probabilities: dict[str, float] = {}
     for item in symbol_data:
         X = item["X"]
         y = item["y"]
-        forward_features = item["prediction_features"].loc[[as_of]]
+        forward_features = item[feature_key].loc[[as_of]]
         regressor = model_service.fit_regressor(
             model_type=request.model.type,
             X_train=X,
