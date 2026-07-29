@@ -86,13 +86,17 @@ def main() -> int:
         "upserted_rows": 0,
         "errors": [],
     }
+    refresh_attempts_left = 3 if args.refresh_universe else 0
     for index, trading_date in enumerate(trading_dates):
         trading_date_text = trading_date.isoformat()
         aggregate["attempted_dates"].append(trading_date_text)
+        should_refresh = refresh_attempts_left > 0
+        if should_refresh:
+            refresh_attempts_left -= 1
         try:
             summary = ingest_tw_market_batch(
                 trading_date=trading_date,
-                refresh_universe=args.refresh_universe and index == 0,
+                refresh_universe=should_refresh,
             )
         except Exception as exc:
             aggregate["failed_dates"].append(trading_date_text)
@@ -106,6 +110,12 @@ def main() -> int:
             if index + 1 < len(trading_dates):
                 time.sleep(args.delay_seconds)
             continue
+        if should_refresh and not any(
+            isinstance(error, dict)
+            and error.get("source_name") == "universe_refresh"
+            for error in summary["errors"]
+        ):
+            refresh_attempts_left = 0
         aggregate["upserted_rows"] += int(summary["upserted_rows"])
         if summary.get("status") == "skipped_non_trading_day":
             aggregate["skipped_non_trading_dates"].append(trading_date_text)

@@ -297,3 +297,118 @@ def test_crawl_tw_daily_batch_range_fails_on_universe_refresh_error(
             "message": "exchange=TWSE reconciliation: write failed",
         }
     ]
+
+
+def test_crawl_tw_daily_batch_range_retries_universe_refresh_after_error(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "crawl_tw_daily_batch.py",
+        "crawl_tw_daily_batch_script_retries_universe_refresh",
+    )
+    calls = []
+    summaries = iter(
+        [
+            {
+                "upserted_rows": 0,
+                "status": "partial",
+                "errors": [
+                    {
+                        "source_name": "universe_refresh",
+                        "message": "exchange=TWSE reconciliation: write failed",
+                    }
+                ],
+            },
+            {
+                "upserted_rows": 1,
+                "status": "succeeded",
+                "errors": [],
+            },
+            {
+                "upserted_rows": 1,
+                "status": "succeeded",
+                "errors": [],
+            },
+        ]
+    )
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return next(summaries)
+
+    monkeypatch.setattr(module, "ingest_tw_market_batch", fake_ingest)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "crawl_tw_daily_batch.py",
+            "--start-date",
+            "2026-03-20",
+            "--end-date",
+            "2026-03-24",
+            "--refresh-universe",
+        ],
+    )
+
+    exit_code = module.main()
+
+    summary = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert summary["failed_dates"] == ["2026-03-20"]
+    assert [call["refresh_universe"] for call in calls] == [True, True, False]
+
+
+def test_crawl_tw_daily_batch_range_limits_refresh_attempts_after_exceptions(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "crawl_tw_daily_batch.py",
+        "crawl_tw_daily_batch_script_limits_refresh_attempts",
+    )
+    calls = []
+    outcomes = iter(
+        [
+            RuntimeError("network unavailable"),
+            RuntimeError("network unavailable"),
+            RuntimeError("network unavailable"),
+            {
+                "upserted_rows": 1,
+                "status": "succeeded",
+                "errors": [],
+            },
+        ]
+    )
+
+    def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(module, "ingest_tw_market_batch", fake_ingest)
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "crawl_tw_daily_batch.py",
+            "--start-date",
+            "2026-03-20",
+            "--end-date",
+            "2026-03-25",
+            "--refresh-universe",
+        ],
+    )
+
+    exit_code = module.main()
+
+    summary = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert summary["failed_dates"] == [
+        "2026-03-20",
+        "2026-03-23",
+        "2026-03-24",
+    ]
+    assert [call["refresh_universe"] for call in calls] == [True, True, True, False]
