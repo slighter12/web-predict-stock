@@ -270,8 +270,12 @@ def test_crawl_tw_daily_batch_range_continues_after_malformed_summary(
     assert summary["failed_dates"] == ["2026-03-20"]
     assert summary["succeeded_dates"] == ["2026-03-23"]
     assert summary["upserted_rows"] == 7
-    assert summary["errors"][0]["source_name"] == "batch"
-    assert "errors" in summary["errors"][0]["message"]
+    assert summary["errors"][0] == {
+        "trading_date": "2026-03-20",
+        "source_name": "batch",
+        "error_type": "KeyError",
+        "message": "Batch ingestion failed.",
+    }
     assert progress == [
         {
             "event": "tw_market_batch_progress",
@@ -298,6 +302,7 @@ def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
         "crawl_tw_daily_batch_script_range_failures",
     )
     calls = []
+    sensitive_exception_detail = "https://feed.test/market?token=secret"
     summaries = iter(
         [
             {
@@ -310,7 +315,7 @@ def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
                 "errors": [{"source_name": "twse_mi_index", "message": "timeout"}],
                 "status": "partial",
             },
-            RuntimeError("network unavailable"),
+            RuntimeError(sensitive_exception_detail),
         ]
     )
 
@@ -349,6 +354,14 @@ def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
         "2026-03-23",
         "2026-03-24",
     ]
+    assert summary["errors"][1] == {
+        "trading_date": "2026-03-24",
+        "source_name": "batch",
+        "error_type": "RuntimeError",
+        "message": "Batch ingestion failed.",
+    }
+    assert sensitive_exception_detail not in captured.out
+    assert sensitive_exception_detail not in captured.err
     assert [call["refresh_universe"] for call in calls] == [True, False, False]
     assert summary["universe_refresh_succeeded"] is True
     assert [item["status"] for item in progress] == [

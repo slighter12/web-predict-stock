@@ -206,6 +206,7 @@ def fetch_twse_public_snapshot(
                 response.raise_for_status()
             except requests.RequestException as exc:
                 error_type = type(exc).__name__
+                response = None
                 logger.error(
                     "Failed to fetch TWSE public snapshot after CA download "
                     "symbol_count=%s error_type=%s",

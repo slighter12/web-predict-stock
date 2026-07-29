@@ -1564,7 +1564,7 @@ def test_market_batch_failures_do_not_expose_exception_details(
     monkeypatch,
     stage,
 ):
-    secret_url = "https://feed.test/market?token=secret"
+    feed_url_with_token = "https://feed.test/market?token=secret"
     request_name = (
         "_request_twse_daily_report"
         if exchange == "TWSE"
@@ -1587,7 +1587,7 @@ def test_market_batch_failures_do_not_expose_exception_details(
             scraper,
             request_name,
             lambda **kwargs: (_ for _ in ()).throw(
-                requests.HTTPError(f"Forbidden for url: {secret_url}")
+                requests.HTTPError(f"Forbidden for url: {feed_url_with_token}")
             ),
         )
     else:
@@ -1601,7 +1601,7 @@ def test_market_batch_failures_do_not_expose_exception_details(
             scraper,
             parser_name,
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                ValueError(f"Invalid payload from {secret_url}")
+                ValueError(f"Invalid payload from {feed_url_with_token}")
             ),
         )
 

@@ -125,8 +125,11 @@ def test_tw_company_crawl_does_not_expose_request_url(
     caplog,
     monkeypatch,
 ):
-    secret_url = "https://feed.test/company?token=secret"
-    monkeypatch.setenv(company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV, secret_url)
+    feed_url_with_token = "https://feed.test/company?token=secret"
+    monkeypatch.setenv(
+        company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV,
+        feed_url_with_token,
+    )
     monkeypatch.setattr(
         company_crawlers,
         "_request_company_feed_with_tls_fallback",

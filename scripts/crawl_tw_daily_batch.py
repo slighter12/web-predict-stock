@@ -150,7 +150,8 @@ def main() -> int:
                 {
                     "trading_date": trading_date_text,
                     "source_name": "batch",
-                    "message": str(exc) or "Batch ingestion failed.",
+                    "error_type": type(exc).__name__,
+                    "message": "Batch ingestion failed.",
                 }
             )
             _print_progress(
