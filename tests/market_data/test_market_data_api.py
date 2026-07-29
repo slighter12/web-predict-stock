@@ -1,13 +1,22 @@
 from datetime import date, datetime, timezone
 
+import requests
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import backend.market_data.api as data_plane_api
+import backend.market_data.repositories.company_profiles as company_profile_repository
+import backend.market_data.services.company_crawlers as company_crawlers
 import backend.market_data.services.readiness as readiness_service
 from backend.app import app
-from backend.database import Base, DailyOHLCV, RawIngestAudit
+from backend.database import (
+    Base,
+    DailyOHLCV,
+    RawIngestAudit,
+    TwCompanyProfile,
+)
 
 client = TestClient(app)
 
@@ -73,16 +82,26 @@ def test_create_data_ingestion(monkeypatch):
 
 
 def test_tw_company_crawl_response_includes_inactivated_count(monkeypatch):
+    calls = []
     monkeypatch.setattr(
         data_plane_api,
         "crawl_tw_company_profiles",
-        lambda **kwargs: {
+        lambda **kwargs: calls.append(kwargs) or {
             "market": "TW",
             "source_names": ["twse_company_profile"],
+            "source_summaries": [
+                {
+                    "source_name": "twse_company_profile",
+                    "exchange": "TWSE",
+                    "reconciliation_requested": False,
+                    "reconciliation_skipped": False,
+                }
+            ],
             "raw_payload_ids": [1],
             "processed_count": 2,
             "upserted_count": 2,
             "inactivated_count": 1,
+            "reconciliation_requested": False,
             "reconciliation_skipped": True,
             "active_symbol_count": 2,
             "errors": [],
@@ -95,8 +114,107 @@ def test_tw_company_crawl_response_includes_inactivated_count(monkeypatch):
     )
 
     assert response.status_code == 200
+    assert calls == [{"include_tpex": False, "reconcile": False}]
     assert response.json()["inactivated_count"] == 1
+    assert response.json()["reconciliation_requested"] is False
     assert response.json()["reconciliation_skipped"] is True
+    assert response.json()["source_summaries"][0]["exchange"] == "TWSE"
+
+
+def test_tw_company_crawl_does_not_expose_request_url(
+    caplog,
+    monkeypatch,
+):
+    secret_url = "https://feed.test/company?token=secret"
+    monkeypatch.setenv(company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV, secret_url)
+    monkeypatch.setattr(
+        company_crawlers,
+        "_request_company_feed_with_tls_fallback",
+        lambda **kwargs: (_ for _ in ()).throw(
+            requests.HTTPError(f"Forbidden for url: {kwargs['url']}")
+        ),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "persist_raw_ingest_record",
+        lambda **kwargs: 1,
+    )
+
+    response = client.post(
+        "/api/v1/data/tw-company-crawls",
+        json={"include_tpex": False},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "EXTERNAL_FETCH_FAILED"
+    assert response.json()["error"]["message"] == "Failed to fetch TW company feed."
+    assert "HTTPError" in caplog.text
+    assert "token=secret" not in response.text
+    assert "token=secret" not in caplog.text
+
+
+def test_tw_company_crawl_endpoint_does_not_reconcile_profiles(
+    monkeypatch,
+):
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine, tables=[TwCompanyProfile.__table__])
+    testing_session_local = sessionmaker(bind=engine)
+    monkeypatch.setattr(
+        company_profile_repository,
+        "SessionLocal",
+        testing_session_local,
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "_fetch_company_feed",
+        lambda **kwargs: (
+            99,
+            [{"CompanyCode": "2330", "CompanyName": "TSMC"}],
+        ),
+    )
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                TwCompanyProfile(
+                    symbol="2330",
+                    market="TW",
+                    exchange="TWSE",
+                    board="listed",
+                    company_name="TSMC",
+                    trading_status="active",
+                    source_name="existing",
+                ),
+                TwCompanyProfile(
+                    symbol="2317",
+                    market="TW",
+                    exchange="TWSE",
+                    board="listed",
+                    company_name="Hon Hai",
+                    trading_status="active",
+                    source_name="existing",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = client.post(
+        "/api/v1/data/tw-company-crawls",
+        json={"include_tpex": False},
+    )
+
+    with testing_session_local() as session:
+        profiles = session.query(TwCompanyProfile).all()
+
+    assert response.status_code == 200
+    assert response.json()["inactivated_count"] == 0
+    assert {profile.symbol: profile.trading_status for profile in profiles} == {
+        "2317": "active",
+        "2330": "active",
+    }
 
 
 def test_replay_and_replay_list(monkeypatch):

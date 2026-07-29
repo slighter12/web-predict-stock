@@ -1,3 +1,4 @@
+import traceback
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -217,6 +218,33 @@ def test_fetch_twse_public_snapshot_insecure_fallback_requires_explicit_opt_in(
         tick_archive_provider.fetch_twse_public_snapshot(["2330"])
 
     assert calls == [tick_archive_provider.certifi.where()]
+
+
+def test_fetch_twse_public_snapshot_failure_does_not_expose_request_url(
+    caplog,
+    monkeypatch,
+):
+    secret_url = "https://snapshot.test/data?token=secret"
+    monkeypatch.setattr(tick_archive_provider, "_resolve_tls_verify", lambda: True)
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "_request_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(
+            tick_archive_provider.requests.HTTPError(
+                f"Forbidden for url: {secret_url}"
+            )
+        ),
+    )
+
+    with pytest.raises(ExternalFetchError) as exc_info:
+        tick_archive_provider.fetch_twse_public_snapshot(["2330"])
+
+    assert str(exc_info.value) == "Failed to fetch TWSE public snapshot."
+    assert exc_info.value.error_type == "HTTPError"
+    assert "token=secret" not in "".join(
+        traceback.format_exception(exc_info.value)
+    )
+    assert "token=secret" not in caplog.text
 
 
 def test_fetch_twse_public_snapshot_can_use_explicit_insecure_fallback(monkeypatch):

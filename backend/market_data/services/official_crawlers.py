@@ -71,6 +71,7 @@ def _fetch_official_feed(
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException as exc:
+        error_type = type(exc).__name__
         try:
             persist_raw_ingest_record(
                 source_name=source_name,
@@ -86,7 +87,15 @@ def _fetch_official_feed(
             logger.warning(
                 "Failed to record crawler fetch failure source=%s", source_name
             )
-        raise ExternalFetchError(f"Failed to fetch official feed: {exc}") from exc
+        logger.warning(
+            "Official feed fetch failed source=%s error_type=%s",
+            source_name,
+            error_type,
+        )
+        raise ExternalFetchError(
+            "Failed to fetch official feed.",
+            error_type=error_type,
+        ) from None
 
     try:
         payload = json.loads(payload_body)

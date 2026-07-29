@@ -406,6 +406,7 @@ class TwCompanyCrawlRequest(RequestModel):
 class TwCompanyCrawlerRunResponse(BaseModel):
     market: MarketCode = "TW"
     source_names: list[str] = Field(default_factory=list)
+    source_summaries: list[dict[str, Any]] = Field(default_factory=list)
     raw_payload_ids: list[int] = Field(default_factory=list)
     processed_count: int
     upserted_count: int
@@ -413,6 +414,7 @@ class TwCompanyCrawlerRunResponse(BaseModel):
     updated_count: int = 0
     noop_count: int = 0
     inactivated_count: int = 0
+    reconciliation_requested: bool = True
     reconciliation_skipped: bool = False
     duplicate_symbol_count: int = 0
     conflict_count: int = 0

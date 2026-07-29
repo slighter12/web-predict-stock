@@ -130,6 +130,26 @@ def test_parse_trading_date_defaults_to_taipei_timezone(load_script, monkeypatch
             ],
             "--delay-seconds must be nonnegative",
         ),
+        (
+            [
+                "crawl_tw_daily_batch.py",
+                "--start-date",
+                "invalid",
+                "--end-date",
+                "2026-03-20",
+            ],
+            "--start-date must be YYYY-MM-DD or YYYYMMDD",
+        ),
+        (
+            [
+                "crawl_tw_daily_batch.py",
+                "--start-date",
+                "2026-03-20",
+                "--end-date",
+                "invalid",
+            ],
+            "--end-date must be YYYY-MM-DD or YYYYMMDD",
+        ),
     ],
 )
 def test_crawl_tw_daily_batch_rejects_invalid_range_arguments(
@@ -179,7 +199,9 @@ def test_crawl_tw_daily_batch_range_attempts_weekdays_and_delays(
 
     exit_code = module.main()
 
-    summary = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    progress = [json.loads(line) for line in captured.err.splitlines()]
     assert exit_code == 0
     assert [call["trading_date"].isoformat() for call in calls] == [
         "2026-03-20",
@@ -188,7 +210,84 @@ def test_crawl_tw_daily_batch_range_attempts_weekdays_and_delays(
     assert summary["attempted_dates"] == ["2026-03-20", "2026-03-23"]
     assert summary["succeeded_dates"] == ["2026-03-20", "2026-03-23"]
     assert summary["upserted_rows"] == 4
+    assert summary["universe_refresh_succeeded"] is None
+    assert progress == [
+        {
+            "event": "tw_market_batch_progress",
+            "trading_date": "2026-03-20",
+            "status": "succeeded",
+            "upserted_rows": 2,
+            "error_count": 0,
+        },
+        {
+            "event": "tw_market_batch_progress",
+            "trading_date": "2026-03-23",
+            "status": "succeeded",
+            "upserted_rows": 2,
+            "error_count": 0,
+        },
+    ]
     assert delays == [0.25]
+
+
+def test_crawl_tw_daily_batch_range_continues_after_malformed_summary(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "crawl_tw_daily_batch.py",
+        "crawl_tw_daily_batch_script_malformed_summary",
+    )
+    summaries = iter(
+        [
+            {"upserted_rows": 5, "status": "succeeded"},
+            {"upserted_rows": 2, "errors": [], "status": "succeeded"},
+        ]
+    )
+    monkeypatch.setattr(
+        module,
+        "ingest_tw_market_batch",
+        lambda **kwargs: next(summaries),
+    )
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "crawl_tw_daily_batch.py",
+            "--start-date",
+            "2026-03-20",
+            "--end-date",
+            "2026-03-23",
+        ],
+    )
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    progress = [json.loads(line) for line in captured.err.splitlines()]
+    assert exit_code == 1
+    assert summary["failed_dates"] == ["2026-03-20"]
+    assert summary["succeeded_dates"] == ["2026-03-23"]
+    assert summary["upserted_rows"] == 7
+    assert summary["errors"][0]["source_name"] == "batch"
+    assert "errors" in summary["errors"][0]["message"]
+    assert progress == [
+        {
+            "event": "tw_market_batch_progress",
+            "trading_date": "2026-03-20",
+            "status": "failed",
+            "upserted_rows": 5,
+            "error_count": 1,
+        },
+        {
+            "event": "tw_market_batch_progress",
+            "trading_date": "2026-03-23",
+            "status": "succeeded",
+            "upserted_rows": 2,
+            "error_count": 0,
+        },
+    ]
 
 
 def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
@@ -239,7 +338,9 @@ def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
 
     exit_code = module.main()
 
-    summary = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    summary = json.loads(captured.out)
+    progress = [json.loads(line) for line in captured.err.splitlines()]
     assert exit_code == 1
     assert summary["skipped_non_trading_dates"] == ["2026-03-20"]
     assert summary["failed_dates"] == ["2026-03-23", "2026-03-24"]
@@ -249,6 +350,12 @@ def test_crawl_tw_daily_batch_range_aggregates_skip_and_failures(
         "2026-03-24",
     ]
     assert [call["refresh_universe"] for call in calls] == [True, False, False]
+    assert summary["universe_refresh_succeeded"] is True
+    assert [item["status"] for item in progress] == [
+        "skipped_non_trading_day",
+        "failed",
+        "failed",
+    ]
 
 
 def test_crawl_tw_daily_batch_range_fails_on_universe_refresh_error(
@@ -290,6 +397,7 @@ def test_crawl_tw_daily_batch_range_fails_on_universe_refresh_error(
     summary = json.loads(capsys.readouterr().out)
     assert exit_code == 1
     assert summary["failed_dates"] == ["2026-03-20"]
+    assert summary["universe_refresh_succeeded"] is False
     assert summary["errors"] == [
         {
             "trading_date": "2026-03-20",
@@ -356,6 +464,7 @@ def test_crawl_tw_daily_batch_range_retries_universe_refresh_after_error(
     summary = json.loads(capsys.readouterr().out)
     assert exit_code == 1
     assert summary["failed_dates"] == ["2026-03-20"]
+    assert summary["universe_refresh_succeeded"] is True
     assert [call["refresh_universe"] for call in calls] == [True, True, False]
 
 
@@ -411,4 +520,5 @@ def test_crawl_tw_daily_batch_range_limits_refresh_attempts_after_exceptions(
         "2026-03-23",
         "2026-03-24",
     ]
+    assert summary["universe_refresh_succeeded"] is False
     assert [call["refresh_universe"] for call in calls] == [True, True, True, False]

@@ -3,16 +3,47 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from backend.market_data.services.ingestion import ingest_tw_market_batch
+from backend.market_data.services.ingestion import (
+    BATCH_STATUS_FAILED,
+    BATCH_STATUS_SKIPPED_NON_TRADING_DAY,
+    BATCH_STATUS_SUCCEEDED,
+    ingest_tw_market_batch,
+)
 
 _TW_TZ = ZoneInfo("Asia/Taipei")
 
 
-def _parse_trading_date(value: str | None) -> date:
+def _print_progress(
+    *,
+    trading_date: str,
+    status: str,
+    upserted_rows: int,
+    error_count: int,
+) -> None:
+    print(
+        json.dumps(
+            {
+                "event": "tw_market_batch_progress",
+                "trading_date": trading_date,
+                "status": status,
+                "upserted_rows": upserted_rows,
+                "error_count": error_count,
+            },
+            ensure_ascii=True,
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _parse_trading_date(
+    value: str | None, *, argument_name: str = "INGEST_DATE"
+) -> date:
     if not value:
         return datetime.now(_TW_TZ).date()
     normalized = value.strip()
@@ -24,7 +55,7 @@ def _parse_trading_date(value: str | None) -> date:
             return parser(normalized)
         except ValueError:
             continue
-    raise ValueError("INGEST_DATE must be YYYY-MM-DD or YYYYMMDD.")
+    raise ValueError(f"{argument_name} must be YYYY-MM-DD or YYYYMMDD.")
 
 
 def main() -> int:
@@ -61,8 +92,10 @@ def main() -> int:
         return 1 if summary["errors"] else 0
 
     try:
-        start_date = _parse_trading_date(args.start_date)
-        end_date = _parse_trading_date(args.end_date)
+        start_date = _parse_trading_date(
+            args.start_date, argument_name="--start-date"
+        )
+        end_date = _parse_trading_date(args.end_date, argument_name="--end-date")
     except ValueError as exc:
         parser.error(str(exc))
     if start_date > end_date:
@@ -84,6 +117,7 @@ def main() -> int:
         "skipped_non_trading_dates": [],
         "failed_dates": [],
         "upserted_rows": 0,
+        "universe_refresh_succeeded": None,
         "errors": [],
     }
     refresh_attempts_left = 3 if args.refresh_universe else 0
@@ -93,11 +127,23 @@ def main() -> int:
         should_refresh = refresh_attempts_left > 0
         if should_refresh:
             refresh_attempts_left -= 1
+            aggregate["universe_refresh_succeeded"] = False
+        summary_upserted_rows = 0
         try:
             summary = ingest_tw_market_batch(
                 trading_date=trading_date,
                 refresh_universe=should_refresh,
             )
+            summary_upserted_rows = int(summary["upserted_rows"])
+            aggregate["upserted_rows"] += summary_upserted_rows
+            summary_errors = summary["errors"]
+            if not isinstance(summary_errors, list):
+                raise TypeError("Batch summary errors must be a list.")
+            summary_status = summary["status"]
+            dated_errors = [
+                {"trading_date": trading_date_text, **error}
+                for error in summary_errors
+            ]
         except Exception as exc:
             aggregate["failed_dates"].append(trading_date_text)
             aggregate["errors"].append(
@@ -107,26 +153,51 @@ def main() -> int:
                     "message": str(exc) or "Batch ingestion failed.",
                 }
             )
+            _print_progress(
+                trading_date=trading_date_text,
+                status=BATCH_STATUS_FAILED,
+                upserted_rows=summary_upserted_rows,
+                error_count=1,
+            )
             if index + 1 < len(trading_dates):
                 time.sleep(args.delay_seconds)
             continue
-        if should_refresh and not any(
-            isinstance(error, dict)
-            and error.get("source_name") == "universe_refresh"
-            for error in summary["errors"]
-        ):
-            refresh_attempts_left = 0
-        aggregate["upserted_rows"] += int(summary["upserted_rows"])
-        if summary.get("status") == "skipped_non_trading_day":
-            aggregate["skipped_non_trading_dates"].append(trading_date_text)
-        elif summary["errors"]:
-            aggregate["failed_dates"].append(trading_date_text)
-            aggregate["errors"].extend(
-                {"trading_date": trading_date_text, **error}
-                for error in summary["errors"]
+        if should_refresh:
+            refresh_failed = any(
+                isinstance(error, dict)
+                and error.get("source_name") == "universe_refresh"
+                for error in summary_errors
             )
-        else:
+            if not refresh_failed:
+                aggregate["universe_refresh_succeeded"] = True
+                refresh_attempts_left = 0
+        if summary_errors:
+            aggregate["failed_dates"].append(trading_date_text)
+            aggregate["errors"].extend(dated_errors)
+            progress_status = BATCH_STATUS_FAILED
+        elif summary_status == BATCH_STATUS_SKIPPED_NON_TRADING_DAY:
+            aggregate["skipped_non_trading_dates"].append(trading_date_text)
+            progress_status = BATCH_STATUS_SKIPPED_NON_TRADING_DAY
+        elif summary_status == BATCH_STATUS_SUCCEEDED:
             aggregate["succeeded_dates"].append(trading_date_text)
+            progress_status = BATCH_STATUS_SUCCEEDED
+        else:
+            aggregate["failed_dates"].append(trading_date_text)
+            progress_status = BATCH_STATUS_FAILED
+            dated_errors = [
+                {
+                    "trading_date": trading_date_text,
+                    "source_name": "batch",
+                    "message": f"Batch ingestion status={summary_status}.",
+                }
+            ]
+            aggregate["errors"].extend(dated_errors)
+        _print_progress(
+            trading_date=trading_date_text,
+            status=progress_status,
+            upserted_rows=summary_upserted_rows,
+            error_count=len(dated_errors),
+        )
         if index + 1 < len(trading_dates):
             time.sleep(args.delay_seconds)
 

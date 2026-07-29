@@ -95,19 +95,32 @@ def upsert_tw_company_profile(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def mark_missing_active_tw_company_profiles_inactive(
-    *, exchange: str, active_symbols: Iterable[str]
+    *,
+    exchange: str,
+    active_symbols: Iterable[str],
+    source_name: str,
+    raw_payload_id: int,
+    archive_object_reference: str,
 ) -> int:
     symbols = {symbol.strip().upper() for symbol in active_symbols if symbol.strip()}
     if not symbols:
         return 0
+    normalized_exchange = exchange.strip().upper()
     try:
         with SessionLocal() as session:
             result = session.execute(
                 update(TwCompanyProfile)
-                .where(TwCompanyProfile.exchange == exchange)
+                .where(TwCompanyProfile.market == "TW")
+                .where(TwCompanyProfile.exchange == normalized_exchange)
                 .where(TwCompanyProfile.trading_status == "active")
                 .where(~TwCompanyProfile.symbol.in_(symbols))
-                .values(trading_status="inactive", updated_at=func.now())
+                .values(
+                    trading_status="inactive",
+                    source_name=source_name,
+                    raw_payload_id=raw_payload_id,
+                    archive_object_reference=archive_object_reference,
+                    updated_at=func.now(),
+                )
             )
             session.commit()
             return int(result.rowcount or 0)

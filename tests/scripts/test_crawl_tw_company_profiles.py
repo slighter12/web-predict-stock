@@ -94,11 +94,27 @@ def test_crawl_tw_company_profiles_reconciles_each_exchange(monkeypatch):
     summary = company_crawlers.crawl_tw_company_profiles()
 
     assert reconciliations == [
-        {"exchange": "TWSE", "active_symbols": {"2330"}},
-        {"exchange": "TPEX", "active_symbols": {"8049"}},
+        {
+            "exchange": "TWSE",
+            "active_symbols": {"2330"},
+            "source_name": company_crawlers.TWSE_COMPANY_SOURCE_NAME,
+            "raw_payload_id": 1,
+            "archive_object_reference": "raw_ingest_audit:1",
+        },
+        {
+            "exchange": "TPEX",
+            "active_symbols": {"8049"},
+            "source_name": company_crawlers.TPEX_COMPANY_SOURCE_NAME,
+            "raw_payload_id": 1,
+            "archive_object_reference": "raw_ingest_audit:1",
+        },
     ]
     assert summary["inactivated_count"] == 2
+    assert summary["reconciliation_requested"] is True
     assert summary["reconciliation_skipped"] is False
+    assert [
+        item["exchange"] for item in summary["source_summaries"]
+    ] == ["TWSE", "TPEX"]
     assert summary["active_symbol_count"] == 2
     assert summary["errors"] == []
 
@@ -147,6 +163,10 @@ def test_crawl_single_source_skips_reconciliation_when_feed_coverage_is_low(
 
     assert summary["inactivated_count"] == 0
     assert summary["reconciliation_skipped"] is True
+    assert summary["errors"] == [
+        "exchange=TWSE raw_payload_id=1 reconciliation skipped: "
+        "covered_symbol_count=90 existing_active_symbol_count=100."
+    ]
     assert "Skipped TW company profile reconciliation due to low coverage" in (
         caplog.text
     )
@@ -214,6 +234,46 @@ def test_crawl_single_source_does_not_reconcile_empty_feed(monkeypatch):
 
     assert summary["inactivated_count"] == 0
     assert summary["reconciliation_skipped"] is True
+    assert summary["errors"] == [
+        "exchange=TWSE raw_payload_id=1 reconciliation skipped: "
+        "company feed is empty."
+    ]
+
+
+def test_crawl_tw_company_profiles_can_disable_reconciliation(monkeypatch):
+    monkeypatch.setattr(
+        company_crawlers,
+        "_fetch_company_feed",
+        lambda **kwargs: (
+            1,
+            [{"CompanyCode": "2330", "CompanyName": "TSMC"}],
+        ),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "save_tw_company_profile",
+        lambda payload: {**payload, "write_action": "created"},
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "list_active_tw_company_profiles",
+        lambda **kwargs: pytest.fail("reconciliation is disabled"),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "mark_missing_active_tw_company_profiles_inactive",
+        lambda **kwargs: pytest.fail("reconciliation is disabled"),
+    )
+    monkeypatch.setattr(company_crawlers, "count_active_tw_company_profiles", lambda: 1)
+
+    summary = company_crawlers.crawl_tw_company_profiles(
+        include_tpex=False,
+        reconcile=False,
+    )
+
+    assert summary["reconciliation_requested"] is False
+    assert summary["reconciliation_skipped"] is False
+    assert summary["inactivated_count"] == 0
     assert summary["errors"] == []
 
 

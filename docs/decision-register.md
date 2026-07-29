@@ -50,6 +50,8 @@ stable across multiple implementation tasks.
 | `DEC-PHASE-009` | Retain the existing hybrid review UI while Phase 2 remains backend-first | accepted | The current Opinion, direction-diagnostic, workflow-payload, and frontend type integration stays in place, but no further frontend feature or browser-acceptance work is part of the active backend phase |
 | `DEC-PHASE-010` | Current direction diagnostics are pooled across symbols | accepted | Pooled holdout metrics and summed calibration samples are research-level diagnostics, not per-symbol skill claims; per-symbol diagnostics and training-cost optimization remain deferred pending evidence |
 | `DEC-PHASE-011` | Official TWSE/TPEX profile-filled and reconciled `tw_company_profiles` is the canonical current-active universe for broad daily batches; `ingestion_watchlist` remains explicitly heavier per-symbol scheduling | accepted | Broad daily batch ingestion uses the current-active profile universe; per-symbol scheduling uses `ingestion_watchlist`; this decision does not claim a historical point-in-time or delisted universe |
+| `DEC-PHASE-012` | TW daily batch no-data detection fails closed on ambiguous provider payloads | accepted | A date is skipped only when both TWSE and TPEX explicitly declare no data; empty or malformed table containers remain ingestion failures until an authoritative provider contract proves otherwise |
+| `DEC-PHASE-013` | Company-profile reconciliation remains an internal ingestion operation until an authenticated API boundary exists | accepted | Local scripts and internal ingestion may reconcile the active universe; the unauthenticated company-crawl HTTP endpoint may fetch and upsert profiles but must not mark missing profiles inactive |
 
 ## Open V1 Decisions
 

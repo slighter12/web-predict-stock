@@ -140,6 +140,7 @@ def _fetch_company_feed(
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException as exc:
+        error_type = type(exc).__name__
         try:
             persist_raw_ingest_record(
                 source_name=source_name,
@@ -153,7 +154,15 @@ def _fetch_company_feed(
             )
         except DataAccessError:
             logger.warning("Failed to record company crawler fetch failure")
-        raise ExternalFetchError(f"Failed to fetch TW company feed: {exc}") from exc
+        logger.warning(
+            "TW company feed fetch failed source=%s error_type=%s",
+            source_name,
+            error_type,
+        )
+        raise ExternalFetchError(
+            "Failed to fetch TW company feed.",
+            error_type=error_type,
+        ) from None
 
     try:
         payload = json.loads(payload_body)
@@ -323,6 +332,7 @@ def _crawl_single_source(
     source_name: str,
     exchange: str,
     board: str,
+    reconcile: bool = True,
 ) -> dict[str, Any]:
     raw_payload_id, records = _fetch_company_feed(
         url_env=url_env,
@@ -355,7 +365,7 @@ def _crawl_single_source(
         str(record["symbol"]).strip().upper()
         for record in list_active_tw_company_profiles(limit=0)
         if str(record.get("exchange") or "").upper() == exchange
-    } if records else set()
+    } if records and reconcile else set()
     upserted_count = 0
     created_count = 0
     updated_count = 0
@@ -378,11 +388,19 @@ def _crawl_single_source(
                 f"exchange={payload['exchange']} symbol={payload['symbol']}: {exc}"
             )
     inactivated_count = 0
-    reconciliation_skipped = True
-    if records and not errors:
+    reconciliation_skipped = False
+    if reconcile:
+        reconciliation_skipped = True
+    if reconcile and not records:
+        errors.append(
+            f"exchange={exchange} raw_payload_id={raw_payload_id} "
+            "reconciliation skipped: company feed is empty."
+        )
+    elif reconcile and not errors:
+        covered_symbol_count = len(active_symbols & existing_active_symbols)
         if (
             existing_active_symbols
-            and len(active_symbols & existing_active_symbols)
+            and covered_symbol_count
             < len(existing_active_symbols) * _RECONCILIATION_MINIMUM_COVERAGE_RATIO
         ):
             logger.warning(
@@ -390,19 +408,29 @@ def _crawl_single_source(
                 "exchange=%s existing_active_symbol_count=%s covered_symbol_count=%s",
                 exchange,
                 len(existing_active_symbols),
-                len(active_symbols & existing_active_symbols),
+                covered_symbol_count,
+            )
+            errors.append(
+                f"exchange={exchange} raw_payload_id={raw_payload_id} "
+                "reconciliation skipped: "
+                f"covered_symbol_count={covered_symbol_count} "
+                f"existing_active_symbol_count={len(existing_active_symbols)}."
             )
         else:
             try:
                 inactivated_count = mark_missing_active_tw_company_profiles_inactive(
                     exchange=exchange,
                     active_symbols=active_symbols,
+                    source_name=source_name,
+                    raw_payload_id=raw_payload_id,
+                    archive_object_reference=archive_reference,
                 )
                 reconciliation_skipped = False
             except Exception as exc:
                 errors.append(f"exchange={exchange} reconciliation: {exc}")
     return {
         "source_name": source_name,
+        "exchange": exchange,
         "raw_payload_id": raw_payload_id,
         "processed_count": len(records),
         "upserted_count": upserted_count,
@@ -410,6 +438,7 @@ def _crawl_single_source(
         "updated_count": updated_count,
         "noop_count": noop_count,
         "inactivated_count": inactivated_count,
+        "reconciliation_requested": reconcile,
         "reconciliation_skipped": reconciliation_skipped,
         "duplicate_symbol_count": dedupe_summary["duplicate_symbol_count"],
         "conflict_count": dedupe_summary["conflict_count"],
@@ -418,7 +447,9 @@ def _crawl_single_source(
     }
 
 
-def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
+def crawl_tw_company_profiles(
+    *, include_tpex: bool = True, reconcile: bool = True
+) -> dict[str, Any]:
     summaries = [
         _crawl_single_source(
             url_env=TWSE_COMPANY_SOURCE_URL_ENV,
@@ -426,6 +457,7 @@ def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
             source_name=TWSE_COMPANY_SOURCE_NAME,
             exchange="TWSE",
             board="listed",
+            reconcile=reconcile,
         )
     ]
     if include_tpex:
@@ -436,12 +468,14 @@ def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
                 source_name=TPEX_COMPANY_SOURCE_NAME,
                 exchange="TPEX",
                 board="otc",
+                reconcile=reconcile,
             )
         )
 
     return {
         "market": "TW",
         "source_names": [item["source_name"] for item in summaries],
+        "source_summaries": summaries,
         "raw_payload_ids": [item["raw_payload_id"] for item in summaries],
         "processed_count": sum(item["processed_count"] for item in summaries),
         "upserted_count": sum(item["upserted_count"] for item in summaries),
@@ -449,6 +483,7 @@ def crawl_tw_company_profiles(*, include_tpex: bool = True) -> dict[str, Any]:
         "updated_count": sum(item["updated_count"] for item in summaries),
         "noop_count": sum(item["noop_count"] for item in summaries),
         "inactivated_count": sum(item["inactivated_count"] for item in summaries),
+        "reconciliation_requested": reconcile,
         "reconciliation_skipped": any(
             item["reconciliation_skipped"] for item in summaries
         ),
