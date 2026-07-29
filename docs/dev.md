@@ -129,7 +129,9 @@ Backfill a weekday date range with bounded universe refresh retries:
 ```
 
 Range runs emit one progress JSON object per attempted date to stderr and one
-final aggregate JSON object to stdout. The aggregate field
+final aggregate JSON object to stdout. `--delay-seconds` defaults to `1.0` and
+controls the pause between attempted dates; adjust it when throttling long
+range backfills. The aggregate field
 `universe_refresh_succeeded` is `true` only after a confirmed refresh, `false`
 after an attempted refresh without confirmed success, and `null` when the range
 runner did not attempt its bounded refresh.

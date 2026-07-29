@@ -125,7 +125,7 @@ def test_tw_company_crawl_does_not_expose_request_url(
     caplog,
     monkeypatch,
 ):
-    feed_url_with_token = "https://feed.test/company?token=secret"
+    feed_url_with_token = "https://feed.test/company?token=secret"  # noqa: S105
     monkeypatch.setenv(
         company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV,
         feed_url_with_token,

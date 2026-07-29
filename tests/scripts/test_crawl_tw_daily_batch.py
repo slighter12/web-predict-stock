@@ -161,8 +161,9 @@ def test_crawl_tw_daily_batch_rejects_invalid_range_arguments(
     )
     monkeypatch.setattr(sys, "argv", argv)
 
-    with pytest.raises(SystemExit, match="2"):
+    with pytest.raises(SystemExit) as exc_info:
         module.main()
+    assert exc_info.value.code == 2
 
     assert message in capsys.readouterr().err
 

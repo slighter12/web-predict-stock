@@ -1564,7 +1564,7 @@ def test_market_batch_failures_do_not_expose_exception_details(
     monkeypatch,
     stage,
 ):
-    feed_url_with_token = "https://feed.test/market?token=secret"
+    feed_url_with_token = "https://feed.test/market?token=secret"  # noqa: S105
     request_name = (
         "_request_twse_daily_report"
         if exchange == "TWSE"
