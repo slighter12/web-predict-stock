@@ -12,32 +12,36 @@ from backend.research.contracts.runs import ResearchRunCreateRequest
 
 
 def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequest:
-    payload = {
-        "runtime_mode": "runtime_compatibility_mode",
-        "market": "TW",
-        "symbols": ["2330"],
-        "date_range": {"start": "2024-01-01", "end": "2024-01-04"},
-        "return_target": "open_to_open",
-        "horizon_days": 1,
-        "features": [{"name": "ma", "window": 5, "source": "close", "shift": 1}],
-        "model": {"type": "extra_trees", "params": {}},
-        "direction_model": {"type": "extra_trees", "params": {}},
-        "strategy": {
-            "type": "research_v1",
-            "threshold": 0.003,
-            "top_n": 1,
-            "allow_proactive_sells": True,
-        },
-        "execution": {"slippage": 0.001, "fees": 0.002},
-        "execution_route": "research_only",
-    }
-    if prospective:
-        payload["prospective_evidence"] = {
-            "mode": "strict_v1",
-            "cohort_id": "tw_2330_o2o_v1",
-            "basis_date": "2024-01-04",
-            "full_universe_symbols": ["2330"],
+    payload = (
+        prospective_service.strict_request_payload(
+            symbols=["2330"],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_2330,
+            full_universe_symbols=["2330"],
+        )
+        if prospective
+        else {
+            "runtime_mode": "runtime_compatibility_mode",
+            "market": "TW",
+            "symbols": ["2330"],
+            "date_range": {"start": "2024-01-01", "end": "2024-01-04"},
+            "return_target": "open_to_open",
+            "horizon_days": 1,
+            "features": [
+                {"name": "ma", "window": 5, "source": "close", "shift": 1}
+            ],
+            "model": {"type": "extra_trees", "params": {}},
+            "direction_model": {"type": "extra_trees", "params": {}},
+            "strategy": {
+                "type": "research_v1",
+                "threshold": 0.003,
+                "top_n": 1,
+                "allow_proactive_sells": True,
+            },
+            "execution": {"slippage": 0.001, "fees": 0.002},
+            "execution_route": "research_only",
         }
+    )
     payload.update(overrides)
     return ResearchRunCreateRequest.model_validate(payload)
 
@@ -45,12 +49,12 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
 @pytest.mark.parametrize(
     ("override", "message"),
     [
-        ({"market": "US"}, "requires market='TW'"),
-        ({"return_target": "close_to_close"}, "requires open_to_open"),
-        ({"horizon_days": 2}, "requires open_to_open"),
+        ({"market": "US"}, "strict_target_mismatch"),
+        ({"return_target": "close_to_close"}, "strict_target_mismatch"),
+        ({"horizon_days": 2}, "strict_target_mismatch"),
         (
             {"execution_route": "simulation_internal_v1"},
-            "requires execution_route='research_only'",
+            "strict_execution_route_mismatch",
         ),
         (
             {
@@ -58,8 +62,27 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
                     {"name": "ma", "window": 5, "source": "close", "shift": 2}
                 ]
             },
-            "requires every feature shift=1",
+            "strict_feature_recipe_mismatch",
         ),
+        (
+            {"date_range": {"start": "2024-01-01", "end": "2024-01-04"}},
+            "strict_date_range_recipe_mismatch",
+        ),
+        (
+            {
+                "direction_model": {
+                    "type": "extra_trees",
+                    "params": {
+                        "n_estimators": 200,
+                        "random_state": 42,
+                        "n_jobs": -1,
+                    },
+                    "confirmation_probability_threshold": 0.95,
+                }
+            },
+            "strict_model_recipe_mismatch",
+        ),
+        ({"factor_catalog_version": "changed"}, "strict_extended_recipe_mismatch"),
     ],
 )
 def test_strict_prospective_contract_rejects_non_frozen_configuration(
@@ -83,7 +106,7 @@ def test_strict_prospective_contract_rejects_duplicate_universe_snapshot():
 
 
 def test_strict_prospective_contract_rejects_execution_symbol_outside_snapshot():
-    with pytest.raises(ValidationError, match="symbols must be a subset"):
+    with pytest.raises(ValidationError, match="invalid_universe_snapshot"):
         _request(
             prospective=True,
             prospective_evidence={
@@ -95,6 +118,18 @@ def test_strict_prospective_contract_rejects_execution_symbol_outside_snapshot()
         )
 
 
+def test_strict_prospective_contract_rejects_noncanonical_symbol_order():
+    payload = prospective_service.strict_request_payload(
+        symbols=["0001", "0000"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=["0000", "0001"],
+    )
+
+    with pytest.raises(ValidationError, match="invalid_universe_snapshot"):
+        ResearchRunCreateRequest.model_validate(payload)
+
+
 def test_public_strict_prospective_contract_rejects_non_o2o_target():
     internal_payload = _request(prospective=True).model_dump(mode="json")
     payload = {
@@ -104,8 +139,21 @@ def test_public_strict_prospective_contract_rejects_non_o2o_target():
     }
     payload["return_target"] = "close_to_close"
 
-    with pytest.raises(ValidationError, match="requires open_to_open"):
+    with pytest.raises(ValidationError, match="strict_target_mismatch"):
         PublicResearchRunCreateRequest.model_validate(payload)
+
+
+def test_public_strict_prospective_contract_accepts_canonical_recipe():
+    internal = _request(prospective=True)
+    payload = {
+        name: value
+        for name, value in internal.model_dump(mode="json").items()
+        if name in PublicResearchRunCreateRequest.model_fields
+    }
+
+    public = PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert public.to_internal_request() == internal
 
 
 def test_non_strict_request_remains_compatible_with_non_strict_feature_shift():
@@ -223,8 +271,13 @@ def test_strict_forward_signal_uses_unshifted_basis_features_and_normal_mode_is_
     )
 
     strict_request = _request(prospective=True)
+    strict_strategy = prospective_service.resolve_runtime_strategy(
+        strategy=strict_request.strategy,
+        runtime_mode=strict_request.runtime_mode,
+        default_bundle_version=strict_request.default_bundle_version,
+    )["strategy"]
     strict_signals, strict_warning = execution_service.build_forward_opinion_signals(
-        _symbol_data(), strict_request, strict_request.strategy
+        _symbol_data(), strict_request, strict_strategy
     )
 
     assert strict_warning is None
@@ -271,47 +324,19 @@ def _strict_record(
     created_at: str = "2024-01-04T13:30:00+08:00",
     signal_frozen_at: str = "2024-01-04T13:25:00+08:00",
 ) -> dict:
-    evidence = prospective_service.prospective_evidence_payload(
+    request_payload = prospective_service.strict_request_payload(
+        symbols=["2330"],
         cohort_id=prospective_service.COHORT_2330,
         basis_date=date(2024, 1, 4),
         full_universe_symbols=["2330"],
     )
+    evidence = request_payload["prospective_evidence"]
     evidence["signal_frozen_at"] = signal_frozen_at
     return {
         "run_id": run_id,
         "status": "succeeded",
         "created_at": created_at,
-        "request_payload": {
-            "runtime_mode": "vnext_spec_mode",
-            "default_bundle_version": "research_spec_v1",
-            "market": "TW",
-            "symbols": ["2330"],
-            "return_target": "open_to_open",
-            "horizon_days": 1,
-            "execution_route": "research_only",
-            "features": [
-                {"name": "ma", "window": 5, "source": "close", "shift": 1},
-                {"name": "rsi", "window": 14, "source": "close", "shift": 1},
-            ],
-            "model": {
-                "type": "extra_trees",
-                "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-            },
-            "direction_model": {
-                "type": "extra_trees",
-                "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-            },
-            "validation": {"method": "walk_forward", "splits": 3, "test_size": 0.2},
-            "baselines": ["buy_and_hold"],
-            "strategy": {
-                "type": "research_v1",
-                "threshold": None,
-                "top_n": None,
-                "allow_proactive_sells": True,
-            },
-            "execution": {"fees": 0.002, "slippage": 0.001},
-            "prospective_evidence": evidence,
-        },
+        "request_payload": request_payload,
         "signals": [
             {
                 "date": "2024-01-04",
@@ -465,6 +490,58 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     assert result["resolved_signal_count"] == 0
 
 
+def test_failed_attempt_does_not_invalidate_successful_retry(monkeypatch):
+    failed = _strict_record("failed")
+    failed["status"] = "failed"
+    failed["signals"] = []
+    successful = _strict_record("successful")
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [failed, successful],
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        lambda *args, **kwargs: _bars(
+            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
+        ),
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert [run["status"] for run in result["runs"]] == ["invalid", "resolved"]
+    assert "duplicate_basis_date" not in result["runs"][1]["issues"]
+    assert result["completed_trading_days"] == 1
+
+
+def test_invalid_cost_record_does_not_poison_valid_metrics(monkeypatch):
+    invalid = _strict_record("invalid-cost")
+    invalid["request_payload"]["execution"]["slippage"] = 0.002
+    successful = _strict_record("successful")
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [invalid, successful],
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        lambda *args, **kwargs: _bars(
+            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
+        ),
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert result["runs"][0]["issues"] == [
+        "strict_cost_or_baseline_recipe_mismatch"
+    ]
+    assert result["runs"][1]["status"] == "resolved"
+    assert result["metrics"]["net_position_return"] is not None
+    assert result["costs"] == {"fees": 0.002, "slippage": 0.001}
+
+
 def test_cohort_evaluator_rejects_signal_date_that_differs_from_basis_date(monkeypatch):
     record = _strict_record("wrong-signal-date")
     record["signals"][0]["date"] = "2024-01-03"
@@ -491,6 +568,87 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     assert result["runs"][0]["issues"] == ["strict_model_recipe_mismatch"]
 
 
+def test_cohort_evaluator_rejects_changed_direction_threshold(monkeypatch):
+    record = _strict_record("changed-direction-threshold")
+    record["request_payload"]["direction_model"][
+        "confirmation_probability_threshold"
+    ] = 0.95
+    monkeypatch.setattr(
+        prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert result["runs"][0]["issues"] == ["strict_model_recipe_mismatch"]
+
+
+def test_strict_start_rejects_changed_all_active_snapshot(monkeypatch):
+    snapshot = [f"{number:04d}" for number in range(100)]
+    request = ResearchRunCreateRequest.model_validate(
+        prospective_service.strict_request_payload(
+            symbols=snapshot[:95],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            full_universe_symbols=snapshot,
+        )
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "active_tw_profile_symbols",
+        lambda: [*snapshot, "9999"],
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="current cohort snapshot",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            request,
+            run_id="snapshot-mismatch",
+        )
+
+
+def test_strict_start_rejects_execution_coverage_below_gate(monkeypatch):
+    snapshot = [f"{number:04d}" for number in range(100)]
+    request = ResearchRunCreateRequest.model_validate(
+        prospective_service.strict_request_payload(
+            symbols=snapshot[:94],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            full_universe_symbols=snapshot,
+        )
+    )
+    monkeypatch.setattr(
+        prospective_service, "active_tw_profile_symbols", lambda: snapshot
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="coverage is below 95%",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            request,
+            run_id="coverage-mismatch",
+        )
+
+
+def test_strict_start_rejects_second_valid_success(monkeypatch):
+    monkeypatch.setattr(
+        prospective_service,
+        "valid_successful_cohort_runs",
+        lambda **kwargs: [{"run_id": "existing"}],
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="already exists",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            _request(prospective=True),
+            run_id="new-run",
+        )
+
+
 def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkeypatch):
     record = _strict_record("insufficient-coverage")
     snapshot = [f"{number:04d}" for number in range(20)]
@@ -501,6 +659,8 @@ def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkey
     )
     evidence["signal_frozen_at"] = "2024-01-04T13:25:00+08:00"
     record["request_payload"]["prospective_evidence"] = evidence
+    record["request_payload"]["symbols"] = ["0000"]
+    record["signals"][0]["symbol"] = "0000"
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )

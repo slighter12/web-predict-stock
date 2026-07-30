@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import json
+import sys
+from datetime import date
+from types import SimpleNamespace
+
+
+def test_runner_reuses_one_existing_valid_run(capsys, monkeypatch, load_script):
+    module = load_script(
+        "run_tw_prospective_cohorts.py",
+        "run_tw_prospective_cohorts_existing",
+    )
+    monkeypatch.setattr(
+        module,
+        "valid_successful_cohort_runs",
+        lambda **kwargs: [{"run_id": "existing-run"}],
+    )
+    monkeypatch.setattr(
+        module,
+        "preflight_cohort",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("existing runs must skip preflight")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_tw_prospective_cohorts.py",
+            "--basis-date",
+            "2024-01-04",
+            "--cohort",
+            "2330",
+        ],
+    )
+
+    assert module.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cohorts"] == [
+        {
+            "cohort_id": module.COHORT_2330,
+            "basis_date": "2024-01-04",
+            "status": "existing",
+            "run_id": "existing-run",
+        }
+    ]
+
+
+def test_runner_fails_closed_for_multiple_existing_valid_runs(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "run_tw_prospective_cohorts.py",
+        "run_tw_prospective_cohorts_duplicate",
+    )
+    monkeypatch.setattr(
+        module,
+        "valid_successful_cohort_runs",
+        lambda **kwargs: [{"run_id": "first"}, {"run_id": "second"}],
+    )
+    monkeypatch.setattr(
+        module,
+        "preflight_cohort",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("duplicate runs must skip preflight")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_tw_prospective_cohorts.py",
+            "--basis-date",
+            "2024-01-04",
+            "--cohort",
+            "2330",
+        ],
+    )
+
+    assert module.main() == 0
+
+    report = json.loads(capsys.readouterr().out)["cohorts"][0]
+    assert report["status"] == "no-opinion"
+    assert report["run_ids"] == ["first", "second"]
+
+
+def test_runner_creates_with_deterministic_run_id(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "run_tw_prospective_cohorts.py",
+        "run_tw_prospective_cohorts_create",
+    )
+    basis_date = date(2024, 1, 4)
+    preflight = {
+        "cohort_id": module.COHORT_2330,
+        "basis_date": basis_date.isoformat(),
+        "full_universe_symbols": ["2330"],
+        "execution_symbols": ["2330"],
+        "status": "ready",
+    }
+    calls = []
+    monkeypatch.setattr(module, "valid_successful_cohort_runs", lambda **kwargs: [])
+    monkeypatch.setattr(module, "preflight_cohort", lambda **kwargs: preflight)
+    monkeypatch.setattr(
+        module,
+        "create_research_run",
+        lambda request, **kwargs: calls.append(kwargs)
+        or SimpleNamespace(run_id=kwargs["run_id"]),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_tw_prospective_cohorts.py",
+            "--basis-date",
+            basis_date.isoformat(),
+            "--cohort",
+            "2330",
+        ],
+    )
+
+    assert module.main() == 0
+
+    expected_run_id = module.prospective_run_id(
+        cohort_id=module.COHORT_2330,
+        basis_date=basis_date,
+    )
+    assert calls[0]["run_id"] == expected_run_id
+    assert json.loads(capsys.readouterr().out)["cohorts"][0]["run_id"] == (
+        expected_run_id
+    )
