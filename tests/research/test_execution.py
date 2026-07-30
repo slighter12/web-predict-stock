@@ -132,6 +132,62 @@ def test_research_eligibility_excludes_audits_before_tw_start_date_floor(
     )
 
 
+def test_research_eligibility_includes_delayed_historical_backfill_audits(
+    monkeypatch,
+):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2024, 1, 3)
+    delayed_fetch_timestamp = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                    fetch_timestamp=delayed_fetch_timestamp,
+                ),
+                _official_audit(
+                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    trading_date=trading_date,
+                    payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
+                    fetch_timestamp=delayed_fetch_timestamp,
+                ),
+            ]
+        )
+        session.commit()
+
+    assert eligibility_service.load_official_no_data_dates(
+        start_date=trading_date,
+        end_date=trading_date,
+    ) == {trading_date}
+
+
+def test_research_eligibility_loads_no_data_payloads_across_chunks(monkeypatch):
+    session_local = _eligibility_session(monkeypatch)
+    trading_dates = [date(2026, 7, day) for day in range(8, 11)]
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=source,
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                )
+                for trading_date in trading_dates
+                for source in eligibility_service._BATCH_SOURCES
+            ]
+        )
+        session.commit()
+
+    monkeypatch.setattr(eligibility_service, "_AUDIT_PAYLOAD_CHUNK_SIZE", 2)
+
+    assert eligibility_service.load_official_no_data_dates(
+        start_date=trading_dates[0],
+        end_date=trading_dates[-1],
+    ) == set(trading_dates)
+
+
 @pytest.mark.parametrize("include_tpex", [False, True])
 def test_research_eligibility_keeps_non_official_row_without_two_latest_no_data_audits(
     monkeypatch, include_tpex

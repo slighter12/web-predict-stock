@@ -16,6 +16,7 @@ _BATCH_SOURCES = (
     market_data_ingestion.SOURCE_TWSE_MI_INDEX,
     market_data_ingestion.SOURCE_TPEX_AFTERTRADING_OTC,
 )
+_AUDIT_PAYLOAD_CHUNK_SIZE = 50
 _DATE_PATTERN = re.compile(r"(?:^|;)date=(\d{8}|\d{4}/\d{2}/\d{2})(?:;|$)")
 
 
@@ -38,15 +39,15 @@ def load_official_no_data_dates(*, start_date: date, end_date: date) -> set[date
         time.min,
         tzinfo=market_data_ingestion.TW_TIMEZONE,
     ).astimezone(timezone.utc)
-    latest_by_date_source: dict[tuple[date, str], tuple[str, str | None]] = {}
+    latest_by_date_source: dict[tuple[date, str], tuple[int, str]] = {}
     try:
         with SessionLocal() as session:
             rows = session.execute(
                 select(
+                    RawIngestAudit.id,
                     RawIngestAudit.source_name,
                     RawIngestAudit.fetch_status,
                     RawIngestAudit.expected_symbol_context,
-                    RawIngestAudit.payload_body,
                 )
                 .where(RawIngestAudit.market == "TW")
                 .where(RawIngestAudit.source_name.in_(_BATCH_SOURCES))
@@ -60,8 +61,8 @@ def load_official_no_data_dates(*, start_date: date, end_date: date) -> set[date
                 trading_date = _audit_trading_date(row.expected_symbol_context)
                 if trading_date is not None and start_date <= trading_date <= end_date:
                     latest_by_date_source[trading_date, row.source_name] = (
+                        row.id,
                         row.fetch_status,
-                        row.payload_body,
                     )
     except Exception:
         logger.warning(
@@ -74,14 +75,43 @@ def load_official_no_data_dates(*, start_date: date, end_date: date) -> set[date
         return set()
 
     try:
+        successful_audit_ids = [
+            audit_id
+            for audit_id, fetch_status in latest_by_date_source.values()
+            if fetch_status == "success"
+        ]
+        no_data_audit_ids: set[int] = set()
+        if successful_audit_ids:
+            with SessionLocal() as session:
+                for offset in range(
+                    0,
+                    len(successful_audit_ids),
+                    _AUDIT_PAYLOAD_CHUNK_SIZE,
+                ):
+                    audit_id_chunk = successful_audit_ids[
+                        offset : offset + _AUDIT_PAYLOAD_CHUNK_SIZE
+                    ]
+                    payload_rows = session.execute(
+                        select(RawIngestAudit.id, RawIngestAudit.payload_body).where(
+                            RawIngestAudit.id.in_(audit_id_chunk)
+                        )
+                    )
+                    no_data_audit_ids.update(
+                        row.id
+                        for row in payload_rows
+                        if market_data_ingestion.payload_declares_no_data(
+                            row.payload_body
+                        )
+                    )
+
         return {
             trading_date
             for trading_date in {key[0] for key in latest_by_date_source}
             if all(
                 (audit := latest_by_date_source.get((trading_date, source)))
                 is not None
-                and audit[0] == "success"
-                and market_data_ingestion.payload_declares_no_data(audit[1])
+                and audit[1] == "success"
+                and audit[0] in no_data_audit_ids
                 for source in _BATCH_SOURCES
             )
         }
