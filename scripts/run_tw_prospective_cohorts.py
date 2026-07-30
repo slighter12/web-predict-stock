@@ -5,6 +5,7 @@ import json
 from datetime import date
 from uuid import uuid4
 
+from backend.platform.errors import BacktestError
 from backend.research.contracts.runs import ResearchRunCreateRequest
 from backend.research.services.prospective import (
     COHORT_2330,
@@ -49,7 +50,8 @@ def main() -> int:
                 {
                     "cohort_id": cohort_id,
                     "basis_date": args.basis_date.isoformat(),
-                    "status": "no-opinion",
+                    "status": "error",
+                    "failure_kind": "duplicate_valid_runs",
                     "reason": "Multiple valid strict runs already exist for this basis date.",
                     "run_ids": [record["run_id"] for record in existing],
                 }
@@ -66,17 +68,28 @@ def main() -> int:
             full_universe_symbols=preflight["full_universe_symbols"],
         )
         request = ResearchRunCreateRequest.model_validate(payload)
-        response = create_research_run(
-            request,
-            request_id=f"prospective-{uuid4()}",
-            run_id=prospective_run_id(
-                cohort_id=cohort_id,
-                basis_date=args.basis_date,
-            ),
-        )
+        try:
+            response = create_research_run(
+                request,
+                request_id=f"prospective-{uuid4()}",
+                run_id=prospective_run_id(
+                    cohort_id=cohort_id,
+                    basis_date=args.basis_date,
+                ),
+            )
+        except BacktestError as exc:
+            reports.append(
+                {
+                    **preflight,
+                    "status": "error",
+                    "failure_kind": type(exc).__name__,
+                    "reason": str(exc),
+                }
+            )
+            continue
         reports.append({**preflight, "run_id": response.run_id, "status": "created"})
     print(json.dumps({"basis_date": args.basis_date.isoformat(), "cohorts": reports}, ensure_ascii=False))
-    return 0
+    return 1 if any(report["status"] == "error" for report in reports) else 0
 
 
 if __name__ == "__main__":

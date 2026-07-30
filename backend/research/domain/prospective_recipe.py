@@ -72,7 +72,7 @@ def build_strict_request_payload(
 ) -> dict[str, Any]:
     if cohort_id not in COHORT_IDS:
         raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
-    execution_symbols = _normalized_symbols(symbols)
+    execution_symbols = sorted(set(_normalized_symbols(symbols)))
     full_symbols = sorted(set(_normalized_symbols(full_universe_symbols)))
     return {
         "runtime_mode": "vnext_spec_mode",

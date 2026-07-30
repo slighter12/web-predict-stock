@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from sqlalchemy import select
 
 from backend.database import DailyOHLCV, ResearchRun, SessionLocal
 from backend.market_data.repositories.company_profiles import list_tw_company_profiles
+from backend.platform.db.repository_helpers import json_loads
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
 from backend.research.domain.prospective_recipe import (
@@ -40,6 +42,7 @@ from backend.shared.analytics.strategy import resolve_runtime_strategy
 from scripts.market_data_ingestion import OFFICIAL_SOURCES
 
 TW_TIMEZONE = ZoneInfo("Asia/Taipei")
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -75,19 +78,6 @@ def _as_datetime(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
-
-
-def prospective_evidence_payload(
-    *, cohort_id: str, basis_date: date, full_universe_symbols: Iterable[str]
-) -> dict[str, Any]:
-    if cohort_id not in COHORT_IDS:
-        raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
-    return {
-        "mode": STRICT_MODE,
-        "cohort_id": cohort_id,
-        "basis_date": basis_date.isoformat(),
-        "full_universe_symbols": sorted({str(item).strip().upper() for item in full_universe_symbols if str(item).strip()}),
-    }
 
 
 def active_tw_profile_symbols() -> list[str]:
@@ -144,7 +134,11 @@ def load_eligible_bars(
         return {}
     frame = frame.set_index("date")
     frame = exclude_non_official_rows_on_official_no_data(
-        frame, load_official_no_data_dates(start_date=start_date, end_date=end_date or date.today())
+        frame,
+        load_official_no_data_dates(
+            start_date=start_date,
+            end_date=end_date or datetime.now(TW_TIMEZONE).date(),
+        ),
     )
     result: dict[str, list[EligibleBar]] = defaultdict(list)
     for row_date, row in frame.iterrows():
@@ -284,13 +278,32 @@ def list_cohort_run_records(cohort_id: str) -> list[dict[str, Any]]:
         raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
     with SessionLocal() as session:
         rows = session.execute(
-            select(ResearchRun.run_id).order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
-        ).scalars().all()
+            select(ResearchRun.run_id, ResearchRun.request_payload_json)
+            .where(
+                ResearchRun.request_payload_json.contains(
+                    '"cohort_id"', autoescape=True
+                )
+            )
+            .where(
+                ResearchRun.request_payload_json.contains(
+                    f'"{cohort_id}"', autoescape=True
+                )
+            )
+            .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
+        ).all()
     records = []
-    for run_id in rows:
+    for run_id, request_payload_json in rows:
+        request_payload = json_loads(request_payload_json, None)
+        evidence = (
+            request_payload.get("prospective_evidence")
+            if isinstance(request_payload, dict)
+            else None
+        )
+        if not isinstance(evidence, dict) or evidence.get("cohort_id") != cohort_id:
+            continue
         record = get_research_run_record(run_id)
-        evidence = _run_evidence(record)
-        if evidence and evidence.get("cohort_id") == cohort_id:
+        loaded_evidence = _run_evidence(record)
+        if loaded_evidence and loaded_evidence.get("cohort_id") == cohort_id:
             records.append(record)
     return records
 
@@ -440,11 +453,14 @@ def _finite_number(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _signal_outcome(signal: dict[str, Any], *, basis_date: date) -> dict[str, Any]:
+def _signal_outcome(
+    signal: dict[str, Any],
+    *,
+    basis_date: date,
+    bars_by_symbol: dict[str, list[EligibleBar]],
+) -> dict[str, Any]:
     symbol = str(signal.get("symbol") or "").upper()
-    bars = load_eligible_bars(
-        [symbol], start_date=basis_date, end_date=None
-    ).get(symbol, [])
+    bars = bars_by_symbol.get(symbol, [])
     basis = next((bar for bar in bars if bar.date == basis_date), None)
     later = [bar for bar in bars if bar.date > basis_date]
     if len(later) < 2:
@@ -495,7 +511,13 @@ def _correlation(points: list[dict[str, Any]], method: str) -> float | None:
             pd.Series([item["score"] for item in points]), method=method
         )
         return float(value) if value is not None and math.isfinite(float(value)) else None
-    except Exception:
+    except (TypeError, ValueError):
+        logger.warning(
+            "Failed to calculate prospective correlation method=%s point_count=%d",
+            method,
+            len(points),
+            exc_info=True,
+        )
         return None
 
 
@@ -530,12 +552,38 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
         if basis_date is not None and not issues:
             basis_counts[basis_date] += 1
 
+    for _, _, basis_date, issues in prepared:
+        if basis_date is not None and basis_counts[basis_date] > 1:
+            issues.append("duplicate_basis_date")
+
+    evaluable = [
+        (record, basis_date)
+        for record, _, basis_date, issues in prepared
+        if basis_date is not None and not issues
+    ]
+    outcome_symbols = sorted(
+        {
+            str(item.get("symbol") or "").upper()
+            for record, _ in evaluable
+            for item in record.get("signals", [])
+            if item.get("signal_kind") == "forward_opinion"
+            and str(item.get("symbol") or "").strip()
+        }
+    )
+    bars_by_symbol = (
+        load_eligible_bars(
+            outcome_symbols,
+            start_date=min(basis_date for _, basis_date in evaluable),
+            end_date=datetime.now(TW_TIMEZONE).date(),
+        )
+        if evaluable and outcome_symbols
+        else {}
+    )
+
     run_reports: list[dict[str, Any]] = []
     resolved: list[dict[str, Any]] = []
     valid_costs: set[tuple[float, float]] = set()
     for record, evidence, basis_date, issues in prepared:
-        if basis_date is not None and basis_counts[basis_date] > 1:
-            issues.append("duplicate_basis_date")
         signals = [
             item
             for item in record.get("signals", [])
@@ -546,11 +594,17 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
         slippage = _finite_number(execution.get("slippage"))
         if not issues and fees is not None and slippage is not None:
             valid_costs.add((fees, slippage))
-        outcomes = (
-            []
-            if issues or basis_date is None
-            else [_signal_outcome(item, basis_date=basis_date) for item in signals]
-        )
+        if issues or basis_date is None:
+            outcomes = []
+        else:
+            outcomes = [
+                _signal_outcome(
+                    item,
+                    basis_date=basis_date,
+                    bars_by_symbol=bars_by_symbol,
+                )
+                for item in signals
+            ]
         if any(item["status"] == "invalid_signal" for item in outcomes):
             issues.append("invalid_forward_signal")
         if not issues and basis_date is not None:

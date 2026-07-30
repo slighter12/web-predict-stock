@@ -5,6 +5,8 @@ import sys
 from datetime import date
 from types import SimpleNamespace
 
+from backend.platform.errors import ExternalFetchError
+
 
 def test_runner_reuses_one_existing_valid_run(capsys, monkeypatch, load_script):
     module = load_script(
@@ -79,10 +81,11 @@ def test_runner_fails_closed_for_multiple_existing_valid_runs(
         ],
     )
 
-    assert module.main() == 0
+    assert module.main() == 1
 
     report = json.loads(capsys.readouterr().out)["cohorts"][0]
-    assert report["status"] == "no-opinion"
+    assert report["status"] == "error"
+    assert report["failure_kind"] == "duplicate_valid_runs"
     assert report["run_ids"] == ["first", "second"]
 
 
@@ -132,3 +135,54 @@ def test_runner_creates_with_deterministic_run_id(
     assert json.loads(capsys.readouterr().out)["cohorts"][0]["run_id"] == (
         expected_run_id
     )
+
+
+def test_runner_isolates_expected_failure_and_continues_both_cohorts(
+    capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "run_tw_prospective_cohorts.py",
+        "run_tw_prospective_cohorts_isolated_failure",
+    )
+    basis_date = date(2024, 1, 4)
+
+    def preflight(*, cohort_id, basis_date):
+        symbol = "2330" if cohort_id == module.COHORT_2330 else "2317"
+        return {
+            "cohort_id": cohort_id,
+            "basis_date": basis_date.isoformat(),
+            "full_universe_symbols": [symbol],
+            "execution_symbols": [symbol],
+            "status": "ready",
+        }
+
+    created = []
+
+    def create_run(request, **kwargs):
+        cohort_id = request.prospective_evidence.cohort_id
+        if cohort_id == module.COHORT_2330:
+            raise ExternalFetchError("2330 cohort failed")
+        created.append(cohort_id)
+        return SimpleNamespace(run_id=kwargs["run_id"])
+
+    monkeypatch.setattr(module, "valid_successful_cohort_runs", lambda **kwargs: [])
+    monkeypatch.setattr(module, "preflight_cohort", preflight)
+    monkeypatch.setattr(module, "create_research_run", create_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_tw_prospective_cohorts.py",
+            "--basis-date",
+            basis_date.isoformat(),
+        ],
+    )
+
+    assert module.main() == 1
+
+    reports = json.loads(capsys.readouterr().out)["cohorts"]
+    assert reports[0]["status"] == "error"
+    assert reports[0]["failure_kind"] == "ExternalFetchError"
+    assert reports[0]["reason"] == "2330 cohort failed"
+    assert reports[1]["status"] == "created"
+    assert created == [module.COHORT_ALL_ACTIVE]

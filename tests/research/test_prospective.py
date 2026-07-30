@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -7,6 +8,8 @@ from pydantic import ValidationError
 import backend.research.services.execution as execution_service
 import backend.research.services.prospective as prospective_service
 import backend.research.services.registry as registry_service
+from backend.platform.db.repository_helpers import json_dumps
+from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.research.api import PublicResearchRunCreateRequest
 from backend.research.contracts.runs import ResearchRunCreateRequest
 
@@ -118,13 +121,26 @@ def test_strict_prospective_contract_rejects_execution_symbol_outside_snapshot()
         )
 
 
-def test_strict_prospective_contract_rejects_noncanonical_symbol_order():
+def test_strict_payload_builder_canonicalizes_execution_symbols():
     payload = prospective_service.strict_request_payload(
-        symbols=["0001", "0000"],
+        symbols=[" 0001 ", "0000", "0001"],
         basis_date=date(2024, 1, 4),
         cohort_id=prospective_service.COHORT_ALL_ACTIVE,
         full_universe_symbols=["0000", "0001"],
     )
+
+    assert payload["symbols"] == ["0000", "0001"]
+    ResearchRunCreateRequest.model_validate(payload)
+
+
+def test_strict_prospective_contract_rejects_noncanonical_symbol_order():
+    payload = prospective_service.strict_request_payload(
+        symbols=["0000", "0001"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=["0000", "0001"],
+    )
+    payload["symbols"] = ["0001", "0000"]
 
     with pytest.raises(ValidationError, match="invalid_universe_snapshot"):
         ResearchRunCreateRequest.model_validate(payload)
@@ -184,6 +200,42 @@ def test_success_request_payload_writes_timezone_aware_frozen_timestamp_for_firs
     assert payload["prospective_evidence"]["signal_frozen_at"] == frozen_at.isoformat()
 
 
+def test_success_request_payload_treats_missing_started_record_as_first_freeze(
+    monkeypatch, caplog
+):
+    frozen_at = datetime(2024, 1, 4, 5, 25, tzinfo=timezone.utc)
+
+    def missing_record(run_id):
+        raise DataNotFoundError(run_id)
+
+    monkeypatch.setattr(registry_service, "get_research_run_record", missing_record)
+    monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
+
+    with caplog.at_level("WARNING"):
+        payload = registry_service._success_request_payload(
+            run_id="strict-missing", request=_request(prospective=True)
+        )
+
+    assert payload["prospective_evidence"]["signal_frozen_at"] == frozen_at.isoformat()
+    assert "run_id=strict-missing" in caplog.text
+
+
+def test_success_request_payload_propagates_data_access_errors(monkeypatch):
+    def unavailable_record(run_id):
+        raise DataAccessError(run_id)
+
+    monkeypatch.setattr(
+        registry_service,
+        "get_research_run_record",
+        unavailable_record,
+    )
+
+    with pytest.raises(DataAccessError):
+        registry_service._success_request_payload(
+            run_id="strict-unavailable", request=_request(prospective=True)
+        )
+
+
 def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_retry(
     monkeypatch,
 ):
@@ -234,7 +286,7 @@ class _Regressor:
 
 
 class _Classifier:
-    classes_ = [0, 1]
+    classes_ = (0, 1)
 
     def predict_proba(self, frame):
         return [[0.2, 0.8]]
@@ -350,9 +402,11 @@ def _strict_record(
     }
 
 
-def _bars(*rows: tuple[str, float]) -> dict[str, list[prospective_service.EligibleBar]]:
+def _bars(
+    *rows: tuple[str, float], symbol: str = "2330"
+) -> dict[str, list[prospective_service.EligibleBar]]:
     return {
-        "2330": [
+        symbol: [
             prospective_service.EligibleBar(
                 date=date.fromisoformat(day),
                 open=open_price,
@@ -364,6 +418,124 @@ def _bars(*rows: tuple[str, float]) -> dict[str, list[prospective_service.Eligib
             )
             for day, open_price in rows
         ]
+    }
+
+
+def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
+    cohort_id = prospective_service.COHORT_2330
+    request_payload = prospective_service.strict_request_payload(
+        symbols=["2330"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=cohort_id,
+        full_universe_symbols=["2330"],
+    )
+    candidate_rows = [
+        ("exact", json_dumps(request_payload)),
+        (
+            "false-positive",
+            json_dumps(
+                {
+                    "cohort_id": cohort_id,
+                    "prospective_evidence": {
+                        "cohort_id": prospective_service.COHORT_ALL_ACTIVE
+                    },
+                }
+            ),
+        ),
+    ]
+    statements = []
+
+    class _Result:
+        def all(self):
+            return candidate_rows
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            return _Result()
+
+    loaded = []
+
+    def load_record(run_id):
+        loaded.append(run_id)
+        return _strict_record(run_id)
+
+    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        prospective_service,
+        "get_research_run_record",
+        load_record,
+    )
+
+    records = prospective_service.list_cohort_run_records(cohort_id)
+
+    assert [record["run_id"] for record in records] == ["exact"]
+    assert loaded == ["exact"]
+    compiled = statements[0].compile()
+    assert str(compiled).count("request_payload_json LIKE") == 2
+    assert str(compiled).count("ESCAPE") == 2
+    assert '"tw/_2330/_o2o/_v1"' in compiled.params.values()
+
+
+def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 5, 0, 30, tzinfo=tz)
+
+    row = SimpleNamespace(
+        date=date(2024, 1, 4),
+        symbol="2330",
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        source="twse",
+        raw_payload_id=1,
+    )
+
+    class _ScalarResult:
+        def all(self):
+            return [row]
+
+    class _Result:
+        def scalars(self):
+            return _ScalarResult()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            return _Result()
+
+    captured = {}
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        prospective_service,
+        "load_official_no_data_dates",
+        lambda **kwargs: captured.update(kwargs) or set(),
+    )
+
+    prospective_service.load_eligible_bars(
+        ["2330"],
+        start_date=date(2024, 1, 4),
+    )
+
+    assert captured == {
+        "start_date": date(2024, 1, 4),
+        "end_date": date(2024, 1, 5),
     }
 
 
@@ -417,6 +589,159 @@ def test_cohort_evaluator_calculates_observed_o2o_return_direction_and_brier(mon
     assert result["metrics"]["brier"] == pytest.approx(0.04)
     assert result["metrics"]["gross_position_return"] == pytest.approx(0.1)
     assert result["metrics"]["net_position_return"] < 0.1
+
+
+def test_cohort_evaluator_loads_bars_once_per_multi_symbol_run(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 10, 0, 30, tzinfo=tz)
+
+    record = _strict_record("multi-symbol")
+    symbols = ["2317", "2330"]
+    record["request_payload"] = prospective_service.strict_request_payload(
+        symbols=symbols,
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=symbols,
+    )
+    record["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-04T13:25:00+08:00"
+    record["signals"] = [
+        {
+            **record["signals"][0],
+            "symbol": symbol,
+            "score": 0.04 + index * 0.01,
+        }
+        for index, symbol in enumerate(symbols)
+    ]
+    calls = []
+
+    def load_bars(requested, **kwargs):
+        calls.append((requested, kwargs))
+        return {
+            **_bars(
+                ("2024-01-04", 99.0),
+                ("2024-01-05", 100.0),
+                ("2024-01-08", 120.0),
+                symbol="2317",
+            ),
+            **_bars(
+                ("2024-01-04", 99.0),
+                ("2024-01-05", 100.0),
+                ("2024-01-08", 110.0),
+                symbol="2330",
+            ),
+        }
+
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [record],
+    )
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+
+    result = prospective_service.evaluate_cohort(
+        prospective_service.COHORT_ALL_ACTIVE
+    )
+
+    assert calls == [
+        (
+            symbols,
+            {
+                "start_date": date(2024, 1, 4),
+                "end_date": date(2024, 1, 10),
+            },
+        )
+    ]
+    assert result["resolved_signal_count"] == 2
+
+
+def test_cohort_evaluator_reuses_one_bar_load_across_basis_dates(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 10, 0, 30, tzinfo=tz)
+
+    first = _strict_record("first-basis")
+    second = _strict_record("second-basis")
+    second["request_payload"] = prospective_service.strict_request_payload(
+        symbols=["2330"],
+        basis_date=date(2024, 1, 5),
+        cohort_id=prospective_service.COHORT_2330,
+        full_universe_symbols=["2330"],
+    )
+    second["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-05T13:25:00+08:00"
+    second["signals"][0]["date"] = "2024-01-05"
+    second["signals"][0]["score"] = 0.1
+    calls = []
+
+    def load_bars(requested, **kwargs):
+        calls.append((requested, kwargs))
+        return _bars(
+            ("2024-01-04", 99.0),
+            ("2024-01-05", 100.0),
+            ("2024-01-08", 110.0),
+            ("2024-01-09", 120.0),
+        )
+
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [first, second],
+    )
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert calls == [
+        (
+            ["2330"],
+            {
+                "start_date": date(2024, 1, 4),
+                "end_date": date(2024, 1, 10),
+            },
+        )
+    ]
+    assert [run["status"] for run in result["runs"]] == ["resolved", "resolved"]
+
+
+def test_correlation_logs_expected_failures(monkeypatch, caplog):
+    def fail_correlation(*args, **kwargs):
+        raise ValueError("invalid correlation")
+
+    monkeypatch.setattr(pd.Series, "corr", fail_correlation)
+    points = [
+        {"actual_return": 0.1, "score": 0.2},
+        {"actual_return": 0.2, "score": 0.3},
+    ]
+
+    with caplog.at_level("WARNING"):
+        result = prospective_service._correlation(points, "pearson")
+
+    assert result is None
+    assert "method=pearson point_count=2" in caplog.text
+
+
+def test_correlation_propagates_unexpected_failures(monkeypatch):
+    def fail_correlation(*args, **kwargs):
+        raise RuntimeError("unexpected correlation failure")
+
+    monkeypatch.setattr(pd.Series, "corr", fail_correlation)
+    points = [
+        {"actual_return": 0.1, "score": 0.2},
+        {"actual_return": 0.2, "score": 0.3},
+    ]
+
+    with pytest.raises(RuntimeError, match="unexpected correlation failure"):
+        prospective_service._correlation(points, "pearson")
 
 
 def test_cohort_evaluator_uses_frozen_timestamp_not_record_created_at(monkeypatch):
@@ -652,14 +977,15 @@ def test_strict_start_rejects_second_valid_success(monkeypatch):
 def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkeypatch):
     record = _strict_record("insufficient-coverage")
     snapshot = [f"{number:04d}" for number in range(20)]
-    evidence = prospective_service.prospective_evidence_payload(
+    record["request_payload"] = prospective_service.strict_request_payload(
+        symbols=["0000"],
         cohort_id=prospective_service.COHORT_ALL_ACTIVE,
         basis_date=date(2024, 1, 4),
         full_universe_symbols=snapshot,
     )
-    evidence["signal_frozen_at"] = "2024-01-04T13:25:00+08:00"
-    record["request_payload"]["prospective_evidence"] = evidence
-    record["request_payload"]["symbols"] = ["0000"]
+    record["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-04T13:25:00+08:00"
     record["signals"][0]["symbol"] = "0000"
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
