@@ -4,6 +4,11 @@ import pandas as pd
 import pytest
 import requests
 
+from backend.platform.errors import (
+    DataAccessError,
+    ExternalFetchError,
+    UnsupportedConfigurationError,
+)
 from scripts import market_data_ingestion as scraper
 
 
@@ -437,6 +442,52 @@ def test_load_minute_to_db_cleanup_failure_does_not_override_insert_error(monkey
 def test_sanitize_numeric_value_strips_html_tags():
     assert scraper._sanitize_numeric_value("<p style='color:red'>+1,234</p>") == 1234.0
     assert scraper._sanitize_numeric_value("<span>--</span>") == 0.0
+
+
+@pytest.mark.parametrize("payload_body", ["[]", '"no data"'])
+def test_payload_declares_no_data_ignores_non_mapping_json(payload_body):
+    assert scraper._payload_declares_no_data(payload_body) is False
+
+
+@pytest.mark.parametrize(
+    "payload_body",
+    [
+        '{"stat":"OK","message":"查無資料"}',
+        '{"stat":"OK","msg":"no data"}',
+        '{"stat":"很抱歉，沒有符合條件的資料!","type":"ALL"}',
+        '{"stat":"OK","tables":[{"totalCount":0,"data":[]}]}',
+        '{"stat":"ok","tables":[{"totalCount":"0","data":[]}]}',
+    ],
+)
+def test_payload_declares_provider_no_data_markers_and_explicit_zero(payload_body):
+    assert scraper._payload_declares_no_data(payload_body) is True
+
+
+def test_payload_declares_no_data_requires_all_tables_to_be_empty():
+    payload_body = (
+        '{"stat":"OK","tables":['
+        '{"totalCount":1,"data":[["row"]]},'
+        '{"totalCount":0,"data":[]}'
+        ']}'
+    )
+
+    assert scraper._payload_declares_no_data(payload_body) is False
+
+
+@pytest.mark.parametrize(
+    "payload_body",
+    [
+        '{"stat":"OK","tables":[{"data":[]}]}',
+        '{"stat":"OK","tables":[{"totalCount":1,"data":[]}]}',
+        '{"stat":"OK","tables":[{"totalCount":"0","data":[["row"]]}]}',
+        '{"stat":"OK","tables":[{"totalCount":"x","data":[]}]}',
+        '{"stat":"ERROR","tables":[{"totalCount":0,"data":[]}]}',
+        '{"stat":"OK","message":"no database available"}',
+        '{"stat":"OK","tables":[]}',
+    ],
+)
+def test_payload_declares_no_data_requires_explicit_structural_shape(payload_body):
+    assert scraper._payload_declares_no_data(payload_body) is False
 
 
 def test_ingest_symbol_tw_calls_daily_update(monkeypatch):
@@ -1107,6 +1158,11 @@ def test_ingest_tw_market_batch_filters_to_active_universe(monkeypatch):
     )
     monkeypatch.setattr(
         scraper,
+        "crawl_tw_company_profiles",
+        lambda: pytest.fail("non-empty universe must not be refreshed"),
+    )
+    monkeypatch.setattr(
+        scraper,
         "fetch_twse_market_batch",
         lambda trading_date: scraper.BatchFetchResult(
             source_name=scraper.SOURCE_TWSE_MI_INDEX,
@@ -1165,6 +1221,396 @@ def test_ingest_tw_market_batch_filters_to_active_universe(monkeypatch):
     assert summary["errors"] == []
 
 
+def test_ingest_tw_market_batch_bootstraps_empty_universe_once(monkeypatch):
+    universes = iter(
+        [
+            {"TWSE": set(), "TPEX": set()},
+            {"TWSE": {"2330"}, "TPEX": set()},
+        ]
+    )
+    refresh_summary = {"inactivated_count": 0, "errors": []}
+    refresh_calls = []
+
+    monkeypatch.setattr(scraper, "resolve_tw_active_universe", lambda: next(universes))
+    monkeypatch.setattr(
+        scraper,
+        "crawl_tw_company_profiles",
+        lambda: refresh_calls.append(True) or refresh_summary,
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {
+            "upserted_rows": 0,
+            "validated_rows": 0,
+            "official_overrides": 0,
+        },
+    )
+
+    summary = scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 2))
+
+    assert refresh_calls == [True]
+    assert summary["universe_refresh"] == refresh_summary
+    assert summary["universe_count"] == 1
+
+
+def test_ingest_tw_market_batch_refresh_error_takes_precedence_over_no_data(
+    monkeypatch,
+):
+    refresh_summary = {
+        "inactivated_count": 0,
+        "errors": ["exchange=TWSE reconciliation: write failed"],
+    }
+    refresh_calls = []
+
+    monkeypatch.setattr(
+        scraper,
+        "crawl_tw_company_profiles",
+        lambda: refresh_calls.append(True) or refresh_summary,
+    )
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": {"2330"}, "TPEX": {"8049"}},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {
+            "upserted_rows": 0,
+            "validated_rows": 0,
+            "official_overrides": 0,
+        },
+    )
+
+    summary = scraper.ingest_tw_market_batch(
+        trading_date=date(2024, 1, 2),
+        refresh_universe=True,
+    )
+
+    assert refresh_calls == [True]
+    assert summary["status"] == "failed"
+    assert summary["refresh_universe"] is True
+    assert summary["universe_refresh"] == refresh_summary
+    assert summary["errors"] == [
+        {
+            "source_name": "universe_refresh",
+            "message": "exchange=TWSE reconciliation: write failed",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error", "reason", "error_type"),
+    [
+        (
+            ExternalFetchError(
+                "Failed to fetch TW company feed.",
+                error_type="HTTPError",
+            ),
+            "external_fetch",
+            "HTTPError",
+        ),
+        (
+            UnsupportedConfigurationError("/private/provider-payload.json"),
+            "invalid_payload_or_config",
+            "UnsupportedConfigurationError",
+        ),
+        (
+            DataAccessError("postgresql://secret@database"),
+            "persistence",
+            "DataAccessError",
+        ),
+        (RuntimeError("unexpected secret"), "unexpected", "RuntimeError"),
+    ],
+)
+def test_universe_refresh_error_uses_safe_structured_reason(
+    error,
+    reason,
+    error_type,
+):
+    assert scraper._universe_refresh_error(error) == {
+        "source_name": "universe_refresh",
+        "code": scraper.UNIVERSE_REFRESH_FAILED_CODE,
+        "reason": reason,
+        "error_type": error_type,
+        "message": "TW company universe refresh failed.",
+    }
+
+
+def test_ingest_tw_market_batch_continues_after_refresh_exception(
+    monkeypatch,
+    caplog,
+):
+    def market_frame(symbol, source):
+        return pd.DataFrame(
+            [
+                {
+                    "date": date(2024, 1, 2),
+                    "symbol": symbol,
+                    "market": "TW",
+                    "source": source,
+                    "open": 10.0,
+                    "high": 11.0,
+                    "low": 9.0,
+                    "close": 10.5,
+                    "volume": 100,
+                }
+            ]
+        )
+
+    monkeypatch.setattr(
+        scraper,
+        "crawl_tw_company_profiles",
+        lambda: (_ for _ in ()).throw(
+            ExternalFetchError("https://feed.test?token=secret")
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": {"2330"}, "TPEX": {"8049"}},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=market_frame("2330", scraper.SOURCE_TWSE_MI_INDEX),
+            raw_row_count=1,
+            metadata=scraper.RawTraceMetadata(
+                raw_payload_id=401,
+                archive_object_reference="raw_ingest_audit:401",
+                parser_version=scraper.TWSE_MI_INDEX_PARSER_VERSION,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=market_frame(
+                "8049",
+                scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            ),
+            raw_row_count=1,
+            metadata=scraper.RawTraceMetadata(
+                raw_payload_id=402,
+                archive_object_reference="raw_ingest_audit:402",
+                parser_version=scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {
+            "upserted_rows": len(df),
+            "validated_rows": len(df),
+            "official_overrides": 0,
+        },
+    )
+
+    summary = scraper.ingest_tw_market_batch(
+        trading_date=date(2024, 1, 2),
+        refresh_universe=True,
+    )
+
+    assert summary["status"] == scraper.BATCH_STATUS_PARTIAL
+    assert summary["upserted_rows"] == 2
+    assert summary["filtered_rows"] == 2
+    assert summary["errors"] == [
+        {
+            "source_name": "universe_refresh",
+            "code": scraper.UNIVERSE_REFRESH_FAILED_CODE,
+            "reason": "external_fetch",
+            "error_type": "ExternalFetchError",
+            "message": "TW company universe refresh failed.",
+        }
+    ]
+    assert "token=secret" not in str(summary)
+    assert "token=secret" not in caplog.text
+
+
+def test_ingest_tw_market_batch_still_fails_without_usable_universe(monkeypatch):
+    monkeypatch.setattr(
+        scraper,
+        "crawl_tw_company_profiles",
+        lambda: (_ for _ in ()).throw(
+            ExternalFetchError("https://feed.test?token=secret")
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": set(), "TPEX": set()},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: pytest.fail("market fetch requires a usable universe"),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 2))
+
+    assert str(exc_info.value) == (
+        "Active TW company universe is empty after universe refresh failed "
+        "(reason=external_fetch)."
+    )
+    assert "token=secret" not in str(exc_info.value)
+
+
+def test_ingest_tw_market_batch_skips_when_both_sources_report_no_data(monkeypatch):
+    monkeypatch.setattr(
+        scraper,
+        "resolve_tw_active_universe",
+        lambda: {"TWSE": {"2330"}, "TPEX": {"8049"}},
+    )
+    monkeypatch.setattr(
+        scraper,
+        "crawl_tw_company_profiles",
+        lambda: pytest.fail("non-empty universe must not be refreshed"),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_twse_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TWSE_MI_INDEX,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_tpex_market_batch",
+        lambda trading_date: scraper.BatchFetchResult(
+            source_name=scraper.SOURCE_TPEX_AFTERTRADING_OTC,
+            dataframe=pd.DataFrame(),
+            raw_row_count=0,
+            provider_no_data=True,
+        ),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_to_db",
+        lambda df, metadata=None: {
+            "upserted_rows": 0,
+            "validated_rows": 0,
+            "official_overrides": 0,
+        },
+    )
+
+    summary = scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 6))
+
+    assert summary["status"] == "skipped_non_trading_day"
+    assert summary["missing_symbol_count"] == 0
+    assert summary["errors"] == []
+
+
+@pytest.mark.parametrize(
+    ("exchange", "stage", "expected_message"),
+    [
+        ("TWSE", "parse", "TWSE batch parse failed (ValueError)."),
+        ("TPEX", "fetch", "TPEX batch fetch failed (HTTPError)."),
+        ("TPEX", "parse", "TPEX batch parse failed (ValueError)."),
+    ],
+)
+def test_market_batch_failures_do_not_expose_exception_details(
+    exchange,
+    expected_message,
+    monkeypatch,
+    stage,
+):
+    feed_url_with_token = "https://feed.test/market?token=secret"  # noqa: S105
+    request_name = (
+        "_request_twse_daily_report"
+        if exchange == "TWSE"
+        else "_request_tpex_daily_report"
+    )
+    fetcher = (
+        scraper.fetch_twse_market_batch
+        if exchange == "TWSE"
+        else scraper.fetch_tpex_market_batch
+    )
+    parser_name = (
+        "parse_twse_mi_index_payload_body"
+        if exchange == "TWSE"
+        else "parse_tpex_aftertrading_payload_body"
+    )
+    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: 1)
+
+    if stage == "fetch":
+        monkeypatch.setattr(
+            scraper,
+            request_name,
+            lambda **kwargs: (_ for _ in ()).throw(
+                requests.HTTPError(f"Forbidden for url: {feed_url_with_token}")
+            ),
+        )
+    else:
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (
+            b'{"stat":"OK","tables":[{"totalCount":1,"data":[["row"]]}]}'
+        )
+        monkeypatch.setattr(scraper, request_name, lambda **kwargs: response)
+        monkeypatch.setattr(
+            scraper,
+            parser_name,
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                ValueError(f"Invalid payload from {feed_url_with_token}")
+            ),
+        )
+
+    result = fetcher(date(2024, 1, 2))
+
+    assert result.error_message == expected_message
+    assert "token=secret" not in str(result)
+
+
 def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):
     tpex_df = pd.DataFrame(
         [
@@ -1187,14 +1633,14 @@ def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):
         "resolve_tw_active_universe",
         lambda: {"TWSE": {"2330"}, "TPEX": {"8049"}},
     )
+    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: 1)
     monkeypatch.setattr(
         scraper,
-        "fetch_twse_market_batch",
-        lambda trading_date: scraper.BatchFetchResult(
-            source_name=scraper.SOURCE_TWSE_MI_INDEX,
-            dataframe=pd.DataFrame(),
-            raw_row_count=0,
-            error_message="TWSE batch fetch failed: timeout",
+        "_request_twse_daily_report",
+        lambda **kwargs: (_ for _ in ()).throw(
+            requests.HTTPError(
+                "Forbidden for url: https://feed.test/market?token=secret"
+            )
         ),
     )
     monkeypatch.setattr(
@@ -1230,14 +1676,16 @@ def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):
     summary = scraper.ingest_tw_market_batch(trading_date=date(2024, 1, 2))
 
     assert summary["filtered_rows"] == 1
+    assert summary["status"] == "partial"
     assert summary["missing_symbol_count"] == 1
     assert summary["raw_payload_ids"] == [501]
     assert summary["errors"] == [
         {
             "source_name": scraper.SOURCE_TWSE_MI_INDEX,
-            "message": "TWSE batch fetch failed: timeout",
+            "message": "TWSE batch fetch failed (HTTPError).",
         }
     ]
+    assert "token=secret" not in str(summary)
 
 
 def test_ingest_symbol_summary_includes_stage_metadata(monkeypatch):

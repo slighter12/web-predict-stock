@@ -29,6 +29,11 @@ try:
     from backend.market_data.services.tls_helpers import (
         request_with_tls_fallback,
     )
+    from backend.platform.errors import (
+        DataAccessError,
+        ExternalFetchError,
+        UnsupportedConfigurationError,
+    )
     from backend.platform.time import utc_now
 except ImportError:
     print(
@@ -41,6 +46,12 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+BATCH_STATUS_SUCCEEDED = "succeeded"
+BATCH_STATUS_PARTIAL = "partial"
+BATCH_STATUS_FAILED = "failed"
+BATCH_STATUS_SKIPPED_NON_TRADING_DAY = "skipped_non_trading_day"
+UNIVERSE_REFRESH_FAILED_CODE = "UNIVERSE_REFRESH_FAILED"
 
 SOURCE_TWSE = "twse"
 SOURCE_YFINANCE = "yfinance"
@@ -79,6 +90,24 @@ class QualityReport:
         return asdict(self)
 
 
+def _universe_refresh_error(exc: Exception) -> dict[str, str]:
+    if isinstance(exc, ExternalFetchError):
+        reason = "external_fetch"
+    elif isinstance(exc, UnsupportedConfigurationError):
+        reason = "invalid_payload_or_config"
+    elif isinstance(exc, DataAccessError):
+        reason = "persistence"
+    else:
+        reason = "unexpected"
+    return {
+        "source_name": "universe_refresh",
+        "code": UNIVERSE_REFRESH_FAILED_CODE,
+        "reason": reason,
+        "error_type": getattr(exc, "error_type", type(exc).__name__),
+        "message": "TW company universe refresh failed.",
+    }
+
+
 @dataclass
 class RawTraceMetadata:
     raw_payload_id: int | None = None
@@ -114,6 +143,7 @@ class BatchFetchResult:
     raw_row_count: int
     metadata: RawTraceMetadata | None = None
     error_message: str | None = None
+    provider_no_data: bool = False
 
 
 def persist_raw_ingest_record(
@@ -229,15 +259,55 @@ def _build_ohlcv_frame(
 
 
 def _empty_batch_result(
-    source_name: str, error_message: str | None = None
+    source_name: str,
+    error_message: str | None = None,
+    *,
+    metadata: RawTraceMetadata | None = None,
+    provider_no_data: bool = False,
 ) -> BatchFetchResult:
     return BatchFetchResult(
         source_name=source_name,
         dataframe=pd.DataFrame(),
         raw_row_count=0,
-        metadata=None,
+        metadata=metadata,
         error_message=error_message,
+        provider_no_data=provider_no_data,
     )
+
+
+def _payload_declares_no_data(payload_body: str) -> bool:
+    try:
+        payload = json.loads(payload_body)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    detail = " ".join(
+        str(payload.get(key) or "") for key in ("stat", "message", "msg")
+    ).lower()
+    if (
+        "沒有符合條件" in detail
+        or "查無資料" in detail
+        or re.search(r"\bno data\b", detail)
+    ):
+        return True
+    if str(payload.get("stat") or "").strip().lower() != "ok":
+        return False
+    tables = [item for item in (payload.get("tables") or []) if isinstance(item, dict)]
+    if not tables:
+        return False
+    for table in tables:
+        if table.get("data") != []:
+            return False
+        total_count = table.get("totalCount")
+        if isinstance(total_count, bool):
+            return False
+        try:
+            if float(total_count) != 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def validate_ohlcv_with_report(
@@ -1033,13 +1103,23 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
         )
         return _empty_batch_result(
             SOURCE_TWSE_MI_INDEX,
-            error_message=f"TWSE batch fetch failed: {exc}",
+            error_message=f"TWSE batch fetch failed ({type(exc).__name__}).",
         )
 
     raw_payload_id = _persist(
         fetch_status=FETCH_STATUS_SUCCESS,
         payload_body=payload_body,
     )
+    metadata = RawTraceMetadata.from_ingest(
+        raw_payload_id, TWSE_MI_INDEX_PARSER_VERSION
+    )
+
+    if _payload_declares_no_data(payload_body):
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            metadata=metadata,
+            provider_no_data=True,
+        )
 
     try:
         dataframe, metadata = parse_twse_mi_index_payload_body(
@@ -1056,7 +1136,20 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
         )
         return _empty_batch_result(
             SOURCE_TWSE_MI_INDEX,
-            error_message=f"TWSE batch parse failed: {exc}",
+            error_message=f"TWSE batch parse failed ({type(exc).__name__}).",
+        )
+
+    if dataframe.empty:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TWSE_MI_INDEX} empty result",
+        )
+        return _empty_batch_result(
+            SOURCE_TWSE_MI_INDEX,
+            metadata=metadata,
+            error_message="TWSE batch returned no rows without declaring no data.",
         )
 
     return BatchFetchResult(
@@ -1064,6 +1157,7 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
         dataframe=dataframe,
         raw_row_count=len(dataframe),
         metadata=metadata,
+        provider_no_data=False,
     )
 
 
@@ -1111,13 +1205,23 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
         )
         return _empty_batch_result(
             SOURCE_TPEX_AFTERTRADING_OTC,
-            error_message=f"TPEX batch fetch failed: {exc}",
+            error_message=f"TPEX batch fetch failed ({type(exc).__name__}).",
         )
 
     raw_payload_id = _persist(
         fetch_status=FETCH_STATUS_SUCCESS,
         payload_body=payload_body,
     )
+    metadata = RawTraceMetadata.from_ingest(
+        raw_payload_id, TPEX_AFTERTRADING_OTC_PARSER_VERSION
+    )
+
+    if _payload_declares_no_data(payload_body):
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            metadata=metadata,
+            provider_no_data=True,
+        )
 
     try:
         dataframe, metadata = parse_tpex_aftertrading_payload_body(
@@ -1134,7 +1238,20 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
         )
         return _empty_batch_result(
             SOURCE_TPEX_AFTERTRADING_OTC,
-            error_message=f"TPEX batch parse failed: {exc}",
+            error_message=f"TPEX batch parse failed ({type(exc).__name__}).",
+        )
+
+    if dataframe.empty:
+        _try_persist(
+            _persist,
+            fetch_status=FETCH_STATUS_FAILED,
+            payload_body=payload_body,
+            context_label=f"{SOURCE_TPEX_AFTERTRADING_OTC} empty result",
+        )
+        return _empty_batch_result(
+            SOURCE_TPEX_AFTERTRADING_OTC,
+            metadata=metadata,
+            error_message="TPEX batch returned no rows without declaring no data.",
         )
 
     return BatchFetchResult(
@@ -1142,6 +1259,7 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
         dataframe=dataframe,
         raw_row_count=len(dataframe),
         metadata=metadata,
+        provider_no_data=False,
     )
 
 
@@ -1673,22 +1791,82 @@ def ingest_tw_market_batch(
     refresh_universe: bool = False,
 ) -> dict:
     universe_refresh_summary = None
+    universe_refresh_errors: list[dict[str, str]] = []
     if refresh_universe:
-        universe_refresh_summary = crawl_tw_company_profiles()
+        try:
+            universe_refresh_summary = crawl_tw_company_profiles()
+        except Exception as exc:
+            refresh_error = _universe_refresh_error(exc)
+            logger.error(
+                "Failed to refresh TW company universe before market ingestion "
+                "code=%s reason=%s",
+                refresh_error["code"],
+                refresh_error["reason"],
+            )
+            universe_refresh_errors.append(refresh_error)
 
     universe_by_exchange = resolve_tw_active_universe()
     universe_count = sum(len(symbols) for symbols in universe_by_exchange.values())
+    if universe_count == 0 and not refresh_universe:
+        try:
+            universe_refresh_summary = crawl_tw_company_profiles()
+        except Exception as exc:
+            refresh_error = _universe_refresh_error(exc)
+            logger.error(
+                "Failed to bootstrap TW company universe before market ingestion "
+                "code=%s reason=%s",
+                refresh_error["code"],
+                refresh_error["reason"],
+            )
+            universe_refresh_errors.append(refresh_error)
+        universe_by_exchange = resolve_tw_active_universe()
+        universe_count = sum(
+            len(symbols) for symbols in universe_by_exchange.values()
+        )
     if universe_count == 0:
+        if universe_refresh_errors:
+            raise ValueError(
+                "Active TW company universe is empty after universe refresh "
+                f"failed (reason={universe_refresh_errors[-1]['reason']})."
+            )
         raise ValueError("Active TW company universe is empty.")
 
     twse_result = fetch_twse_market_batch(trading_date)
     tpex_result = fetch_tpex_market_batch(trading_date)
+    source_results = (("TWSE", twse_result), ("TPEX", tpex_result))
+    skipped_non_trading_day = all(
+        result.provider_no_data for _, result in source_results
+    )
 
     filtered_frames = []
-    errors = []
+    errors = [
+        *universe_refresh_errors,
+        *[
+            {
+                "source_name": "universe_refresh",
+                "message": str(error),
+            }
+            for error in (
+                universe_refresh_summary.get("errors", [])
+                if universe_refresh_summary is not None
+                else []
+            )
+        ],
+    ]
     missing_symbol_count = 0
-    for exchange, result in (("TWSE", twse_result), ("TPEX", tpex_result)):
+    successful_source_count = 0
+    for exchange, result in source_results:
         allowed_symbols = universe_by_exchange[exchange]
+        if result.provider_no_data:
+            if not skipped_non_trading_day:
+                errors.append(
+                    {
+                        "source_name": result.source_name,
+                        "message": "Provider declared no data.",
+                    }
+                )
+                missing_symbol_count += len(allowed_symbols)
+            continue
         if result.error_message:
             errors.append(
                 {
@@ -1699,6 +1877,7 @@ def ingest_tw_market_batch(
             missing_symbol_count += len(allowed_symbols)
             continue
 
+        successful_source_count += 1
         filtered = _filter_batch_frame_to_universe(
             result.dataframe,
             allowed_symbols=allowed_symbols,
@@ -1716,9 +1895,20 @@ def ingest_tw_market_batch(
         else pd.DataFrame()
     )
     load_summary = load_to_db(combined_df)
+    if errors:
+        status = (
+            BATCH_STATUS_PARTIAL
+            if successful_source_count
+            else BATCH_STATUS_FAILED
+        )
+    elif skipped_non_trading_day:
+        status = BATCH_STATUS_SKIPPED_NON_TRADING_DAY
+    else:
+        status = BATCH_STATUS_SUCCEEDED
     summary = {
         "market": MARKET_TW,
         "trading_date": trading_date.isoformat(),
+        "status": status,
         "refresh_universe": refresh_universe,
         "universe_count": universe_count,
         "twse_rows": twse_result.raw_row_count,

@@ -115,7 +115,10 @@ def create_tw_company_crawl(
 ) -> TwCompanyCrawlerRunResponse:
     request = request or TwCompanyCrawlRequest()
     return TwCompanyCrawlerRunResponse(
-        **crawl_tw_company_profiles(include_tpex=request.include_tpex)
+        **crawl_tw_company_profiles(
+            include_tpex=request.include_tpex,
+            reconcile=False,
+        )
     )
 
 

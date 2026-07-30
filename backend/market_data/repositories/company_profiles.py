@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, update
 
 from backend.database import SessionLocal, TwCompanyProfile
 from backend.platform.db.repository_helpers import clone_payload, normalize_created_at
@@ -91,6 +92,46 @@ def upsert_tw_company_profile(payload: dict[str, Any]) -> dict[str, Any]:
             record.get("exchange"),
         )
         raise DataAccessError("Failed to persist TW company profile.") from exc
+
+
+def mark_missing_active_tw_company_profiles_inactive(
+    *,
+    exchange: str,
+    active_symbols: Iterable[str],
+    source_name: str,
+    raw_payload_id: int,
+    archive_object_reference: str,
+) -> int:
+    symbols = {symbol.strip().upper() for symbol in active_symbols if symbol.strip()}
+    if not symbols:
+        return 0
+    normalized_exchange = exchange.strip().upper()
+    try:
+        with SessionLocal() as session:
+            result = session.execute(
+                update(TwCompanyProfile)
+                .where(TwCompanyProfile.market == "TW")
+                .where(TwCompanyProfile.exchange == normalized_exchange)
+                .where(TwCompanyProfile.trading_status == "active")
+                .where(~TwCompanyProfile.symbol.in_(symbols))
+                .values(
+                    trading_status="inactive",
+                    source_name=source_name,
+                    raw_payload_id=raw_payload_id,
+                    archive_object_reference=archive_object_reference,
+                    updated_at=func.now(),
+                )
+            )
+            session.commit()
+            return int(result.rowcount or 0)
+    except Exception as exc:
+        logger.exception(
+            "Failed to inactivate missing TW company profiles exchange=%s",
+            exchange,
+        )
+        raise DataAccessError(
+            "Failed to inactivate missing TW company profiles."
+        ) from exc
 
 
 def list_tw_company_profiles(
