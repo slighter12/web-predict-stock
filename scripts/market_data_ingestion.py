@@ -275,7 +275,7 @@ def _empty_batch_result(
     )
 
 
-def _payload_declares_no_data(payload_body: str) -> bool:
+def payload_declares_no_data(payload_body: str | None) -> bool:
     try:
         payload = json.loads(payload_body)
     except (TypeError, ValueError):
@@ -1114,7 +1114,7 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
         raw_payload_id, TWSE_MI_INDEX_PARSER_VERSION
     )
 
-    if _payload_declares_no_data(payload_body):
+    if payload_declares_no_data(payload_body):
         return _empty_batch_result(
             SOURCE_TWSE_MI_INDEX,
             metadata=metadata,
@@ -1216,7 +1216,7 @@ def fetch_tpex_market_batch(trading_date: date) -> BatchFetchResult:
         raw_payload_id, TPEX_AFTERTRADING_OTC_PARSER_VERSION
     )
 
-    if _payload_declares_no_data(payload_body):
+    if payload_declares_no_data(payload_body):
         return _empty_batch_result(
             SOURCE_TPEX_AFTERTRADING_OTC,
             metadata=metadata,

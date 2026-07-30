@@ -35,6 +35,7 @@ def _official_audit(
     payload_body: str,
     offset: int = 0,
     fetch_status: str = "success",
+    fetch_timestamp: datetime | None = None,
 ) -> RawIngestAudit:
     date_value = (
         trading_date.strftime("%Y%m%d")
@@ -49,8 +50,10 @@ def _official_audit(
             else "TPEX_BATCH_DAILY"
         ),
         market="TW",
-        fetch_timestamp=(
-            datetime(2026, 7, 1, tzinfo=timezone.utc) + timedelta(seconds=offset)
+        fetch_timestamp=fetch_timestamp
+        or (
+            datetime.combine(trading_date, datetime.min.time(), tzinfo=timezone.utc)
+            + timedelta(hours=6, seconds=offset)
         ),
         parser_version="fixture",
         fetch_status=fetch_status,
@@ -96,6 +99,37 @@ def test_research_eligibility_excludes_non_official_row_on_official_no_data(
     assert eligibility_service.exclude_non_official_rows_on_official_no_data(
         _non_official_frame(trading_date), dates
     ).empty
+
+
+def test_research_eligibility_excludes_audits_before_tw_start_date_floor(
+    monkeypatch,
+):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    fetch_timestamp_floor = datetime.combine(
+        trading_date,
+        datetime.min.time(),
+        tzinfo=eligibility_service.market_data_ingestion.TW_TIMEZONE,
+    ).astimezone(timezone.utc)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=source,
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                    fetch_timestamp=fetch_timestamp_floor
+                    - timedelta(microseconds=1),
+                )
+                for source in eligibility_service._BATCH_SOURCES
+            ]
+        )
+        session.commit()
+
+    assert not eligibility_service.load_official_no_data_dates(
+        start_date=trading_date,
+        end_date=trading_date,
+    )
 
 
 @pytest.mark.parametrize("include_tpex", [False, True])
@@ -167,6 +201,7 @@ def test_research_eligibility_keeps_official_row_on_official_no_data(monkeypatch
         start_date=trading_date, end_date=trading_date
     )
 
+    assert dates == {trading_date}
     assert len(eligibility_service.exclude_non_official_rows_on_official_no_data(
         frame, dates
     )) == 1
@@ -220,7 +255,45 @@ def test_research_eligibility_keeps_rows_when_audit_query_fails(monkeypatch, cap
     assert not eligibility_service.load_official_no_data_dates(
         start_date=date(2026, 7, 10), end_date=date(2026, 7, 10)
     )
+    assert "Failed to load official TW no-data audits" in caplog.text
     assert "retaining all rows" in caplog.text
+    assert any(record.exc_info is not None for record in caplog.records)
+
+
+def test_research_eligibility_keeps_rows_when_audit_evaluation_fails(
+    monkeypatch, caplog
+):
+    session_local = _eligibility_session(monkeypatch)
+    trading_date = date(2026, 7, 10)
+    with session_local() as session:
+        session.add_all(
+            [
+                _official_audit(
+                    source_name=source,
+                    trading_date=trading_date,
+                    payload_body='{"stat": "沒有符合條件"}',
+                )
+                for source in eligibility_service._BATCH_SOURCES
+            ]
+        )
+        session.commit()
+
+    def _fail_evaluation(payload_body):
+        raise RuntimeError("audit evaluation unavailable")
+
+    monkeypatch.setattr(
+        eligibility_service.market_data_ingestion,
+        "payload_declares_no_data",
+        _fail_evaluation,
+    )
+
+    assert not eligibility_service.load_official_no_data_dates(
+        start_date=trading_date,
+        end_date=trading_date,
+    )
+    assert "Failed to evaluate official TW no-data audits" in caplog.text
+    assert "retaining all rows" in caplog.text
+    assert any(record.exc_info is not None for record in caplog.records)
 
 
 def _make_request() -> ResearchRunCreateRequest:
@@ -539,11 +612,20 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
         lambda **kwargs: eligibility_load_calls.append(kwargs) or eligibility_dates,
     )
     sample_index = pd.to_datetime(["2024-01-03"])
-    monkeypatch.setattr(
-        backtest_engine_service,
-        "load_symbol_data",
-        lambda *args, **kwargs: symbol_eligibility_dates.append(args[7]) or {
-            "symbol": args[2],
+
+    def _fake_load_symbol_data(
+        run_id,
+        request,
+        symbol,
+        feature_config,
+        shift_map,
+        test_size,
+        peer_feature_map=None,
+        official_no_data_dates=None,
+    ):
+        symbol_eligibility_dates.append(official_no_data_dates)
+        return {
+            "symbol": symbol,
             "df_model": pd.DataFrame(
                 {
                     "open": [100.0],
@@ -556,14 +638,19 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
             ),
             "X": pd.DataFrame({"MA_5": [1.0]}, index=sample_index),
             "y": pd.Series([0.01], index=sample_index),
-            "scores": pd.Series([0.42], index=sample_index, name=args[2]),
-            "open": pd.Series([100.0], index=sample_index, name=args[2]),
-            "high": pd.Series([101.0], index=sample_index, name=args[2]),
-            "low": pd.Series([99.0], index=sample_index, name=args[2]),
-            "close": pd.Series([100.5], index=sample_index, name=args[2]),
-            "volume": pd.Series([1000], index=sample_index, name=args[2]),
+            "scores": pd.Series([0.42], index=sample_index, name=symbol),
+            "open": pd.Series([100.0], index=sample_index, name=symbol),
+            "high": pd.Series([101.0], index=sample_index, name=symbol),
+            "low": pd.Series([99.0], index=sample_index, name=symbol),
+            "close": pd.Series([100.5], index=sample_index, name=symbol),
+            "volume": pd.Series([1000], index=sample_index, name=symbol),
             "factor_materializations": [],
-        },
+        }
+
+    monkeypatch.setattr(
+        backtest_engine_service,
+        "load_symbol_data",
+        _fake_load_symbol_data,
     )
     monkeypatch.setattr(
         backtest_engine_service.backtest_service,

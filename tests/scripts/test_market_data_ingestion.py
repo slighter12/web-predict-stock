@@ -446,7 +446,7 @@ def test_sanitize_numeric_value_strips_html_tags():
 
 @pytest.mark.parametrize("payload_body", ["[]", '"no data"'])
 def test_payload_declares_no_data_ignores_non_mapping_json(payload_body):
-    assert scraper._payload_declares_no_data(payload_body) is False
+    assert scraper.payload_declares_no_data(payload_body) is False
 
 
 @pytest.mark.parametrize(
@@ -460,7 +460,7 @@ def test_payload_declares_no_data_ignores_non_mapping_json(payload_body):
     ],
 )
 def test_payload_declares_provider_no_data_markers_and_explicit_zero(payload_body):
-    assert scraper._payload_declares_no_data(payload_body) is True
+    assert scraper.payload_declares_no_data(payload_body) is True
 
 
 def test_payload_declares_no_data_requires_all_tables_to_be_empty():
@@ -471,7 +471,7 @@ def test_payload_declares_no_data_requires_all_tables_to_be_empty():
         ']}'
     )
 
-    assert scraper._payload_declares_no_data(payload_body) is False
+    assert scraper.payload_declares_no_data(payload_body) is False
 
 
 @pytest.mark.parametrize(
@@ -487,7 +487,7 @@ def test_payload_declares_no_data_requires_all_tables_to_be_empty():
     ],
 )
 def test_payload_declares_no_data_requires_explicit_structural_shape(payload_body):
-    assert scraper._payload_declares_no_data(payload_body) is False
+    assert scraper.payload_declares_no_data(payload_body) is False
 
 
 def test_ingest_symbol_tw_calls_daily_update(monkeypatch):

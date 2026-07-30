@@ -170,8 +170,7 @@ def load_symbol_data(
             ),
         )
 
-    unshifted_features = feature_engine.add_features(df.copy(), feature_config)
-    df_features = unshifted_features.copy()
+    df_features = feature_engine.add_features(df.copy(), feature_config)
     apply_feature_shifts(df_features, shift_map, symbol)
     df_features, factor_materializations = materialize_run_factors(
         request,
@@ -851,8 +850,8 @@ def execute_research_run(
             feature_config,
             shift_map,
             test_size,
-            peer_feature_map,
-            official_no_data_dates,
+            peer_feature_map=peer_feature_map,
+            official_no_data_dates=official_no_data_dates,
         )
         for symbol in request.symbols
     ]
