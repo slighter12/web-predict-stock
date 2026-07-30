@@ -272,41 +272,158 @@ def test_opinion_contract_allows_default_result_for_not_evaluated_check():
 
 def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
     payload = make_opinion_payload()
-    payload["symbols"] = ["2330", "2317", "2454", "9999", "8888"]
     payload["signals"] = [
         {
-            "date": datetime(2024, 1, 4, 12, 30),
+            "date": "2024-01-01",
             "symbol": "2330",
-            "score": 0.02,
-            "position": 1.0,
+            "score": -0.04,
+            "position": -1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.2,
+            "predicted_direction": "down",
         },
-        {"date": "2024-01-01", "symbol": "2330", "score": -0.04, "position": -1.0},
-        {"date": "2024-01-01", "symbol": "2317", "score": 0.04, "position": 1.0},
-        {"date": "2024-01-04", "symbol": "2317", "score": -0.03, "position": -1.0},
-        {"date": "2024-01-04", "symbol": "2454", "score": 0.0, "position": 0.0},
-        {"date": "2024-01-04", "symbol": "9999", "score": None, "position": 1.0},
-        {"date": "not-a-date", "symbol": "8888", "score": 0.5, "position": 1.0},
-        {"date": "2024-01-04", "score": 0.5, "position": 1.0},
+        {
+            "date": datetime(2024, 1, 4, 12, 30),
+            "symbol": "2317",
+            "score": -0.02,
+            "position": 0.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.2,
+            "predicted_direction": "down",
+        },
+        {
+            "date": "2024-01-01",
+            "symbol": "2317",
+            "score": 0.04,
+            "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
+        },
+        {
+            "date": "2024-01-04",
+            "symbol": "2330",
+            "score": 0.004,
+            "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
+        },
     ]
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "viable"
+    assert artifact["opinion_as_of"] == "2024-01-04"
+    assert [row["symbol"] for row in artifact["buy_candidates"]] == ["2330"]
+    assert [row["symbol"] for row in artifact["sell_or_avoid"]] == ["2317"]
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 2,
+        "positive_count": 1,
+        "negative_count": 0,
+        "flat_count": 1,
+        "invalid_row_count": 0,
+    }
+    assert checks["parameter_sensitivity"]["result"] == {
+        "base_candidate_symbols": ["2330"],
+        "scenario_candidate_counts": {
+            "strict_threshold": 1,
+            "loose_threshold": 1,
+            "top_n_minus_1": 1,
+            "top_n_plus_1": 2,
+        },
+        "stable_symbols": ["2330"],
+        "changed_symbols": ["2317"],
+        "provisional_policy": opinion_domain.PROVISIONAL_POLICY,
+        "skipped_scenarios": [],
+    }
+
+
+@pytest.mark.parametrize(
+    ("noise", "expected_limitation"),
+    [
+        (
+            {
+                "date": "not-a-date",
+                "symbol": "2330",
+                "score": 0.5,
+                "position": 1.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.8,
+                "predicted_direction": "up",
+            },
+            "exactly one valid row",
+        ),
+        (
+            {
+                "date": "2024-01-01",
+                "symbol": "2454",
+                "score": 0.5,
+                "position": 1.0,
+                "signal_kind": "forward_opinion",
+                "up_probability": 0.8,
+                "predicted_direction": "up",
+            },
+            "outside the declared run universe: 2454",
+        ),
+    ],
+    ids=["invalid-date", "undeclared-symbol"],
+)
+def test_opinion_builder_invalid_signal_noise_fails_closed_without_driving_checks(
+    noise, expected_limitation
+):
+    payload = make_opinion_payload()
+    payload["signals"].append(noise)
 
     artifact = build_opinion_artifact(payload)
     checks = {item["check"]: item for item in artifact["review_checks"]}
 
     assert artifact["state"] == "no-opinion"
     assert artifact["buy_candidates"] == []
-    assert checks["signal_to_position"]["status"] == "fail"
-    assert "holdout evaluation signals are not investment opinions" in " ".join(
-        artifact["evidence_limitations"]
-    )
+    assert artifact["sell_or_avoid"] == []
+    assert artifact["watch"] == []
+    assert expected_limitation in " ".join(artifact["evidence_limitations"])
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 2,
+        "positive_count": 1,
+        "negative_count": 0,
+        "flat_count": 1,
+        "invalid_row_count": 1,
+    }
+    assert checks["parameter_sensitivity"]["result"]["base_candidate_symbols"] == [
+        "2330"
+    ]
+    assert checks["parameter_sensitivity"]["result"]["scenario_candidate_counts"] == {
+        "strict_threshold": 1,
+        "loose_threshold": 1,
+        "top_n_minus_1": 1,
+        "top_n_plus_1": 2,
+    }
 
 
-def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("score", float("nan")), ("position", float("inf"))],
+)
+def test_opinion_builder_counts_invalid_selected_latest_numeric_row(field, value):
+    payload = make_opinion_payload()
+    payload["signals"][0][field] = value
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 1
+
+
+def test_opinion_builder_ignores_non_finite_numeric_value_on_older_signal_row():
     payload = make_opinion_payload()
     payload["signals"].append(
         {
-            "date": "2024-01-02",
-            "symbol": "2454",
-            "score": 0.03,
+            "date": "2024-01-01",
+            "symbol": "2330",
+            "score": float("nan"),
             "position": 1.0,
             "signal_kind": "forward_opinion",
             "up_probability": 0.8,
@@ -315,11 +432,80 @@ def test_opinion_builder_undeclared_signal_symbol_blocks_viability():
     )
 
     artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "viable"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 0
+
+
+def test_opinion_builder_counts_symbols_behind_latest_common_date():
+    payload = make_opinion_payload()
+    payload["request_payload"]["symbols"] = ["2330", "2317", "2454"]
+    payload["signals"][0]["date"] = "2024-01-03"
+    payload["signals"].append(
+        {
+            "date": "2024-01-02",
+            "symbol": "2454",
+            "score": 0.005,
+            "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
+        }
+    )
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
 
     assert artifact["state"] == "no-opinion"
-    assert artifact["buy_candidates"] == []
-    assert "outside the declared run universe: 2454" in " ".join(
-        artifact["evidence_limitations"]
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 3,
+        "positive_count": 2,
+        "negative_count": 0,
+        "flat_count": 1,
+        "invalid_row_count": 2,
+    }
+    assert checks["signal_to_position"]["risk_or_warning"] == (
+        "The latest signal snapshot is incomplete, mixed-date, duplicated, "
+        "or contains invalid rows."
+    )
+    assert checks["parameter_sensitivity"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["evidence_reason"] == (
+        "Sensitivity scenarios were computed from valid latest rows, but "
+        "the latest signal snapshot is incomplete or invalid."
+    )
+
+
+def test_opinion_builder_counts_invalid_date_once_when_symbol_has_no_valid_row():
+    payload = make_opinion_payload()
+    payload["signals"][1]["date"] = "not-a-date"
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 1,
+        "positive_count": 1,
+        "negative_count": 0,
+        "flat_count": 0,
+        "invalid_row_count": 1,
+    }
+
+
+def test_opinion_builder_missing_declared_symbol_does_not_invent_invalid_row():
+    payload = make_opinion_payload()
+    payload["signals"] = payload["signals"][:1]
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["status"] == "warning"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 0
+    assert checks["signal_to_position"]["risk_or_warning"] == (
+        "The latest signal snapshot is incomplete, mixed-date, duplicated, "
+        "or contains invalid rows."
     )
 
 

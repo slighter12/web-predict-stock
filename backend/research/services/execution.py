@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from datetime import date
 
 import pandas as pd
 from sklearn.metrics import (
@@ -34,6 +35,10 @@ from backend.research.contracts.runtime_metadata import (
 )
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.services.adaptive import record_run_adaptive_exclusion
+from backend.research.services.eligibility import (
+    exclude_non_official_rows_on_official_no_data,
+    load_official_no_data_dates,
+)
 from backend.research.services.run_foundations import (
     build_run_foundation_context,
     build_run_peer_feature_map,
@@ -141,6 +146,7 @@ def load_symbol_data(
     shift_map: dict,
     test_size: float,
     peer_feature_map: dict[str, dict[pd.Timestamp, dict[str, float]]] | None = None,
+    official_no_data_dates: set[date] | None = None,
 ) -> dict:
     logger.info("Loading symbol=%s market=%s", symbol, request.market)
     df = data_service.get_data(
@@ -152,6 +158,16 @@ def load_symbol_data(
     if df.empty:
         raise DataNotFoundError(
             f"No data found for symbol '{symbol}' in the specified date range."
+        )
+    if request.market == "TW" and "source" in df.columns:
+        df = exclude_non_official_rows_on_official_no_data(
+            df,
+            official_no_data_dates
+            if official_no_data_dates is not None
+            else load_official_no_data_dates(
+                start_date=request.date_range.start,
+                end_date=request.date_range.end,
+            ),
         )
 
     df_features = feature_engine.add_features(df.copy(), feature_config)
@@ -817,6 +833,14 @@ def execute_research_run(
     feature_config, shift_map = build_feature_config(request)
     test_size = request.validation.test_size if request.validation else 0.2
     peer_feature_map = build_run_peer_feature_map(request)
+    official_no_data_dates = (
+        load_official_no_data_dates(
+            start_date=request.date_range.start,
+            end_date=request.date_range.end,
+        )
+        if request.market == "TW"
+        else set()
+    )
 
     symbol_data = [
         load_symbol_data(
@@ -826,7 +850,8 @@ def execute_research_run(
             feature_config,
             shift_map,
             test_size,
-            peer_feature_map,
+            peer_feature_map=peer_feature_map,
+            official_no_data_dates=official_no_data_dates,
         )
         for symbol in request.symbols
     ]
