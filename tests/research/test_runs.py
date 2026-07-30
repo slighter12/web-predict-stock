@@ -367,32 +367,8 @@ def test_opinion_builder_uses_latest_dated_signal_rows_for_actions_and_checks():
             },
             "outside the declared run universe: 2454",
         ),
-        (
-            {
-                "date": "2024-01-01",
-                "symbol": "2330",
-                "score": float("nan"),
-                "position": 1.0,
-                "signal_kind": "forward_opinion",
-                "up_probability": 0.8,
-                "predicted_direction": "up",
-            },
-            "exactly one valid row",
-        ),
-        (
-            {
-                "date": "2024-01-01",
-                "symbol": "2330",
-                "score": 0.5,
-                "position": float("inf"),
-                "signal_kind": "forward_opinion",
-                "up_probability": 0.8,
-                "predicted_direction": "up",
-            },
-            "exactly one valid row",
-        ),
     ],
-    ids=["invalid-date", "undeclared-symbol", "non-finite-score", "non-finite-position"],
+    ids=["invalid-date", "undeclared-symbol"],
 )
 def test_opinion_builder_invalid_signal_noise_fails_closed_without_driving_checks(
     noise, expected_limitation
@@ -424,6 +400,113 @@ def test_opinion_builder_invalid_signal_noise_fails_closed_without_driving_check
         "top_n_minus_1": 1,
         "top_n_plus_1": 2,
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("score", float("nan")), ("position", float("inf"))],
+)
+def test_opinion_builder_counts_invalid_selected_latest_numeric_row(field, value):
+    payload = make_opinion_payload()
+    payload["signals"][0][field] = value
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 1
+
+
+def test_opinion_builder_ignores_non_finite_numeric_value_on_older_signal_row():
+    payload = make_opinion_payload()
+    payload["signals"].append(
+        {
+            "date": "2024-01-01",
+            "symbol": "2330",
+            "score": float("nan"),
+            "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
+        }
+    )
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "viable"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 0
+
+
+def test_opinion_builder_counts_symbols_behind_latest_common_date():
+    payload = make_opinion_payload()
+    payload["request_payload"]["symbols"] = ["2330", "2317", "2454"]
+    payload["signals"][0]["date"] = "2024-01-03"
+    payload["signals"].append(
+        {
+            "date": "2024-01-02",
+            "symbol": "2454",
+            "score": 0.005,
+            "position": 1.0,
+            "signal_kind": "forward_opinion",
+            "up_probability": 0.8,
+            "predicted_direction": "up",
+        }
+    )
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 3,
+        "positive_count": 2,
+        "negative_count": 0,
+        "flat_count": 1,
+        "invalid_row_count": 2,
+    }
+    assert checks["signal_to_position"]["risk_or_warning"] == (
+        "The latest signal snapshot is incomplete, mixed-date, duplicated, "
+        "or contains invalid rows."
+    )
+    assert checks["parameter_sensitivity"]["status"] == "warning"
+    assert checks["parameter_sensitivity"]["evidence_reason"] == (
+        "Sensitivity scenarios were computed from valid latest rows, but "
+        "the latest signal snapshot is incomplete or invalid."
+    )
+
+
+def test_opinion_builder_counts_invalid_date_once_when_symbol_has_no_valid_row():
+    payload = make_opinion_payload()
+    payload["signals"][1]["date"] = "not-a-date"
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["result"] == {
+        "checked_symbol_count": 1,
+        "positive_count": 1,
+        "negative_count": 0,
+        "flat_count": 0,
+        "invalid_row_count": 1,
+    }
+
+
+def test_opinion_builder_missing_declared_symbol_does_not_invent_invalid_row():
+    payload = make_opinion_payload()
+    payload["signals"] = payload["signals"][:1]
+
+    artifact = build_opinion_artifact(payload)
+    checks = {item["check"]: item for item in artifact["review_checks"]}
+
+    assert artifact["state"] == "no-opinion"
+    assert checks["signal_to_position"]["status"] == "warning"
+    assert checks["signal_to_position"]["result"]["invalid_row_count"] == 0
+    assert checks["signal_to_position"]["risk_or_warning"] == (
+        "The latest signal snapshot is incomplete, mixed-date, duplicated, "
+        "or contains invalid rows."
+    )
 
 
 @pytest.mark.parametrize(

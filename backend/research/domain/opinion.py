@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -29,6 +30,14 @@ BOUNDARY_RISK = (
     "Checked no-warning result: warning_count=0 and caveat_count=0; manual adoption "
     "review is still required."
 )
+
+
+@dataclass(frozen=True)
+class _LatestSignalSelection:
+    latest: list[Mapping[str, Any]]
+    invalid_row_count: int
+    unexpected_symbols: list[str]
+    snapshot_complete: bool
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -190,64 +199,79 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
 
 def _latest_signals(
     payload: Mapping[str, Any],
-) -> tuple[list[Mapping[str, Any]], int, list[str]]:
+) -> _LatestSignalSelection:
     declared = _as_list(payload.get("symbols")) or _as_list(
         _as_mapping(payload.get("request_payload")).get("symbols")
     )
     allowed_symbols = {str(symbol) for symbol in declared if symbol}
-    forward_by_symbol: dict[str, tuple[str, Mapping[str, Any]]] = {}
-    latest_date_counts: dict[str, int] = {}
+    forward_by_symbol: dict[
+        str, tuple[str, list[tuple[int, Mapping[str, Any]]]]
+    ] = {}
+    invalid_row_indices: set[int] = set()
     unexpected_symbols: set[str] = set()
-    unexpected_signal_count = 0
-    malformed_signal_count = 0
-    for item in _as_list(payload.get("signals")):
+    for row_index, item in enumerate(_as_list(payload.get("signals"))):
         signal = _as_mapping(item)
         if signal.get("signal_kind") != "forward_opinion":
             continue
         symbol = signal.get("symbol")
         if not symbol:
-            malformed_signal_count += 1
+            invalid_row_indices.add(row_index)
             continue
         symbol_key = str(symbol)
         if symbol_key not in allowed_symbols:
             unexpected_symbols.add(symbol_key)
-            unexpected_signal_count += 1
+            invalid_row_indices.add(row_index)
             continue
         signal_date = _signal_date_key(signal)
         if signal_date is None:
-            malformed_signal_count += 1
+            invalid_row_indices.add(row_index)
             continue
-        if not _is_number(signal.get("score")) or not _is_number(
-            signal.get("position")
-        ):
-            malformed_signal_count += 1
         current = forward_by_symbol.get(symbol_key)
         if current is None or signal_date > current[0]:
-            forward_by_symbol[symbol_key] = (signal_date, signal)
-            latest_date_counts[symbol_key] = 1
+            forward_by_symbol[symbol_key] = (
+                signal_date,
+                [(row_index, signal)],
+            )
         elif signal_date == current[0]:
-            latest_date_counts[symbol_key] += 1
-    latest = [forward_by_symbol[symbol][1] for symbol in sorted(forward_by_symbol)]
-    malformed_signal_count += sum(count - 1 for count in latest_date_counts.values())
-    malformed_signal_count += len(allowed_symbols.difference(forward_by_symbol))
-    forward_dates = {item[0] for item in forward_by_symbol.values()}
-    if len(forward_dates) > 1:
-        malformed_signal_count += len(forward_dates)
-    invalid_count = sum(
-        1
-        for item in latest
-        if not _is_probability(item.get("up_probability"))
-        or item.get("predicted_direction") not in {"up", "down"}
+            current[1].append((row_index, signal))
+
+    forward_dates = {selection[0] for selection in forward_by_symbol.values()}
+    common_as_of = max(forward_dates) if forward_dates else None
+    latest: list[Mapping[str, Any]] = []
+    for symbol in sorted(forward_by_symbol):
+        signal_date, candidates = forward_by_symbol[symbol]
+        selected_index, selected_signal = candidates[0]
+        latest.append(selected_signal)
+        invalid_row_indices.update(index for index, _ in candidates[1:])
+        if signal_date != common_as_of:
+            invalid_row_indices.add(selected_index)
+        if (
+            not _is_number(selected_signal.get("score"))
+            or not _is_number(selected_signal.get("position"))
+            or not _is_probability(selected_signal.get("up_probability"))
+            or selected_signal.get("predicted_direction") not in {"up", "down"}
+        ):
+            invalid_row_indices.add(selected_index)
+
+    # Keep structural invariants explicit even though invalid rows currently
+    # encode mixed dates and duplicate latest candidates.
+    snapshot_complete = (
+        bool(allowed_symbols)
+        and set(forward_by_symbol) == allowed_symbols
+        and len(forward_dates) == 1
+        and all(len(candidates) == 1 for _, candidates in forward_by_symbol.values())
+        and not invalid_row_indices
     )
-    return (
-        latest,
-        invalid_count + unexpected_signal_count + malformed_signal_count,
-        sorted(unexpected_symbols),
+    return _LatestSignalSelection(
+        latest=latest,
+        invalid_row_count=len(invalid_row_indices),
+        unexpected_symbols=sorted(unexpected_symbols),
+        snapshot_complete=snapshot_complete,
     )
 
 
 def _valid_latest_signals(payload: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    latest, _, _ = _latest_signals(payload)
+    latest = _latest_signals(payload).latest
     return [
         item
         for item in latest
@@ -535,7 +559,8 @@ def _summary_checks() -> list[dict[str, Any]]:
 
 
 def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
-    latest, invalid_count, _ = _latest_signals(payload)
+    selection = _latest_signals(payload)
+    latest = selection.latest
     valid = _valid_latest_signals(payload)
     threshold = _strategy_threshold(payload)
     top_n = _strategy_top_n(payload)
@@ -625,8 +650,13 @@ def _parameter_sensitivity(payload: Mapping[str, Any]) -> dict[str, Any]:
         )
     )
     return {
-        "status": "warning" if invalid_count else "pass",
-        "reason": "Local provisional sensitivity scenarios were computed.",
+        "status": "pass" if selection.snapshot_complete else "warning",
+        "reason": (
+            "Local provisional sensitivity scenarios were computed."
+            if selection.snapshot_complete
+            else "Sensitivity scenarios were computed from valid latest rows, but "
+            "the latest signal snapshot is incomplete or invalid."
+        ),
         "result": {
             "base_candidate_symbols": base,
             "scenario_candidate_counts": {
@@ -654,7 +684,9 @@ def _review_checks(
     baselines = _as_mapping(payload.get("baselines"))
     caveats = _as_list(payload.get("comparison_caveats"))
     warnings = _as_list(payload.get("warnings"))
-    latest, invalid_signal_count, _ = _latest_signals(payload)
+    selection = _latest_signals(payload)
+    latest = selection.latest
+    invalid_signal_count = selection.invalid_row_count
     valid_latest = _valid_latest_signals(payload)
     selected_signal_dates = {
         str(item["symbol"]): signal_date
@@ -780,10 +812,15 @@ def _review_checks(
         _check(
             "signal_to_position",
             "method",
-            "pass" if latest and invalid_signal_count == 0 else "warning" if latest else "fail",
+            "pass"
+            if latest and selection.snapshot_complete
+            else "warning"
+            if latest
+            else "fail",
             "Latest persisted signal rows were bucketed by position sign.",
-            "Invalid latest signal rows were excluded from action rows."
-            if invalid_signal_count
+            "The latest signal snapshot is incomplete, mixed-date, duplicated, "
+            "or contains invalid rows."
+            if not selection.snapshot_complete
             else "Signal buckets are derived from numeric latest rows.",
             _refs(("signals", "signals")),
             {
@@ -1039,15 +1076,15 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not signals:
         limitations.append("Signal artifact is unavailable.")
     else:
-        forward_signals, invalid_signal_count, unexpected_symbols = _latest_signals(
-            payload
-        )
+        selection = _latest_signals(payload)
+        forward_signals = selection.latest
+        unexpected_symbols = selection.unexpected_symbols
         if not forward_signals:
             limitations.append(
                 "Prospective direction-confirmed signals are unavailable; "
                 "holdout evaluation signals are not investment opinions."
             )
-        elif invalid_signal_count:
+        elif not selection.snapshot_complete:
             limitations.append(
                 "Prospective signals must contain exactly one valid row per declared "
                 "symbol on a common as-of date."

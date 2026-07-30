@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import traceback
 from datetime import datetime, timezone
 
+import pytest
+import requests
+
 import backend.market_data.services.official_crawlers as official_event_crawler_service
+from backend.platform.errors import ExternalFetchError
 
 
 def test_crawl_lifecycle_records_links_raw_payload(monkeypatch):
@@ -71,3 +76,39 @@ def test_crawl_important_events_links_raw_payload(monkeypatch):
     assert captured_requests[0].event_publication_ts == datetime(
         2026, 3, 19, tzinfo=timezone.utc
     )
+
+
+def test_official_feed_failure_does_not_expose_request_url(
+    caplog,
+    monkeypatch,
+):
+    secret_url = "https://feed.test/events?token=secret"
+    monkeypatch.setenv(
+        official_event_crawler_service.LIFECYCLE_SOURCE_URL_ENV,
+        secret_url,
+    )
+    monkeypatch.setattr(
+        official_event_crawler_service.requests,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.HTTPError(f"Forbidden for url: {secret_url}")
+        ),
+    )
+    monkeypatch.setattr(
+        official_event_crawler_service,
+        "persist_raw_ingest_record",
+        lambda **kwargs: 1,
+    )
+
+    with pytest.raises(ExternalFetchError) as exc_info:
+        official_event_crawler_service._fetch_official_feed(
+            official_event_crawler_service.LIFECYCLE_SOURCE_URL_ENV,
+            official_event_crawler_service.LIFECYCLE_SOURCE_NAME,
+        )
+
+    assert str(exc_info.value) == "Failed to fetch official feed."
+    assert exc_info.value.error_type == "HTTPError"
+    assert "token=secret" not in "".join(
+        traceback.format_exception(exc_info.value)
+    )
+    assert "token=secret" not in caplog.text

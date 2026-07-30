@@ -10,6 +10,13 @@ from scripts import market_data_ingestion as scraper
 
 logger = logging.getLogger(__name__)
 
+BATCH_STATUS_SUCCEEDED = scraper.BATCH_STATUS_SUCCEEDED
+BATCH_STATUS_PARTIAL = scraper.BATCH_STATUS_PARTIAL
+BATCH_STATUS_FAILED = scraper.BATCH_STATUS_FAILED
+BATCH_STATUS_SKIPPED_NON_TRADING_DAY = (
+    scraper.BATCH_STATUS_SKIPPED_NON_TRADING_DAY
+)
+
 
 def ingest_tw_market_batch(
     *,

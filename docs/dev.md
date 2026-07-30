@@ -119,6 +119,23 @@ Run TW market daily batch ingestion when a broader local dataset is needed:
 .venv/bin/python -m scripts.crawl_tw_daily_batch 2026-03-20 --refresh-universe
 ```
 
+Backfill a weekday date range with bounded universe refresh retries:
+
+```bash
+.venv/bin/python -m scripts.crawl_tw_daily_batch \
+  --start-date 2023-01-01 \
+  --end-date 2025-12-31 \
+  --refresh-universe
+```
+
+Range runs emit one progress JSON object per attempted date to stderr and one
+final aggregate JSON object to stdout. `--delay-seconds` defaults to `1.0` and
+controls the pause between attempted dates; adjust it when throttling long
+range backfills. The aggregate field
+`universe_refresh_succeeded` is `true` only after a confirmed refresh, `false`
+after an attempted refresh without confirmed success, and `null` when the range
+runner did not attempt its bounded refresh.
+
 ## V1 Usable-Loop Verification
 
 The core manual path is:

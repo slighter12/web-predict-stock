@@ -1,3 +1,4 @@
+import traceback
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
@@ -187,6 +188,63 @@ def test_fetch_twse_public_snapshot_auto_downloads_ca_on_tls_failure(monkeypatch
     ]
 
 
+def test_fetch_twse_public_snapshot_rejects_http_error_after_ca_download(
+    caplog,
+    monkeypatch,
+):
+    calls: list[bool | str] = []
+    response_url_with_token = "https://snapshot.test/data?token=secret"
+
+    def raise_http_error():
+        raise tick_archive_provider.requests.HTTPError(
+            f"Forbidden for url: {response_url_with_token}"
+        )
+
+    def fake_request_snapshot(*, params, timeout_seconds, verify):
+        calls.append(verify)
+        if len(calls) == 1:
+            raise tick_archive_provider.requests.exceptions.SSLError("bad cert")
+        return SimpleNamespace(
+            status_code=403,
+            url=response_url_with_token,
+            text='{"msgArray":[]}',
+            raise_for_status=raise_http_error,
+        )
+
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "_resolve_tls_verify",
+        lambda: "/tmp/initial-ca.pem",
+    )
+    monkeypatch.setenv("TWSE_MIS_CA_AUTO_DOWNLOAD", "true")
+    monkeypatch.delenv("TWSE_MIS_ENABLE_INSECURE_FALLBACK", raising=False)
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "_download_ca_bundle",
+        lambda: "/tmp/downloaded-ca.pem",
+    )
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "_request_snapshot",
+        fake_request_snapshot,
+    )
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "parse_snapshot_payload",
+        lambda *args, **kwargs: pytest.fail("failed responses must not be parsed"),
+    )
+
+    with pytest.raises(ExternalFetchError) as exc_info:
+        tick_archive_provider.fetch_twse_public_snapshot(["2330"])
+
+    assert exc_info.value.error_type == "HTTPError"
+    assert calls == ["/tmp/initial-ca.pem", "/tmp/downloaded-ca.pem"]
+    assert "token=secret" not in "".join(
+        traceback.format_exception(exc_info.value)
+    )
+    assert "token=secret" not in caplog.text
+
+
 def test_fetch_twse_public_snapshot_insecure_fallback_requires_explicit_opt_in(
     monkeypatch,
 ):
@@ -217,6 +275,33 @@ def test_fetch_twse_public_snapshot_insecure_fallback_requires_explicit_opt_in(
         tick_archive_provider.fetch_twse_public_snapshot(["2330"])
 
     assert calls == [tick_archive_provider.certifi.where()]
+
+
+def test_fetch_twse_public_snapshot_failure_does_not_expose_request_url(
+    caplog,
+    monkeypatch,
+):
+    snapshot_url_with_token = "https://snapshot.test/data?token=secret"
+    monkeypatch.setattr(tick_archive_provider, "_resolve_tls_verify", lambda: True)
+    monkeypatch.setattr(
+        tick_archive_provider,
+        "_request_snapshot",
+        lambda **kwargs: (_ for _ in ()).throw(
+            tick_archive_provider.requests.HTTPError(
+                f"Forbidden for url: {snapshot_url_with_token}"
+            )
+        ),
+    )
+
+    with pytest.raises(ExternalFetchError) as exc_info:
+        tick_archive_provider.fetch_twse_public_snapshot(["2330"])
+
+    assert str(exc_info.value) == "Failed to fetch TWSE public snapshot."
+    assert exc_info.value.error_type == "HTTPError"
+    assert "token=secret" not in "".join(
+        traceback.format_exception(exc_info.value)
+    )
+    assert "token=secret" not in caplog.text
 
 
 def test_fetch_twse_public_snapshot_can_use_explicit_insecure_fallback(monkeypatch):
