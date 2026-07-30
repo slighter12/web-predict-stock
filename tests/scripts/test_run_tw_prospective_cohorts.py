@@ -5,7 +5,7 @@ import sys
 from datetime import date
 from types import SimpleNamespace
 
-from backend.platform.errors import ExternalFetchError
+from backend.platform.errors import DataAccessError, ExternalFetchError
 
 
 def test_runner_reuses_one_existing_valid_run(capsys, monkeypatch, load_script):
@@ -186,3 +186,58 @@ def test_runner_isolates_expected_failure_and_continues_both_cohorts(
     assert reports[0]["reason"] == "2330 cohort failed"
     assert reports[1]["status"] == "created"
     assert created == [module.COHORT_ALL_ACTIVE]
+
+
+def test_runner_isolates_lookup_failure_and_continues_both_cohorts(
+    caplog, capsys, monkeypatch, load_script
+):
+    module = load_script(
+        "run_tw_prospective_cohorts.py",
+        "run_tw_prospective_cohorts_lookup_failure",
+    )
+    basis_date = date(2024, 1, 4)
+
+    def existing_runs(*, cohort_id, basis_date):
+        if cohort_id == module.COHORT_2330:
+            raise DataAccessError("research registry unavailable")
+        return []
+
+    def preflight(*, cohort_id, basis_date):
+        return {
+            "cohort_id": cohort_id,
+            "basis_date": basis_date.isoformat(),
+            "full_universe_symbols": ["2317"],
+            "execution_symbols": ["2317"],
+            "status": "ready",
+        }
+
+    monkeypatch.setattr(module, "valid_successful_cohort_runs", existing_runs)
+    monkeypatch.setattr(module, "preflight_cohort", preflight)
+    monkeypatch.setattr(
+        module,
+        "create_research_run",
+        lambda request, **kwargs: SimpleNamespace(run_id=kwargs["run_id"]),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_tw_prospective_cohorts.py",
+            "--basis-date",
+            basis_date.isoformat(),
+        ],
+    )
+
+    with caplog.at_level("ERROR"):
+        assert module.main() == 1
+
+    reports = json.loads(capsys.readouterr().out)["cohorts"]
+    assert reports[0] == {
+        "cohort_id": module.COHORT_2330,
+        "basis_date": basis_date.isoformat(),
+        "status": "error",
+        "failure_kind": "DataAccessError",
+        "reason": "research registry unavailable",
+    }
+    assert reports[1]["status"] == "created"
+    assert "cohort_id=tw_2330_o2o_v1" in caplog.text

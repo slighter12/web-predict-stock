@@ -421,6 +421,10 @@ def _bars(
     }
 
 
+def _fail_if_bars_loaded(*args, **kwargs):
+    pytest.fail("invalid run must not load bars")
+
+
 def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
     cohort_id = prospective_service.COHORT_2330
     request_payload = prospective_service.strict_request_payload(
@@ -490,20 +494,32 @@ def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
             assert tz == prospective_service.TW_TIMEZONE
             return cls(2024, 1, 5, 0, 30, tzinfo=tz)
 
-    row = SimpleNamespace(
-        date=date(2024, 1, 4),
-        symbol="2330",
-        open=100.0,
-        high=101.0,
-        low=99.0,
-        close=100.5,
-        source="twse",
-        raw_payload_id=1,
-    )
+    rows = [
+        SimpleNamespace(
+            date=date(2024, 1, 4),
+            symbol=symbol,
+            open=open_price,
+            high=open_price + 1,
+            low=open_price - 1,
+            close=open_price + 0.5,
+            source="twse",
+            raw_payload_id=index,
+        )
+        for index, (symbol, open_price) in enumerate(
+            [
+                ("2317", 90.0),
+                ("2317", 91.0),
+                ("2330", 100.0),
+                ("2454", 0.0),
+            ],
+            start=1,
+        )
+    ]
+    rows[1].date = date(2024, 1, 5)
 
     class _ScalarResult:
         def all(self):
-            return [row]
+            return rows
 
     class _Result:
         def scalars(self):
@@ -528,14 +544,21 @@ def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
         lambda **kwargs: captured.update(kwargs) or set(),
     )
 
-    prospective_service.load_eligible_bars(
-        ["2330"],
+    result = prospective_service.load_eligible_bars(
+        ["2317", "2330", "2454"],
         start_date=date(2024, 1, 4),
     )
 
     assert captured == {
         "start_date": date(2024, 1, 4),
         "end_date": date(2024, 1, 5),
+    }
+    assert {
+        symbol: [bar.date for bar in bars]
+        for symbol, bars in result.items()
+    } == {
+        "2317": [date(2024, 1, 4), date(2024, 1, 5)],
+        "2330": [date(2024, 1, 4)],
     }
 
 
@@ -783,6 +806,11 @@ def test_cohort_evaluator_requires_valid_same_day_frozen_timestamp(
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -799,9 +827,7 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     monkeypatch.setattr(
         prospective_service,
         "load_eligible_bars",
-        lambda *args, **kwargs: _bars(
-            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
-        ),
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
@@ -873,6 +899,11 @@ def test_cohort_evaluator_rejects_signal_date_that_differs_from_basis_date(monke
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -885,6 +916,11 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     record["request_payload"]["model"]["params"]["n_estimators"] = 100
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
@@ -900,6 +936,11 @@ def test_cohort_evaluator_rejects_changed_direction_threshold(monkeypatch):
     ] = 0.95
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
@@ -990,6 +1031,11 @@ def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkey
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_ALL_ACTIVE)
 
@@ -1017,13 +1063,16 @@ def test_2330_preflight_requires_2330_to_be_data_ready(monkeypatch):
     assert result["full_universe_symbols"] == ["2330"]
     assert result["execution_symbols"] == []
     assert result["status"] == "no-opinion"
+    assert result["reason"] == (
+        "Symbol 2330 is not model-ready: forward_signal_unavailable."
+    )
 
 
 @pytest.mark.parametrize(
     ("ready_count", "expected_status"), [(94, "no-opinion"), (95, "ready")],
 )
 def test_all_active_preflight_applies_95_percent_coverage_gate(
-    monkeypatch, ready_count, expected_status
+    monkeypatch, caplog, ready_count, expected_status
 ):
     symbols = [f"{number:04d}" for number in range(100)]
     monkeypatch.setattr(prospective_service, "active_tw_profile_symbols", lambda: symbols)
@@ -1038,10 +1087,17 @@ def test_all_active_preflight_applies_95_percent_coverage_gate(
         lambda *, symbol, **kwargs: None if int(symbol) < ready_count else "model_not_ready",
     )
 
-    result = prospective_service.preflight_cohort(
-        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
-        basis_date=date(2024, 1, 4),
-    )
+    with caplog.at_level("INFO"):
+        result = prospective_service.preflight_cohort(
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            basis_date=date(2024, 1, 4),
+        )
 
     assert result["execution_coverage_ratio"] == pytest.approx(ready_count / 100)
     assert result["status"] == expected_status
+    assert result["reason"] == (
+        None
+        if expected_status == "ready"
+        else "Execution coverage 94.00% is below 95%."
+    )
+    assert "processed=100 total=100" in caplog.text

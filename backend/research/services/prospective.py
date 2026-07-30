@@ -141,19 +141,19 @@ def load_eligible_bars(
         ),
     )
     result: dict[str, list[EligibleBar]] = defaultdict(list)
-    for row_date, row in frame.iterrows():
-        values = [row["open"], row["high"], row["low"], row["close"]]
+    for row in frame.reset_index().itertuples(index=False):
+        values = [row.open, row.high, row.low, row.close]
         if not all(math.isfinite(float(value)) and float(value) > 0 for value in values):
             continue
-        result[str(row["symbol"]).upper()].append(
+        result[str(row.symbol).upper()].append(
             EligibleBar(
-                date=_as_date(row_date) or row_date,
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                source=str(row["source"]),
-                raw_payload_id=row["raw_payload_id"],
+                date=_as_date(row.date) or row.date,
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                source=str(row.source),
+                raw_payload_id=row.raw_payload_id,
             )
         )
     return dict(result)
@@ -222,7 +222,8 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         official_no_data_dates = load_official_no_data_dates(
             start_date=basis_date - timedelta(days=1096), end_date=basis_date
         )
-        for symbol in full_symbols:
+        total_symbols = len(full_symbols)
+        for index, symbol in enumerate(full_symbols, start=1):
             request = ResearchRunCreateRequest.model_validate(
                 strict_request_payload(
                     symbols=[symbol],
@@ -241,6 +242,18 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
             )
             if reason is not None:
                 exclusions[symbol] = reason
+            if cohort_id == COHORT_ALL_ACTIVE and (
+                index % 100 == 0 or index == total_symbols
+            ):
+                logger.info(
+                    "Prospective preflight progress cohort_id=%s basis_date=%s "
+                    "processed=%d total=%d exclusions=%d",
+                    cohort_id,
+                    basis_date,
+                    index,
+                    total_symbols,
+                    len(exclusions),
+                )
     execution_symbols = [symbol for symbol in full_symbols if symbol not in exclusions]
     coverage = len(execution_symbols) / len(full_symbols) if full_symbols else 0.0
     ready = (
@@ -248,6 +261,17 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         if cohort_id == COHORT_2330
         else coverage >= MIN_EXECUTION_COVERAGE
     )
+    reason = None
+    if not ready:
+        reason = (
+            f"Symbol 2330 is not model-ready: "
+            f"{exclusions.get('2330', 'excluded')}."
+            if cohort_id == COHORT_2330
+            else (
+                f"Execution coverage {coverage:.2%} is below "
+                f"{MIN_EXECUTION_COVERAGE:.0%}."
+            )
+        )
     return {
         "cohort_id": cohort_id,
         "basis_date": basis_date.isoformat(),
@@ -259,9 +283,7 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         "exclusions": exclusions,
         "exclusion_count": len(exclusions),
         "status": "ready" if ready else "no-opinion",
-        "reason": None
-        if ready
-        else f"Execution coverage {coverage:.2%} is below {MIN_EXECUTION_COVERAGE:.0%}.",
+        "reason": reason,
     }
 
 
