@@ -6,19 +6,14 @@ from uuid import uuid4
 
 from backend.platform.errors import BacktestError, DataAccessError
 from backend.research.contracts.runs import (
-    OpinionArtifact,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
 )
-from backend.research.domain.artifact_summary import (
-    build_review_artifact_summary,
-    has_requested_baselines,
-)
-from backend.research.domain.opinion import build_opinion_artifact
-from backend.research.repositories.runs import (
+from backend.research.services.run_projection import (
     get_research_run_record,
     list_research_run_records,
+    project_live_response,
 )
 from backend.research.services.execution import execute_research_run
 from backend.research.services.prospective import validate_strict_cohort_start
@@ -31,41 +26,6 @@ from backend.research.services.registry import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _response_with_artifact_summary(
-    response: ResearchRunResponse,
-    request: ResearchRunCreateRequest,
-) -> ResearchRunResponse:
-    summary = build_review_artifact_summary(
-        status="succeeded",
-        request_payload=request.model_dump(mode="json"),
-        comparison_eligibility=response.comparison_eligibility,
-        artifact_presence={
-            "metrics": True,
-            "model_diagnostics": response.model_diagnostics is not None,
-            "equity_curve": True,
-            "signals": True,
-            "validation": response.validation is not None,
-            "baselines": has_requested_baselines(
-                request.model_dump(mode="json"), response.baselines
-            ),
-        },
-    )
-    opinion_payload = {
-        **response.model_dump(mode="json", exclude={"opinion_artifact"}),
-        "status": "succeeded",
-        "request_payload": request.model_dump(mode="json"),
-        **summary,
-    }
-    return response.model_copy(
-        update={
-            **summary,
-            "opinion_artifact": OpinionArtifact.model_validate(
-                build_opinion_artifact(opinion_payload)
-            ),
-        }
-    )
 
 
 def _record_registry_event(
@@ -101,7 +61,7 @@ def create_research_run(
         )
         artifacts = execute_research_run(run_id=run_id, request=request)
         runtime_context = artifacts.runtime_context
-        response = _response_with_artifact_summary(artifacts.response, request)
+        response = project_live_response(artifacts.response, request)
         _record_registry_event(
             record_success,
             raise_on_failure=True,

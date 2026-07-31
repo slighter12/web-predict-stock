@@ -4,12 +4,38 @@ import pandas as pd
 import pytest
 import requests
 
+import scripts.market_data_ingestion as ingestion_entrypoint
+from backend.market_data.services import ingestion_runtime as scraper
 from backend.platform.errors import (
     DataAccessError,
     ExternalFetchError,
     UnsupportedConfigurationError,
 )
-from scripts import market_data_ingestion as scraper
+
+
+def test_command_entrypoint_passes_environment_to_runtime(monkeypatch, capsys):
+    captured = {}
+    monkeypatch.setenv("INGEST_SYMBOL", "2317")
+    monkeypatch.setenv("INGEST_MARKET", "tw")
+    monkeypatch.setenv("INGEST_YEARS", "3")
+    monkeypatch.setenv("INGEST_DATE", "20260710")
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: captured.update(kwargs) or {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert captured == {
+        "symbol": "2317",
+        "market": "TW",
+        "years": 3,
+        "date_str": "20260710",
+    }
+    output = capsys.readouterr().out
+    assert "alembic upgrade head" in output
+    assert "{'status': 'ok'}" in output
 
 
 class _FakeResult:
@@ -1609,6 +1635,9 @@ def test_market_batch_failures_do_not_expose_exception_details(
 
     assert result.error_message == expected_message
     assert "token=secret" not in str(result)
+    if stage == "parse":
+        assert result.metadata is not None
+        assert result.metadata.raw_payload_id == 1
 
 
 def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):

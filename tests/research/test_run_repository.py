@@ -1,10 +1,9 @@
 from datetime import datetime, timezone
-from types import SimpleNamespace
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import backend.research.repositories.runs as research_run_repository
+import backend.research.services.run_projection as research_run_projection
 from backend.database import (
     Base,
     MicrostructureObservation,
@@ -15,7 +14,7 @@ from backend.research.domain.version_pack import build_version_pack_payload
 
 
 def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
-    payload = research_run_repository._validation_summary_from_payload(
+    payload = research_run_projection._validation_summary_from_payload(
         {"method": "walk_forward", "metrics": {}}
     )
 
@@ -30,27 +29,32 @@ def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
 
 
 def test_legacy_validation_remains_present_in_artifact_summary():
-    row = SimpleNamespace(
-        status="succeeded",
-        comparison_eligibility="research_only_comparable",
-        metrics_json="{}",
-        equity_curve_json="[]",
-        signals_json="[]",
-        baselines_json=None,
+    validation = research_run_projection._validation_summary_from_payload(
+        {"method": "walk_forward", "metrics": {}}
     )
-
-    summary = research_run_repository._review_artifact_summary_from_row(
-        row,
-        request_payload={
-            "validation": {
-                "method": "walk_forward",
-                "splits": 3,
-                "test_size": 0.2,
+    summary = research_run_projection._project_reviewable_payload(
+        {
+            "status": "succeeded",
+            "comparison_eligibility": "research_only_comparable",
+            "request_payload": {
+                "validation": {
+                    "method": "walk_forward",
+                    "splits": 3,
+                    "test_size": 0.2,
+                },
+                "baselines": [],
             },
-            "baselines": [],
+            "validation": validation,
         },
-        validation_outcome={"method": "walk_forward", "metrics": {}},
-        model_diagnostics={"task": "regression", "sample_count": 0},
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": validation is not None,
+            "baselines": False,
+        },
+        summary_only=False,
     )
 
     assert summary["artifact_completeness"] == "complete"
@@ -59,23 +63,24 @@ def test_legacy_validation_remains_present_in_artifact_summary():
 
 
 def test_requested_missing_baseline_remains_partial_after_reload():
-    row = SimpleNamespace(
-        status="succeeded",
-        comparison_eligibility="research_only_comparable",
-        metrics_json="{}",
-        equity_curve_json="[]",
-        signals_json="[]",
-        baselines_json='{"buy_and_hold": {"sharpe": 0.5}}',
-    )
-
-    summary = research_run_repository._review_artifact_summary_from_row(
-        row,
-        request_payload={
-            "validation": None,
-            "baselines": ["buy_and_hold", "naive_momentum"],
+    summary = research_run_projection._project_reviewable_payload(
+        {
+            "status": "succeeded",
+            "comparison_eligibility": "research_only_comparable",
+            "request_payload": {
+                "validation": None,
+                "baselines": ["buy_and_hold", "naive_momentum"],
+            },
         },
-        validation_outcome=None,
-        model_diagnostics={"task": "regression", "sample_count": 0},
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": False,
+            "baselines": False,
+        },
+        summary_only=False,
     )
 
     assert summary["artifact_completeness"] == "partial"
@@ -84,7 +89,7 @@ def test_requested_missing_baseline_remains_partial_after_reload():
 
 
 def test_model_diagnostics_parser_preserves_direction_diagnostics():
-    payload = research_run_repository._model_diagnostics_from_payload(
+    payload = research_run_projection._model_diagnostics_from_payload(
         {
             "task": "regression",
             "sample_count": 2,
@@ -118,6 +123,101 @@ def test_model_diagnostics_parser_preserves_direction_diagnostics():
         [1, 0],
         [0, 1],
     ]
+
+
+def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    exact_payload = research_run_repository.json_dumps(
+        {
+            "prospective_evidence": {
+                "cohort_id": cohort_id,
+            }
+        }
+    )
+    false_positive_payload = research_run_repository.json_dumps(
+        {
+            "cohort_id": cohort_id,
+            "prospective_evidence": {
+                "cohort_id": "tw_all_active_o2o_v1",
+            },
+        }
+    )
+    exact_row = ResearchRun(
+        run_id="exact",
+        status="succeeded",
+        request_payload_json=exact_payload,
+    )
+    statements = []
+
+    class _CandidateResult:
+        def all(self):
+            return [
+                ("exact", exact_payload),
+                ("false-positive", false_positive_payload),
+            ]
+
+    class _RowResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [exact_row]
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            return _CandidateResult() if len(statements) == 1 else _RowResult()
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        research_run_repository,
+        "_attach_liquidity_coverages",
+        lambda session, payload: payload,
+    )
+
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["exact"]
+    candidate_query = statements[0].compile()
+    assert str(candidate_query).count("request_payload_json LIKE") == 2
+    assert str(candidate_query).count("ESCAPE") == 2
+    assert f'"{cohort_id.replace("_", "/_")}"' in candidate_query.params.values()
+    assert statements[1].compile().params == {"run_id_1": ["exact"]}
+
+
+def test_corrupt_baselines_json_is_not_marked_present():
+    row = ResearchRun(
+        run_id="corrupt-baselines",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json='{"task": "regression", "sample_count": 0}',
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{not-json",
+        comparison_eligibility="research_only_comparable",
+    )
+
+    projected = research_run_projection.project_persisted_snapshot(
+        research_run_repository._run_row_to_snapshot(row),
+        include_artifacts=True,
+    )
+
+    assert projected["baselines"] == {}
+    assert projected["artifact_completeness"] == "partial"
+    assert "baselines" in projected["missing_artifacts"]
+    assert "baselines" not in projected["present_artifacts"]
 
 
 def test_research_run_repository_roundtrip(monkeypatch):
@@ -273,7 +373,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
     }
 
     research_run_repository.persist_research_run_record(payload)
-    loaded = research_run_repository.get_research_run_record("run_123")
+    loaded = research_run_projection.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
     assert loaded["request_payload"]["features"][0]["shift"] == 0
@@ -429,7 +529,7 @@ def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_old")
+    loaded = research_run_projection.get_research_run_record("run_old")
 
     assert loaded["artifact_completeness"] == "metadata_only"
     assert loaded["present_artifacts"] == []
@@ -495,7 +595,7 @@ def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_partial")
+    loaded = research_run_projection.get_research_run_record("run_partial")
 
     assert loaded["artifact_completeness"] == "partial"
     assert loaded["present_artifacts"] == ["metrics"]
@@ -545,7 +645,7 @@ def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypat
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_running")
+    loaded = research_run_projection.get_research_run_record("run_running")
 
     assert loaded["artifact_completeness"] == "metadata_only"
     assert {item["code"] for item in loaded["comparison_caveats"]} >= {
@@ -603,7 +703,7 @@ def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeyp
     }
 
     research_run_repository.persist_research_run_record(payload)
-    listed = research_run_repository.list_research_run_records()
+    listed = research_run_projection.list_research_run_records()
 
     assert listed[0]["run_id"] == "run_list"
     assert listed[0]["artifact_completeness"] == "complete"
@@ -659,7 +759,7 @@ def test_list_research_run_records_preserves_non_success_opinion_states(monkeypa
 
     listed_by_status = {
         item["status"]: item
-        for item in research_run_repository.list_research_run_records()
+        for item in research_run_projection.list_research_run_records()
     }
 
     assert set(listed_by_status) == set(statuses)

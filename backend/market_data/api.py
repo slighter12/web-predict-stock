@@ -113,6 +113,11 @@ def read_tw_daily_readiness(
 def create_tw_company_crawl(
     request: TwCompanyCrawlRequest | None = None,
 ) -> TwCompanyCrawlerRunResponse:
+    """Fetch and upsert profiles without inactivating companies absent from a feed.
+
+    The unauthenticated HTTP boundary always uses ``reconcile=False``. The local
+    CLI keeps the crawler service's reconciliation-enabled default.
+    """
     request = request or TwCompanyCrawlRequest()
     return TwCompanyCrawlerRunResponse(
         **crawl_tw_company_profiles(

@@ -7,7 +7,7 @@ from backend.shared.analytics import models as model_service
 from backend.research.domain.run_payload import build_research_run_payload
 from backend.platform.errors import BacktestError, DataNotFoundError
 from backend.research.repositories.runs import (
-    get_research_run_record,
+    get_research_run_request_payload,
     persist_research_run_record,
 )
 from backend.platform.http.errors import research_run_error_code
@@ -17,6 +17,7 @@ from backend.research.contracts.runs import (
     ResearchRunResponse,
     ValidationSummary,
 )
+from backend.research.policies.prospective import STRICT_MODE
 from backend.shared.analytics.strategy import (
     ADOPTION_COMPARISON_POLICY_VERSION,
     BOOTSTRAP_POLICY_VERSION,
@@ -41,11 +42,11 @@ def _success_request_payload(
 ) -> dict[str, Any]:
     payload = _request_payload_from_model(request)
     evidence = payload.get("prospective_evidence")
-    if not isinstance(evidence, dict) or evidence.get("mode") != "strict_v1":
+    if not isinstance(evidence, dict) or evidence.get("mode") != STRICT_MODE:
         return payload
 
     try:
-        existing_payload = get_research_run_record(run_id).get("request_payload")
+        existing_payload = get_research_run_request_payload(run_id)
     except DataNotFoundError:
         logger.warning(
             "Strict research run record missing while freezing prospective "

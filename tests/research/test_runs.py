@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 import backend.research.domain.opinion as opinion_domain
+import backend.research.services.run_projection as research_run_projection
 import backend.research.services.runs as research_run_service
 from backend.platform.errors import DataAccessError
 from backend.research.contracts.runs import (
@@ -122,7 +123,7 @@ def test_requested_missing_baseline_marks_response_partial():
         update={"baselines": {"buy_and_hold": {"sharpe": 0.5}}}
     )
 
-    response = research_run_service._response_with_artifact_summary(
+    response = research_run_projection.project_live_response(
         response, request
     )
 
@@ -1000,7 +1001,7 @@ def test_opinion_builder_missing_status_is_do_not_adopt():
 def test_create_response_stale_evidence_blocks_opinion_rows():
     response = make_response().model_copy(update={"stale_risk_share": 0.25})
 
-    result = research_run_service._response_with_artifact_summary(
+    result = research_run_projection.project_live_response(
         response,
         make_request(),
     )
@@ -1014,7 +1015,7 @@ def test_create_response_execution_metadata_blocks_opinion_rows():
         update={"tradability_state": "execution_ready"}
     )
 
-    result = research_run_service._response_with_artifact_summary(
+    result = research_run_projection.project_live_response(
         response,
         make_request(),
     )

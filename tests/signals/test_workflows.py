@@ -42,7 +42,7 @@ def _make_research_request(**overrides) -> ResearchRunCreateRequest:
 def test_create_simulation_order_rejects_unknown_run_id(monkeypatch):
     monkeypatch.setattr(
         foundation_service,
-        "get_research_run_record",
+        "get_research_run_snapshot",
         lambda run_id: (_ for _ in ()).throw(
             DataNotFoundError(f"Research run '{run_id}' was not found.")
         ),
@@ -64,7 +64,7 @@ def test_create_simulation_order_rejects_unknown_run_id(monkeypatch):
 def test_create_live_order_rejects_unknown_run_id(monkeypatch):
     monkeypatch.setattr(
         foundation_service,
-        "get_research_run_record",
+        "get_research_run_snapshot",
         lambda run_id: (_ for _ in ()).throw(
             DataNotFoundError(f"Research run '{run_id}' was not found.")
         ),

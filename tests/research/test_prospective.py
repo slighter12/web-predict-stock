@@ -8,7 +8,7 @@ from pydantic import ValidationError
 import backend.research.services.execution as execution_service
 import backend.research.services.prospective as prospective_service
 import backend.research.services.registry as registry_service
-from backend.platform.db.repository_helpers import json_dumps
+import backend.market_data.services.research_inputs as research_inputs
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.research.api import PublicResearchRunCreateRequest
 from backend.research.contracts.runs import ResearchRunCreateRequest
@@ -189,7 +189,7 @@ def test_success_request_payload_writes_timezone_aware_frozen_timestamp_for_firs
 ):
     frozen_at = datetime(2024, 1, 4, 5, 25, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        registry_service, "get_research_run_record", lambda run_id: {"request_payload": {}}
+        registry_service, "get_research_run_request_payload", lambda run_id: {}
     )
     monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
 
@@ -208,7 +208,9 @@ def test_success_request_payload_treats_missing_started_record_as_first_freeze(
     def missing_record(run_id):
         raise DataNotFoundError(run_id)
 
-    monkeypatch.setattr(registry_service, "get_research_run_record", missing_record)
+    monkeypatch.setattr(
+        registry_service, "get_research_run_request_payload", missing_record
+    )
     monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
 
     with caplog.at_level("WARNING"):
@@ -226,7 +228,7 @@ def test_success_request_payload_propagates_data_access_errors(monkeypatch):
 
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         unavailable_record,
     )
 
@@ -242,11 +244,9 @@ def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_r
     existing_timestamp = "2024-01-04T05:25:00+00:00"
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         lambda run_id: {
-            "request_payload": {
-                "prospective_evidence": {"signal_frozen_at": existing_timestamp}
-            }
+            "prospective_evidence": {"signal_frozen_at": existing_timestamp}
         },
     )
     monkeypatch.setattr(
@@ -265,7 +265,7 @@ def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_r
 def test_success_request_payload_leaves_non_strict_request_unchanged(monkeypatch):
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         lambda run_id: pytest.fail("non-strict payload must not read persisted state"),
     )
 
@@ -427,64 +427,29 @@ def _fail_if_bars_loaded(*args, **kwargs):
 
 def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
     cohort_id = prospective_service.COHORT_2330
-    request_payload = prospective_service.strict_request_payload(
-        symbols=["2330"],
-        basis_date=date(2024, 1, 4),
-        cohort_id=cohort_id,
-        full_universe_symbols=["2330"],
-    )
-    candidate_rows = [
-        ("exact", json_dumps(request_payload)),
-        (
-            "false-positive",
-            json_dumps(
-                {
-                    "cohort_id": cohort_id,
-                    "prospective_evidence": {
-                        "cohort_id": prospective_service.COHORT_ALL_ACTIVE
-                    },
-                }
-            ),
-        ),
-    ]
-    statements = []
-
-    class _Result:
-        def all(self):
-            return candidate_rows
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, statement):
-            statements.append(statement)
-            return _Result()
-
-    loaded = []
-
-    def load_record(run_id):
-        loaded.append(run_id)
-        return _strict_record(run_id)
-
-    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    snapshots = [{"run_id": "exact"}]
     monkeypatch.setattr(
         prospective_service,
-        "get_research_run_record",
-        load_record,
+        "list_prospective_cohort_run_snapshots",
+        lambda requested_cohort_id: (
+            snapshots
+            if requested_cohort_id == cohort_id
+            else pytest.fail("unexpected cohort")
+        ),
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "project_persisted_snapshot",
+        lambda snapshot, include_artifacts: (
+            _strict_record(snapshot["run_id"])
+            if include_artifacts
+            else pytest.fail("cohort records require artifacts")
+        ),
     )
 
     records = prospective_service.list_cohort_run_records(cohort_id)
 
     assert [record["run_id"] for record in records] == ["exact"]
-    assert loaded == ["exact"]
-    compiled = statements[0].compile()
-    assert str(compiled).count("request_payload_json LIKE") == 2
-    assert str(compiled).count("ESCAPE") == 2
-    assert '"tw/_2330/_o2o/_v1"' in compiled.params.values()
 
 
 def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
@@ -517,29 +482,26 @@ def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
     ]
     rows[1].date = date(2024, 1, 5)
 
-    class _ScalarResult:
-        def all(self):
-            return rows
-
-    class _Result:
-        def scalars(self):
-            return _ScalarResult()
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, statement):
-            return _Result()
-
     captured = {}
-    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    frame = pd.DataFrame(
+        [
+            {
+                "date": row.date,
+                "symbol": row.symbol,
+                "open": row.open,
+                "high": row.high,
+                "low": row.low,
+                "close": row.close,
+                "source": row.source,
+                "raw_payload_id": row.raw_payload_id,
+            }
+            for row in rows
+        ]
+    ).set_index(["date", "symbol"])
+    monkeypatch.setattr(research_inputs, "datetime", _FixedDatetime)
+    monkeypatch.setattr(research_inputs, "get_data", lambda *args, **kwargs: frame)
     monkeypatch.setattr(
-        prospective_service,
+        research_inputs,
         "load_official_no_data_dates",
         lambda **kwargs: captured.update(kwargs) or set(),
     )

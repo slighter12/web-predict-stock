@@ -12,7 +12,7 @@ from backend.market_data.repositories.scheduled_ingestion import (
 )
 from backend.market_data.repositories.watchlist import list_watchlist_entries
 from backend.platform.time import utc_now
-from scripts import market_data_ingestion as scraper
+from backend.market_data.services import ingestion_runtime as scraper
 
 logger = logging.getLogger(__name__)
 

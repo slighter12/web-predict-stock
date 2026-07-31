@@ -52,7 +52,7 @@ from backend.signals.repositories._store import (
     persist_kill_switch_event,
     persist_peer_feature_run,
 )
-from backend.research.repositories.runs import get_research_run_record
+from backend.research.repositories.runs import get_research_run_snapshot
 from backend.execution.contracts.orders import LiveOrderRequest, SimulationOrderRequest
 from backend.research.contracts.adaptive import (
     AdaptiveProfileRequest,
@@ -106,7 +106,7 @@ _TW_MARKET_TIMEZONE = ZoneInfo("Asia/Taipei")
 def _validate_execution_run_reference(run_id: str | None) -> None:
     if run_id is None:
         return
-    get_research_run_record(run_id)
+    get_research_run_snapshot(run_id)
 
 
 def _market_close_ts(trading_date: date) -> datetime:

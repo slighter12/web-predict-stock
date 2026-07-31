@@ -5,21 +5,22 @@ from __future__ import annotations
 import logging
 import math
 from collections import defaultdict
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from statistics import mean
-from typing import Any, Iterable
+from typing import Any
 from uuid import NAMESPACE_URL, uuid5
-from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
-
-from backend.database import DailyOHLCV, ResearchRun, SessionLocal
-from backend.market_data.repositories.company_profiles import list_tw_company_profiles
-from backend.platform.db.repository_helpers import json_loads
+from backend.market_data.services.research_inputs import (
+    OFFICIAL_SOURCES,
+    TW_TIMEZONE,
+    EligibleBar,
+    list_active_tw_research_symbols as active_tw_profile_symbols,
+    load_official_no_data_dates,
+    load_research_eligible_tw_bars as load_eligible_bars,
+)
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
-from backend.research.domain.prospective_recipe import (
+from backend.research.policies.prospective import (
     COHORT_2330,
     COHORT_ALL_ACTIVE,
     COHORT_IDS,
@@ -28,32 +29,16 @@ from backend.research.domain.prospective_recipe import (
     build_strict_request_payload,
     strict_recipe_issues,
 )
-from backend.research.repositories.runs import get_research_run_record
-from backend.research.services.eligibility import (
-    exclude_non_official_rows_on_official_no_data,
-    load_official_no_data_dates,
-)
+from backend.research.repositories.runs import list_prospective_cohort_run_snapshots
 from backend.research.services.execution import (
     build_feature_config,
     build_forward_opinion_signals,
     load_symbol_data,
 )
+from backend.research.services.run_projection import project_persisted_snapshot
 from backend.shared.analytics.strategy import resolve_runtime_strategy
-from scripts.market_data_ingestion import OFFICIAL_SOURCES
 
-TW_TIMEZONE = ZoneInfo("Asia/Taipei")
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class EligibleBar:
-    date: date
-    open: float
-    high: float
-    low: float
-    close: float
-    source: str
-    raw_payload_id: int | None
 
 
 def _as_date(value: Any) -> date | None:
@@ -78,85 +63,6 @@ def _as_datetime(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
-
-
-def active_tw_profile_symbols() -> list[str]:
-    """Active TWSE/TPEX profiles only; deliberately no lifecycle overlay."""
-    return sorted(
-        {
-            str(record["symbol"]).upper()
-            for record in list_tw_company_profiles(limit=0, trading_status="active")
-            if str(record.get("market") or "").upper() == "TW"
-            and str(record.get("exchange") or "").upper() in {"TWSE", "TPEX"}
-            and str(record.get("symbol") or "").strip()
-        }
-    )
-
-
-def load_eligible_bars(
-    symbols: Iterable[str], *, start_date: date, end_date: date | None = None
-) -> dict[str, list[EligibleBar]]:
-    """Load research-eligible rows without mutating data or making network calls."""
-    requested = sorted({str(item).strip().upper() for item in symbols if str(item).strip()})
-    if not requested:
-        return {}
-    with SessionLocal() as session:
-        stmt = (
-            select(DailyOHLCV)
-            .where(DailyOHLCV.market == "TW")
-            .where(DailyOHLCV.symbol.in_(requested))
-            .where(DailyOHLCV.date >= start_date)
-            .order_by(DailyOHLCV.symbol.asc(), DailyOHLCV.date.asc())
-        )
-        if end_date is not None:
-            stmt = stmt.where(DailyOHLCV.date <= end_date)
-        rows = session.execute(stmt).scalars().all()
-
-    # The existing eligibility rule is dataframe based; avoid duplicating its audit logic.
-    import pandas as pd
-
-    frame = pd.DataFrame(
-        [
-            {
-                "date": row.date,
-                "symbol": row.symbol,
-                "open": row.open,
-                "high": row.high,
-                "low": row.low,
-                "close": row.close,
-                "source": row.source,
-                "raw_payload_id": row.raw_payload_id,
-            }
-            for row in rows
-        ]
-    )
-    if frame.empty:
-        return {}
-    frame = frame.set_index("date")
-    frame = exclude_non_official_rows_on_official_no_data(
-        frame,
-        load_official_no_data_dates(
-            start_date=start_date,
-            end_date=end_date or datetime.now(TW_TIMEZONE).date(),
-        ),
-    )
-    result: dict[str, list[EligibleBar]] = defaultdict(list)
-    for row in frame.reset_index().itertuples(index=False):
-        values = [row.open, row.high, row.low, row.close]
-        if not all(math.isfinite(float(value)) and float(value) > 0 for value in values):
-            continue
-        result[str(row.symbol).upper()].append(
-            EligibleBar(
-                date=_as_date(row.date) or row.date,
-                open=float(row.open),
-                high=float(row.high),
-                low=float(row.low),
-                close=float(row.close),
-                source=str(row.source),
-                raw_payload_id=row.raw_payload_id,
-            )
-        )
-    return dict(result)
 
 
 def strict_request_payload(
@@ -298,32 +204,9 @@ def _run_evidence(record: dict[str, Any]) -> dict[str, Any] | None:
 def list_cohort_run_records(cohort_id: str) -> list[dict[str, Any]]:
     if cohort_id not in COHORT_IDS:
         raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
-    with SessionLocal() as session:
-        rows = session.execute(
-            select(ResearchRun.run_id, ResearchRun.request_payload_json)
-            .where(
-                ResearchRun.request_payload_json.contains(
-                    '"cohort_id"', autoescape=True
-                )
-            )
-            .where(
-                ResearchRun.request_payload_json.contains(
-                    f'"{cohort_id}"', autoescape=True
-                )
-            )
-            .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
-        ).all()
     records = []
-    for run_id, request_payload_json in rows:
-        request_payload = json_loads(request_payload_json, None)
-        evidence = (
-            request_payload.get("prospective_evidence")
-            if isinstance(request_payload, dict)
-            else None
-        )
-        if not isinstance(evidence, dict) or evidence.get("cohort_id") != cohort_id:
-            continue
-        record = get_research_run_record(run_id)
+    for snapshot in list_prospective_cohort_run_snapshots(cohort_id):
+        record = project_persisted_snapshot(snapshot, include_artifacts=True)
         loaded_evidence = _run_evidence(record)
         if loaded_evidence and loaded_evidence.get("cohort_id") == cohort_id:
             records.append(record)
@@ -605,7 +488,7 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
     run_reports: list[dict[str, Any]] = []
     resolved: list[dict[str, Any]] = []
     valid_costs: set[tuple[float, float]] = set()
-    for record, evidence, basis_date, issues in prepared:
+    for record, _, basis_date, issues in prepared:
         signals = [
             item
             for item in record.get("signals", [])
@@ -643,10 +526,16 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
                         if fees is not None and slippage is not None
                         else None
                     )
+        if issues:
+            status = "invalid"
+        elif any(item["status"] == "not_ready" for item in outcomes):
+            status = "not_ready"
+        else:
+            status = "resolved"
         report = {
             "run_id": record["run_id"],
             "basis_date": basis_date.isoformat() if basis_date else None,
-            "status": "invalid" if issues else "not_ready" if any(item["status"] == "not_ready" for item in outcomes) else "resolved",
+            "status": status,
             "issues": issues,
             "outcomes": outcomes,
         }

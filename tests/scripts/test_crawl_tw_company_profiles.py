@@ -315,7 +315,7 @@ def test_crawl_single_source_does_not_reconcile_after_write_error(monkeypatch):
     assert summary["errors"] == ["exchange=TWSE symbol=2330: write failed"]
 
 
-def test_crawl_single_source_reports_failed_reconciliation(monkeypatch):
+def test_crawl_single_source_reports_failed_reconciliation(monkeypatch, caplog):
     monkeypatch.setattr(
         company_crawlers,
         "_fetch_company_feed",
@@ -337,14 +337,24 @@ def test_crawl_single_source_reports_failed_reconciliation(monkeypatch):
         lambda **kwargs: (_ for _ in ()).throw(RuntimeError("write failed")),
     )
 
-    summary = company_crawlers._crawl_single_source(
-        url_env="TEST_URL",
-        default_url="https://example.test",
-        source_name="test_company_profile",
-        exchange="TWSE",
-        board="listed",
-    )
+    with caplog.at_level("WARNING"):
+        summary = company_crawlers._crawl_single_source(
+            url_env="TEST_URL",
+            default_url="https://example.test",
+            source_name="test_company_profile",
+            exchange="TWSE",
+            board="listed",
+        )
 
     assert summary["inactivated_count"] == 0
     assert summary["reconciliation_skipped"] is True
-    assert summary["errors"] == ["exchange=TWSE reconciliation: write failed"]
+    assert summary["errors"] == [
+        "exchange=TWSE reconciliation error_type=RuntimeError"
+    ]
+    matching_records = [
+        record
+        for record in caplog.records
+        if "reconciliation failed" in record.getMessage()
+    ]
+    assert len(matching_records) == 1
+    assert matching_records[0].exc_info is not None

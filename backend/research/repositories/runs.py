@@ -20,13 +20,6 @@ from backend.platform.db.repository_helpers import (
 )
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.platform.time import utc_now
-from backend.research.contracts.runs import ValidationSummary
-from backend.research.domain.artifact_summary import (
-    build_review_artifact_summary,
-    has_requested_baselines,
-)
-from backend.research.domain.opinion import build_opinion_artifact
-from backend.research.domain.version_pack import build_version_pack_payload
 
 logger = logging.getLogger(__name__)
 
@@ -43,153 +36,7 @@ def _coerce_date(value: Any) -> date | None:
     raise ValueError(f"Unsupported date value: {value!r}")
 
 
-def _validation_summary_from_payload(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, dict):
-        return None
-    if "method" not in value or "metrics" not in value:
-        return None
-    if not isinstance(value["metrics"], dict):
-        return None
-    payload = dict(value)
-    if "evaluation_status" not in payload:
-        if payload["metrics"]:
-            payload["evaluation_status"] = "evaluated"
-        else:
-            payload["evaluation_status"] = "not_evaluated"
-            payload["status_reason"] = (
-                "Legacy validation record has no metrics or persisted status reason."
-            )
-    try:
-        return ValidationSummary.model_validate(payload).model_dump(mode="json")
-    except ValueError:
-        return None
-
-
-def _direction_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, dict) or value.get("task") != "binary_classification":
-        return None
-    if value.get("evaluation_status") not in {"evaluated", "not_evaluated"}:
-        return None
-    payload = {
-        "task": "binary_classification",
-        "evaluation_status": value["evaluation_status"],
-        "status_reason": value.get("status_reason"),
-        "sample_count": value.get("sample_count", 0),
-        "positive_return_threshold": value.get("positive_return_threshold", 0.0),
-        "confirmation_probability_threshold": value.get(
-            "confirmation_probability_threshold", 0.5
-        ),
-        "calibration_method": value.get("calibration_method", "sigmoid"),
-        "calibration_policy_version": value.get(
-            "calibration_policy_version",
-            "chronological_tail_20pct_min20_class5_v1",
-        ),
-        "confirmation_policy_version": value.get(
-            "confirmation_policy_version",
-            "regression_threshold_direction_probability_v1",
-        ),
-        "calibration_sample_count": value.get("calibration_sample_count", 0),
-        "positive_prevalence": value.get("positive_prevalence"),
-        "confusion_matrix": value.get("confusion_matrix", []),
-        "precision": value.get("precision"),
-        "recall": value.get("recall"),
-        "roc_auc": value.get("roc_auc"),
-        "pr_auc": value.get("pr_auc"),
-        "brier": value.get("brier"),
-    }
-    for key in (
-        "sample_count",
-        "positive_return_threshold",
-        "confirmation_probability_threshold",
-        "calibration_sample_count",
-        "positive_prevalence",
-        "precision",
-        "recall",
-        "roc_auc",
-        "pr_auc",
-        "brier",
-    ):
-        if payload[key] is not None and not isinstance(payload[key], int | float):
-            return None
-    if not isinstance(payload["confusion_matrix"], list):
-        return None
-    return payload
-
-
-def _model_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, dict):
-        return None
-    if value.get("task") != "regression":
-        return None
-    try:
-        sample_count = int(value.get("sample_count", 0))
-    except (TypeError, ValueError):
-        return None
-
-    payload = {
-        "task": "regression",
-        "sample_count": sample_count,
-        "rmse": value.get("rmse"),
-        "mae": value.get("mae"),
-        "rank_ic": value.get("rank_ic"),
-        "linear_ic": value.get("linear_ic"),
-        "actual_vs_predicted": value.get("actual_vs_predicted", []),
-        "residuals": value.get("residuals", []),
-        "feature_importance": value.get("feature_importance", []),
-        "direction_classification": _direction_diagnostics_from_payload(
-            value.get("direction_classification")
-        ),
-    }
-    for key in ("rmse", "mae", "rank_ic", "linear_ic"):
-        if payload[key] is not None and not isinstance(payload[key], int | float):
-            payload[key] = None
-    for key in ("actual_vs_predicted", "residuals", "feature_importance"):
-        if not isinstance(payload[key], list):
-            payload[key] = []
-    return payload
-
-
-def _summarize_model_diagnostics(value: Any) -> dict[str, Any] | None:
-    payload = _model_diagnostics_from_payload(value)
-    if payload is None:
-        return None
-    return {
-        **payload,
-        "actual_vs_predicted": [],
-        "residuals": [],
-        "feature_importance": [],
-    }
-
-
-def _review_artifact_summary_from_row(
-    row: ResearchRun,
-    *,
-    request_payload: dict[str, Any] | None,
-    validation_outcome: Any,
-    model_diagnostics: Any,
-) -> dict[str, Any]:
-    baselines = json_loads(row.baselines_json, None)
-    return build_review_artifact_summary(
-        status=row.status,
-        request_payload=request_payload,
-        comparison_eligibility=row.comparison_eligibility,
-        artifact_presence={
-            "metrics": isinstance(json_loads(row.metrics_json, None), dict),
-            "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
-            is not None,
-            "equity_curve": row.equity_curve_json is not None
-            and isinstance(json_loads(row.equity_curve_json, None), list),
-            "signals": row.signals_json is not None
-            and isinstance(json_loads(row.signals_json, None), list),
-            "validation": _validation_summary_from_payload(validation_outcome)
-            is not None,
-            "baselines": row.baselines_json is not None
-            and has_requested_baselines(request_payload, baselines),
-        },
-    )
-
-
-def _run_row_to_dict(
+def _run_row_to_snapshot(
     row: ResearchRun, *, include_artifacts: bool = True
 ) -> dict[str, Any]:
     effective_strategy = None
@@ -204,7 +51,8 @@ def _run_row_to_dict(
     request_payload = json_loads(row.request_payload_json, None)
     metrics = json_loads(row.metrics_json, None)
     signals = json_loads(row.signals_json, []) if include_artifacts else []
-    baselines = json_loads(row.baselines_json, {})
+    parsed_baselines = json_loads(row.baselines_json, None)
+    baselines = parsed_baselines if isinstance(parsed_baselines, dict) else {}
     warnings = json_loads(row.warnings_json, [])
     payload = {
         "run_id": row.run_id,
@@ -227,10 +75,6 @@ def _run_row_to_dict(
         if include_artifacts
         else [],
         "signals": signals if include_artifacts else [],
-        "validation": _validation_summary_from_payload(validation_outcome),
-        "model_diagnostics": _model_diagnostics_from_payload(model_diagnostics)
-        if include_artifacts
-        else _summarize_model_diagnostics(model_diagnostics),
         "baselines": baselines,
         "warnings": warnings,
         "factor_catalog_version": row.factor_catalog_version,
@@ -265,65 +109,55 @@ def _run_row_to_dict(
         "stale_risk_share": row.stale_risk_share,
         "monitor_observation_status": row.monitor_observation_status,
         "created_at": normalize_created_at(row.created_at),
+        "_raw_model_diagnostics": model_diagnostics,
+        "_artifact_presence": {
+            "metrics": isinstance(metrics, dict),
+            "model_diagnostics": False,
+            "equity_curve": row.equity_curve_json is not None
+            and isinstance(json_loads(row.equity_curve_json, None), list),
+            "signals": row.signals_json is not None
+            and isinstance(json_loads(row.signals_json, None), list),
+            "validation": False,
+            "baselines": isinstance(parsed_baselines, dict),
+        },
+        "_version_pack_values": {
+            "threshold_policy_version": row.threshold_policy_version,
+            "price_basis_version": row.price_basis_version,
+            "benchmark_comparability_gate": row.benchmark_comparability_gate,
+            "comparison_eligibility": row.comparison_eligibility,
+            "investability_screening_active": row.investability_screening_active,
+            "capacity_screening_version": row.capacity_screening_version,
+            "adv_basis_version": row.adv_basis_version,
+            "missing_feature_policy_version": row.missing_feature_policy_version,
+            "execution_cost_model_version": row.execution_cost_model_version,
+            "split_policy_version": row.split_policy_version,
+            "bootstrap_policy_version": row.bootstrap_policy_version,
+            "ic_overlap_policy_version": row.ic_overlap_policy_version,
+            "comparison_review_matrix_version": row.comparison_review_matrix_version,
+            "scheduled_review_cadence": row.scheduled_review_cadence,
+            "model_family": row.model_family,
+            "training_output_contract_version": row.training_output_contract_version,
+            "adoption_comparison_policy_version": row.adoption_comparison_policy_version,
+            "factor_catalog_version": row.factor_catalog_version,
+            "external_signal_policy_version": row.external_signal_policy_version,
+            "external_lineage_version": row.external_lineage_version,
+            "cluster_snapshot_version": row.cluster_snapshot_version,
+            "peer_policy_version": row.peer_policy_version,
+            "peer_comparison_policy_version": row.peer_comparison_policy_version,
+            "execution_route": row.execution_route,
+            "simulation_profile_id": row.simulation_profile_id,
+            "simulation_adapter_version": row.simulation_adapter_version,
+            "live_control_profile_id": row.live_control_profile_id,
+            "live_control_version": row.live_control_version,
+            "adaptive_mode": row.adaptive_mode,
+            "adaptive_profile_id": row.adaptive_profile_id,
+            "adaptive_contract_version": row.adaptive_contract_version,
+            "reward_definition_version": row.reward_definition_version,
+            "state_definition_version": row.state_definition_version,
+            "rollout_control_version": row.rollout_control_version,
+            "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
+        },
     }
-    payload.update(
-        _review_artifact_summary_from_row(
-            row,
-            request_payload=request_payload,
-            validation_outcome=validation_outcome,
-            model_diagnostics=model_diagnostics,
-        )
-    )
-    payload.update(
-        build_version_pack_payload(
-            {
-                "threshold_policy_version": row.threshold_policy_version,
-                "price_basis_version": row.price_basis_version,
-                "benchmark_comparability_gate": row.benchmark_comparability_gate,
-                "comparison_eligibility": row.comparison_eligibility,
-                "investability_screening_active": row.investability_screening_active,
-                "capacity_screening_version": row.capacity_screening_version,
-                "adv_basis_version": row.adv_basis_version,
-                "missing_feature_policy_version": row.missing_feature_policy_version,
-                "execution_cost_model_version": row.execution_cost_model_version,
-                "split_policy_version": row.split_policy_version,
-                "bootstrap_policy_version": row.bootstrap_policy_version,
-                "ic_overlap_policy_version": row.ic_overlap_policy_version,
-                "comparison_review_matrix_version": (
-                    row.comparison_review_matrix_version
-                ),
-                "scheduled_review_cadence": row.scheduled_review_cadence,
-                "model_family": row.model_family,
-                "training_output_contract_version": (
-                    row.training_output_contract_version
-                ),
-                "adoption_comparison_policy_version": (
-                    row.adoption_comparison_policy_version
-                ),
-                "factor_catalog_version": row.factor_catalog_version,
-                "external_signal_policy_version": row.external_signal_policy_version,
-                "external_lineage_version": row.external_lineage_version,
-                "cluster_snapshot_version": row.cluster_snapshot_version,
-                "peer_policy_version": row.peer_policy_version,
-                "peer_comparison_policy_version": row.peer_comparison_policy_version,
-                "execution_route": row.execution_route,
-                "simulation_profile_id": row.simulation_profile_id,
-                "simulation_adapter_version": row.simulation_adapter_version,
-                "live_control_profile_id": row.live_control_profile_id,
-                "live_control_version": row.live_control_version,
-                "adaptive_mode": row.adaptive_mode,
-                "adaptive_profile_id": row.adaptive_profile_id,
-                "adaptive_contract_version": row.adaptive_contract_version,
-                "reward_definition_version": row.reward_definition_version,
-                "state_definition_version": row.state_definition_version,
-                "rollout_control_version": row.rollout_control_version,
-                "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
-            }
-        )
-    )
-    payload["opinion_artifact"] = build_opinion_artifact(
-        {**payload, "summary_only": not include_artifacts}
-    )
     return payload
 
 
@@ -541,7 +375,7 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
                     session.add(observation)
             session.commit()
             session.refresh(row)
-            return _attach_liquidity_coverages(session, _run_row_to_dict(row))
+            return _attach_liquidity_coverages(session, _run_row_to_snapshot(row))
     except Exception as exc:
         logger.exception(
             "Failed to persist research run record run_id=%s",
@@ -550,13 +384,28 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
         raise DataAccessError("Failed to persist research run record.") from exc
 
 
-def get_research_run_record(run_id: str) -> dict[str, Any]:
+def get_research_run_request_payload(run_id: str) -> dict[str, Any] | None:
+    try:
+        with SessionLocal() as session:
+            row = session.get(ResearchRun, run_id)
+            if row is not None:
+                return json_loads(row.request_payload_json, None)
+    except Exception as exc:
+        logger.exception(
+            "Failed to load research run request payload run_id=%s",
+            run_id,
+        )
+        raise DataAccessError("Failed to load research run request payload.") from exc
+    raise DataNotFoundError(f"Research run '{run_id}' was not found.")
+
+
+def get_research_run_snapshot(run_id: str) -> dict[str, Any]:
     try:
         with SessionLocal() as session:
             row = session.get(ResearchRun, run_id)
             if row is not None:
                 return _attach_liquidity_coverages(
-                    session, _run_row_to_dict(row, include_artifacts=True)
+                    session, _run_row_to_snapshot(row, include_artifacts=True)
                 )
     except Exception as exc:
         logger.exception("Failed to load research run from DB run_id=%s", run_id)
@@ -565,7 +414,67 @@ def get_research_run_record(run_id: str) -> dict[str, Any]:
     raise DataNotFoundError(f"Research run '{run_id}' was not found.")
 
 
-def list_research_run_records(limit: int = 20) -> list[dict[str, Any]]:
+def list_prospective_cohort_run_snapshots(
+    cohort_id: str,
+) -> list[dict[str, Any]]:
+    try:
+        with SessionLocal() as session:
+            candidate_stmt = (
+                select(ResearchRun.run_id, ResearchRun.request_payload_json)
+                .where(
+                    ResearchRun.request_payload_json.contains(
+                        '"cohort_id"', autoescape=True
+                    )
+                )
+                .where(
+                    ResearchRun.request_payload_json.contains(
+                        f'"{cohort_id}"', autoescape=True
+                    )
+                )
+                .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
+            )
+            candidate_ids = []
+            for run_id, request_payload_json in session.execute(
+                candidate_stmt
+            ).all():
+                request_payload = json_loads(request_payload_json, None)
+                evidence = (
+                    request_payload.get("prospective_evidence")
+                    if isinstance(request_payload, dict)
+                    else None
+                )
+                if (
+                    not isinstance(evidence, dict)
+                    or evidence.get("cohort_id") != cohort_id
+                ):
+                    continue
+                candidate_ids.append(run_id)
+
+            if not candidate_ids:
+                return []
+            row_stmt = (
+                select(ResearchRun)
+                .where(ResearchRun.run_id.in_(candidate_ids))
+                .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
+            )
+            return [
+                (
+                    _attach_liquidity_coverages(
+                        session,
+                        _run_row_to_snapshot(row, include_artifacts=True),
+                    )
+                )
+                for row in session.execute(row_stmt).scalars().all()
+            ]
+    except Exception as exc:
+        logger.exception(
+            "Failed to list prospective cohort runs cohort_id=%s",
+            cohort_id,
+        )
+        raise DataAccessError("Failed to list prospective cohort runs.") from exc
+
+
+def list_research_run_snapshots(limit: int = 20) -> list[dict[str, Any]]:
     try:
         with SessionLocal() as session:
             stmt = (
@@ -575,7 +484,7 @@ def list_research_run_records(limit: int = 20) -> list[dict[str, Any]]:
             )
             return [
                 _attach_liquidity_coverages(
-                    session, _run_row_to_dict(row, include_artifacts=False)
+                    session, _run_row_to_snapshot(row, include_artifacts=False)
                 )
                 for row in session.execute(stmt).scalars().all()
             ]

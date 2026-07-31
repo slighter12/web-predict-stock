@@ -427,7 +427,17 @@ def _crawl_single_source(
                 )
                 reconciliation_skipped = False
             except Exception as exc:
-                errors.append(f"exchange={exchange} reconciliation: {exc}")
+                error_type = type(exc).__name__
+                logger.warning(
+                    "TW company profile reconciliation failed exchange=%s "
+                    "error_type=%s",
+                    exchange,
+                    error_type,
+                    exc_info=True,
+                )
+                errors.append(
+                    f"exchange={exchange} reconciliation error_type={error_type}"
+                )
     return {
         "source_name": source_name,
         "exchange": exchange,

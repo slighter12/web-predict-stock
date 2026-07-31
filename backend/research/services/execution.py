@@ -35,7 +35,8 @@ from backend.research.contracts.runtime_metadata import (
 )
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.services.adaptive import record_run_adaptive_exclusion
-from backend.research.services.eligibility import (
+from backend.market_data.services import research_inputs as data_service
+from backend.market_data.services.research_inputs import (
     exclude_non_official_rows_on_official_no_data,
     load_official_no_data_dates,
 )
@@ -51,7 +52,6 @@ from backend.research.services.tradability import build_p3_summary
 from backend.shared.analytics import backtest as backtest_service
 from backend.shared.analytics import baselines as baseline_service
 from backend.shared.analytics import features as feature_engine
-from backend.shared.analytics import market_data as data_service
 from backend.shared.analytics import models as model_service
 from backend.shared.analytics import validation as validation_service
 from backend.shared.analytics.strategy import (
@@ -138,6 +138,23 @@ def apply_feature_shifts(df: pd.DataFrame, shift_map: dict, symbol: str) -> None
         df[column] = df[column].shift(shift)
 
 
+def _build_prospective_prediction_features(
+    unshifted_features: pd.DataFrame,
+    model_columns: list[str],
+    *,
+    symbol: str,
+    strict: bool,
+) -> pd.DataFrame:
+    if strict:
+        missing_columns = sorted(set(model_columns) - set(unshifted_features.columns))
+        if missing_columns:
+            raise UnsupportedConfigurationError(
+                f"[{symbol}] Strict prospective features cannot reproduce model "
+                f"columns from the unshifted frame: {missing_columns}."
+            )
+    return unshifted_features.reindex(columns=model_columns).dropna()
+
+
 def load_symbol_data(
     run_id: str,
     request: ResearchRunCreateRequest,
@@ -214,6 +231,14 @@ def load_symbol_data(
     preds = model.predict(X_test)
     predictions = pd.Series(preds, index=X_test.index, name=symbol)
 
+    prospective_columns = list(X.columns)
+    prospective_prediction_features = _build_prospective_prediction_features(
+        unshifted_features,
+        prospective_columns,
+        symbol=symbol,
+        strict=request.prospective_evidence is not None,
+    )
+
     result = {
         "symbol": symbol,
         "df_model": df_model,
@@ -224,9 +249,7 @@ def load_symbol_data(
         "predictions": predictions,
         "feature_names": list(X_train.columns),
         "prediction_features": df_features.reindex(columns=X.columns).dropna(),
-        "prospective_prediction_features": unshifted_features.reindex(
-            columns=X.columns
-        ).dropna(),
+        "prospective_prediction_features": prospective_prediction_features,
         "feature_importance": _extract_feature_importance(model, list(X_train.columns)),
         "open": df_model.loc[X_test.index, "open"].rename(symbol),
         "high": df_model.loc[X_test.index, "high"].rename(symbol),
