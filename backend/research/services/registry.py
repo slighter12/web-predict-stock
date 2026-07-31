@@ -5,7 +5,7 @@ from typing import Any
 
 from backend.shared.analytics import models as model_service
 from backend.research.domain.run_payload import build_research_run_payload
-from backend.platform.errors import BacktestError
+from backend.platform.errors import BacktestError, DataNotFoundError
 from backend.research.repositories.runs import (
     get_research_run_record,
     persist_research_run_record,
@@ -44,7 +44,15 @@ def _success_request_payload(
     if not isinstance(evidence, dict) or evidence.get("mode") != "strict_v1":
         return payload
 
-    existing_payload = get_research_run_record(run_id).get("request_payload")
+    try:
+        existing_payload = get_research_run_record(run_id).get("request_payload")
+    except DataNotFoundError:
+        logger.warning(
+            "Strict research run record missing while freezing prospective "
+            "signal run_id=%s; initializing a new signal_frozen_at",
+            run_id,
+        )
+        existing_payload = None
     existing_evidence = (
         existing_payload.get("prospective_evidence")
         if isinstance(existing_payload, dict)

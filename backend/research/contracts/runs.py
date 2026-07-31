@@ -35,6 +35,7 @@ from backend.research.domain.artifact_summary import (
     ArtifactCompleteness,
     ReviewArtifactName,
 )
+from backend.research.domain.prospective_recipe import strict_recipe_issues
 from .runtime_metadata import (
     ConfigSources,
     EffectiveStrategyConfig,
@@ -236,23 +237,11 @@ class ResearchRunCreateRequest(RequestModel):
                 )
 
         if self.prospective_evidence is not None:
-            if self.market != "TW":
-                raise ValueError("strict prospective evidence requires market='TW'")
-            if self.return_target != "open_to_open" or self.horizon_days != 1:
+            issues = strict_recipe_issues(self.model_dump(mode="json"))
+            if issues:
                 raise ValueError(
-                    "strict prospective evidence requires open_to_open with horizon_days=1"
-                )
-            if self.execution_route != "research_only":
-                raise ValueError(
-                    "strict prospective evidence requires execution_route='research_only'"
-                )
-            if any(feature.shift != 1 for feature in self.features):
-                raise ValueError("strict prospective evidence requires every feature shift=1")
-            full_universe = set(self.prospective_evidence.full_universe_symbols)
-            if not set(self.symbols).issubset(full_universe):
-                raise ValueError(
-                    "strict prospective evidence symbols must be a subset of "
-                    "full_universe_symbols"
+                    "strict prospective evidence requires the canonical recipe: "
+                    + ", ".join(issues)
                 )
         return self
 

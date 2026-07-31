@@ -107,18 +107,10 @@ class PublicResearchRunCreateRequest(RequestModel):
     def validate_prospective_evidence(self) -> "PublicResearchRunCreateRequest":
         if self.prospective_evidence is None:
             return self
-        if self.return_target != "open_to_open" or self.horizon_days != 1:
-            raise ValueError(
-                "strict prospective evidence requires open_to_open with horizon_days=1"
-            )
-        if any(feature.shift != 1 for feature in self.features):
-            raise ValueError("strict prospective evidence requires every feature shift=1")
-        full_universe = set(self.prospective_evidence.full_universe_symbols)
-        if not set(self.symbols).issubset(full_universe):
-            raise ValueError(
-                "strict prospective evidence symbols must be a subset of "
-                "full_universe_symbols"
-            )
+        try:
+            ResearchRunCreateRequest.model_validate(self.model_dump())
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
         return self
 
     def to_internal_request(self) -> ResearchRunCreateRequest:

@@ -2,21 +2,33 @@
 
 from __future__ import annotations
 
-import json
+import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from statistics import mean
 from typing import Any, Iterable
+from uuid import NAMESPACE_URL, uuid5
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
 from backend.database import DailyOHLCV, ResearchRun, SessionLocal
 from backend.market_data.repositories.company_profiles import list_tw_company_profiles
-from backend.research.repositories.runs import get_research_run_record
+from backend.platform.db.repository_helpers import json_loads
+from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.domain.prospective_recipe import (
+    COHORT_2330,
+    COHORT_ALL_ACTIVE,
+    COHORT_IDS,
+    MIN_EXECUTION_COVERAGE,
+    STRICT_MODE,
+    build_strict_request_payload,
+    strict_recipe_issues,
+)
+from backend.research.repositories.runs import get_research_run_record
 from backend.research.services.eligibility import (
     exclude_non_official_rows_on_official_no_data,
     load_official_no_data_dates,
@@ -29,12 +41,8 @@ from backend.research.services.execution import (
 from backend.shared.analytics.strategy import resolve_runtime_strategy
 from scripts.market_data_ingestion import OFFICIAL_SOURCES
 
-STRICT_MODE = "strict_v1"
-COHORT_2330 = "tw_2330_o2o_v1"
-COHORT_ALL_ACTIVE = "tw_all_active_o2o_v1"
-COHORT_IDS = (COHORT_2330, COHORT_ALL_ACTIVE)
 TW_TIMEZONE = ZoneInfo("Asia/Taipei")
-MIN_EXECUTION_COVERAGE = 0.95
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,19 +78,6 @@ def _as_datetime(value: Any) -> datetime | None:
         except ValueError:
             return None
     return None
-
-
-def prospective_evidence_payload(
-    *, cohort_id: str, basis_date: date, full_universe_symbols: Iterable[str]
-) -> dict[str, Any]:
-    if cohort_id not in COHORT_IDS:
-        raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
-    return {
-        "mode": STRICT_MODE,
-        "cohort_id": cohort_id,
-        "basis_date": basis_date.isoformat(),
-        "full_universe_symbols": sorted({str(item).strip().upper() for item in full_universe_symbols if str(item).strip()}),
-    }
 
 
 def active_tw_profile_symbols() -> list[str]:
@@ -139,22 +134,26 @@ def load_eligible_bars(
         return {}
     frame = frame.set_index("date")
     frame = exclude_non_official_rows_on_official_no_data(
-        frame, load_official_no_data_dates(start_date=start_date, end_date=end_date or date.today())
+        frame,
+        load_official_no_data_dates(
+            start_date=start_date,
+            end_date=end_date or datetime.now(TW_TIMEZONE).date(),
+        ),
     )
     result: dict[str, list[EligibleBar]] = defaultdict(list)
-    for row_date, row in frame.iterrows():
-        values = [row["open"], row["high"], row["low"], row["close"]]
+    for row in frame.reset_index().itertuples(index=False):
+        values = [row.open, row.high, row.low, row.close]
         if not all(math.isfinite(float(value)) and float(value) > 0 for value in values):
             continue
-        result[str(row["symbol"]).upper()].append(
+        result[str(row.symbol).upper()].append(
             EligibleBar(
-                date=_as_date(row_date) or row_date,
-                open=float(row["open"]),
-                high=float(row["high"]),
-                low=float(row["low"]),
-                close=float(row["close"]),
-                source=str(row["source"]),
-                raw_payload_id=row["raw_payload_id"],
+                date=_as_date(row.date) or row.date,
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                source=str(row.source),
+                raw_payload_id=row.raw_payload_id,
             )
         )
     return dict(result)
@@ -163,40 +162,12 @@ def load_eligible_bars(
 def strict_request_payload(
     *, symbols: list[str], basis_date: date, cohort_id: str, full_universe_symbols: list[str]
 ) -> dict[str, Any]:
-    return {
-        "runtime_mode": "vnext_spec_mode",
-        "default_bundle_version": "research_spec_v1",
-        "market": "TW",
-        "symbols": symbols,
-        "date_range": {
-            "start": (basis_date - timedelta(days=1096)).isoformat(),
-            "end": basis_date.isoformat(),
-        },
-        "return_target": "open_to_open",
-        "horizon_days": 1,
-        "features": [
-            {"name": "ma", "window": 5, "source": "close", "shift": 1},
-            {"name": "rsi", "window": 14, "source": "close", "shift": 1},
-        ],
-        "model": {
-            "type": "extra_trees",
-            "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-        },
-        "direction_model": {
-            "type": "extra_trees",
-            "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-        },
-        "strategy": {"type": "research_v1", "allow_proactive_sells": True},
-        "execution": {"fees": 0.002, "slippage": 0.001},
-        "validation": {"method": "walk_forward", "splits": 3, "test_size": 0.2},
-        "baselines": ["buy_and_hold"],
-        "execution_route": "research_only",
-        "prospective_evidence": prospective_evidence_payload(
-            cohort_id=cohort_id,
-            basis_date=basis_date,
-            full_universe_symbols=full_universe_symbols,
-        ),
-    }
+    return build_strict_request_payload(
+        symbols=symbols,
+        basis_date=basis_date,
+        cohort_id=cohort_id,
+        full_universe_symbols=full_universe_symbols,
+    )
 
 
 def _model_ready_symbol(
@@ -251,7 +222,8 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         official_no_data_dates = load_official_no_data_dates(
             start_date=basis_date - timedelta(days=1096), end_date=basis_date
         )
-        for symbol in full_symbols:
+        total_symbols = len(full_symbols)
+        for index, symbol in enumerate(full_symbols, start=1):
             request = ResearchRunCreateRequest.model_validate(
                 strict_request_payload(
                     symbols=[symbol],
@@ -270,6 +242,18 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
             )
             if reason is not None:
                 exclusions[symbol] = reason
+            if cohort_id == COHORT_ALL_ACTIVE and (
+                index % 100 == 0 or index == total_symbols
+            ):
+                logger.info(
+                    "Prospective preflight progress cohort_id=%s basis_date=%s "
+                    "processed=%d total=%d exclusions=%d",
+                    cohort_id,
+                    basis_date,
+                    index,
+                    total_symbols,
+                    len(exclusions),
+                )
     execution_symbols = [symbol for symbol in full_symbols if symbol not in exclusions]
     coverage = len(execution_symbols) / len(full_symbols) if full_symbols else 0.0
     ready = (
@@ -277,6 +261,17 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         if cohort_id == COHORT_2330
         else coverage >= MIN_EXECUTION_COVERAGE
     )
+    reason = None
+    if not ready:
+        reason = (
+            f"Symbol 2330 is not model-ready: "
+            f"{exclusions.get('2330', 'excluded')}."
+            if cohort_id == COHORT_2330
+            else (
+                f"Execution coverage {coverage:.2%} is below "
+                f"{MIN_EXECUTION_COVERAGE:.0%}."
+            )
+        )
     return {
         "cohort_id": cohort_id,
         "basis_date": basis_date.isoformat(),
@@ -288,9 +283,7 @@ def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
         "exclusions": exclusions,
         "exclusion_count": len(exclusions),
         "status": "ready" if ready else "no-opinion",
-        "reason": None
-        if ready
-        else f"Execution coverage {coverage:.2%} is below {MIN_EXECUTION_COVERAGE:.0%}.",
+        "reason": reason,
     }
 
 
@@ -307,13 +300,32 @@ def list_cohort_run_records(cohort_id: str) -> list[dict[str, Any]]:
         raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
     with SessionLocal() as session:
         rows = session.execute(
-            select(ResearchRun.run_id).order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
-        ).scalars().all()
+            select(ResearchRun.run_id, ResearchRun.request_payload_json)
+            .where(
+                ResearchRun.request_payload_json.contains(
+                    '"cohort_id"', autoescape=True
+                )
+            )
+            .where(
+                ResearchRun.request_payload_json.contains(
+                    f'"{cohort_id}"', autoescape=True
+                )
+            )
+            .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
+        ).all()
     records = []
-    for run_id in rows:
+    for run_id, request_payload_json in rows:
+        request_payload = json_loads(request_payload_json, None)
+        evidence = (
+            request_payload.get("prospective_evidence")
+            if isinstance(request_payload, dict)
+            else None
+        )
+        if not isinstance(evidence, dict) or evidence.get("cohort_id") != cohort_id:
+            continue
         record = get_research_run_record(run_id)
-        evidence = _run_evidence(record)
-        if evidence and evidence.get("cohort_id") == cohort_id:
+        loaded_evidence = _run_evidence(record)
+        if loaded_evidence and loaded_evidence.get("cohort_id") == cohort_id:
             records.append(record)
     return records
 
@@ -335,52 +347,124 @@ def _strict_run_issues(record: dict[str, Any], *, cohort_id: str) -> tuple[dict[
     elif basis_date is not None and signal_frozen_at.astimezone(TW_TIMEZONE).date() != basis_date:
         issues.append("signal_frozen_at_not_on_basis_date")
     payload = record.get("request_payload") or {}
-    if payload.get("market") != "TW" or payload.get("return_target") != "open_to_open" or payload.get("horizon_days") != 1:
-        issues.append("strict_target_mismatch")
-    if payload.get("execution_route") != "research_only":
-        issues.append("strict_execution_route_mismatch")
-    if any(feature.get("shift") != 1 for feature in payload.get("features", []) if isinstance(feature, dict)):
-        issues.append("strict_feature_shift_mismatch")
-    expected_features = [
-        {"name": "ma", "window": 5, "source": "close", "shift": 1},
-        {"name": "rsi", "window": 14, "source": "close", "shift": 1},
-    ]
-    if payload.get("runtime_mode") != "vnext_spec_mode" or payload.get("default_bundle_version") != "research_spec_v1":
-        issues.append("strict_runtime_recipe_mismatch")
-    if payload.get("features") != expected_features:
-        issues.append("strict_feature_recipe_mismatch")
-    expected_params = {"n_estimators": 200, "random_state": 42, "n_jobs": -1}
-    model = payload.get("model")
-    direction_model = payload.get("direction_model")
-    if (
-        not isinstance(model, dict)
-        or not isinstance(direction_model, dict)
-        or model.get("type") != "extra_trees"
-        or direction_model.get("type") != "extra_trees"
-        or model.get("params") != expected_params
-        or direction_model.get("params") != expected_params
-    ):
-        issues.append("strict_model_recipe_mismatch")
-    if payload.get("validation") != {"method": "walk_forward", "splits": 3, "test_size": 0.2}:
-        issues.append("strict_validation_recipe_mismatch")
-    if payload.get("execution") != {"fees": 0.002, "slippage": 0.001} or payload.get("baselines") != ["buy_and_hold"]:
-        issues.append("strict_cost_or_baseline_recipe_mismatch")
-    strategy = payload.get("strategy")
-    if not isinstance(strategy, dict) or strategy.get("type") != "research_v1" or strategy.get("threshold") is not None or strategy.get("top_n") is not None or strategy.get("allow_proactive_sells") is not True:
-        issues.append("strict_strategy_recipe_mismatch")
-    snapshot = evidence.get("full_universe_symbols")
-    symbols = payload.get("symbols")
-    if not isinstance(snapshot, list) or not isinstance(symbols, list):
-        issues.append("invalid_universe_snapshot")
+    if isinstance(payload, dict):
+        issues.extend(
+            issue
+            for issue in strict_recipe_issues(payload)
+            if issue not in issues
+        )
+        if evidence.get("cohort_id") == COHORT_ALL_ACTIVE:
+            snapshot = evidence.get("full_universe_symbols")
+            symbols = payload.get("symbols")
+            if isinstance(snapshot, list) and isinstance(symbols, list):
+                snapshot_set = {str(item).upper() for item in snapshot}
+                symbols_set = {str(item).upper() for item in symbols}
+                if (
+                    not snapshot_set
+                    or not symbols_set
+                    or not symbols_set.issubset(snapshot_set)
+                    or len(symbols_set) / len(snapshot_set)
+                    < MIN_EXECUTION_COVERAGE
+                ):
+                    issues.append("strict_execution_coverage_mismatch")
     else:
-        snapshot_set = {str(item).upper() for item in snapshot}
-        symbols_set = {str(item).upper() for item in symbols}
-        if cohort_id == COHORT_2330:
-            if snapshot_set != {"2330"} or symbols_set != {"2330"}:
-                issues.append("strict_2330_universe_mismatch")
-        elif not symbols_set or not symbols_set.issubset(snapshot_set) or len(symbols_set) / len(snapshot_set) < MIN_EXECUTION_COVERAGE:
-            issues.append("strict_execution_coverage_mismatch")
+        issues.append("missing_strict_evidence")
     return evidence, issues
+
+
+def _forward_signal_issues(
+    record: dict[str, Any], *, basis_date: date | None
+) -> list[str]:
+    signals = [
+        item
+        for item in record.get("signals", [])
+        if item.get("signal_kind") == "forward_opinion"
+    ]
+    requested = set((record.get("request_payload") or {}).get("symbols", []))
+    if (
+        basis_date is None
+        or {str(item.get("symbol") or "").upper() for item in signals}
+        != {str(item).upper() for item in requested}
+        or len(signals) != len(requested)
+        or any(_as_date(item.get("date")) != basis_date for item in signals)
+    ):
+        return ["incomplete_forward_signals"]
+    if any(
+        _finite_number(item.get("score")) is None
+        or (probability := _finite_number(item.get("up_probability"))) is None
+        or not 0 <= probability <= 1
+        or (position := _finite_number(item.get("position"))) is None
+        or position < 0
+        for item in signals
+    ):
+        return ["invalid_forward_signal"]
+    return []
+
+
+def valid_successful_cohort_runs(
+    *, cohort_id: str, basis_date: date
+) -> list[dict[str, Any]]:
+    valid: list[dict[str, Any]] = []
+    for record in list_cohort_run_records(cohort_id):
+        evidence, issues = _strict_run_issues(record, cohort_id=cohort_id)
+        record_basis_date = _as_date((evidence or {}).get("basis_date"))
+        issues.extend(
+            _forward_signal_issues(record, basis_date=record_basis_date)
+        )
+        if record_basis_date == basis_date and not issues:
+            valid.append(record)
+    return valid
+
+
+def prospective_run_id(*, cohort_id: str, basis_date: date) -> str:
+    if cohort_id not in COHORT_IDS:
+        raise ValueError(f"Unknown prospective cohort '{cohort_id}'.")
+    return str(
+        uuid5(
+            NAMESPACE_URL,
+            f"web-predict-stock:prospective:{cohort_id}:{basis_date.isoformat()}",
+        )
+    )
+
+
+def validate_strict_cohort_start(
+    request: ResearchRunCreateRequest, *, run_id: str
+) -> None:
+    evidence = request.prospective_evidence
+    if evidence is None:
+        return
+    expected_snapshot = (
+        ["2330"]
+        if evidence.cohort_id == COHORT_2330
+        else active_tw_profile_symbols()
+    )
+    if evidence.full_universe_symbols != expected_snapshot:
+        raise UnsupportedConfigurationError(
+            "strict prospective evidence full_universe_symbols do not match "
+            "the current cohort snapshot"
+        )
+    if (
+        evidence.cohort_id == COHORT_ALL_ACTIVE
+        and len(request.symbols) / len(evidence.full_universe_symbols)
+        < MIN_EXECUTION_COVERAGE
+    ):
+        raise UnsupportedConfigurationError(
+            "strict prospective evidence execution coverage is below "
+            f"{MIN_EXECUTION_COVERAGE:.0%}"
+        )
+    existing = [
+        record
+        for record in valid_successful_cohort_runs(
+            cohort_id=evidence.cohort_id,
+            basis_date=evidence.basis_date,
+        )
+        if record.get("run_id") != run_id
+    ]
+    if existing:
+        raise UnsupportedConfigurationError(
+            "a valid strict prospective run already exists for "
+            f"cohort={evidence.cohort_id} basis_date={evidence.basis_date.isoformat()}"
+        )
 
 
 def _finite_number(value: Any) -> float | None:
@@ -391,11 +475,14 @@ def _finite_number(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _signal_outcome(signal: dict[str, Any], *, basis_date: date) -> dict[str, Any]:
+def _signal_outcome(
+    signal: dict[str, Any],
+    *,
+    basis_date: date,
+    bars_by_symbol: dict[str, list[EligibleBar]],
+) -> dict[str, Any]:
     symbol = str(signal.get("symbol") or "").upper()
-    bars = load_eligible_bars(
-        [symbol], start_date=basis_date, end_date=None
-    ).get(symbol, [])
+    bars = bars_by_symbol.get(symbol, [])
     basis = next((bar for bar in bars if bar.date == basis_date), None)
     later = [bar for bar in bars if bar.date > basis_date]
     if len(later) < 2:
@@ -446,7 +533,13 @@ def _correlation(points: list[dict[str, Any]], method: str) -> float | None:
             pd.Series([item["score"] for item in points]), method=method
         )
         return float(value) if value is not None and math.isfinite(float(value)) else None
-    except Exception:
+    except (TypeError, ValueError):
+        logger.warning(
+            "Failed to calculate prospective correlation method=%s point_count=%d",
+            method,
+            len(points),
+            exc_info=True,
+        )
         return None
 
 
@@ -469,31 +562,87 @@ def _compound_daily(points: list[dict[str, Any]], field: str, *, weighted: bool)
 def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
     """Read persisted strict runs and calculate only already-observable outcomes."""
     records = list_cohort_run_records(cohort_id)
+    prepared: list[
+        tuple[dict[str, Any], dict[str, Any] | None, date | None, list[str]]
+    ] = []
     basis_counts: dict[date, int] = defaultdict(int)
-    for record in records:
-        evidence = _run_evidence(record)
-        basis_date = _as_date((evidence or {}).get("basis_date"))
-        if basis_date is not None:
-            basis_counts[basis_date] += 1
-    run_reports: list[dict[str, Any]] = []
-    resolved: list[dict[str, Any]] = []
     for record in records:
         evidence, issues = _strict_run_issues(record, cohort_id=cohort_id)
         basis_date = _as_date((evidence or {}).get("basis_date"))
+        issues.extend(_forward_signal_issues(record, basis_date=basis_date))
+        prepared.append((record, evidence, basis_date, issues))
+        if basis_date is not None and not issues:
+            basis_counts[basis_date] += 1
+
+    for _, _, basis_date, issues in prepared:
         if basis_date is not None and basis_counts[basis_date] > 1:
             issues.append("duplicate_basis_date")
-        signals = [item for item in record.get("signals", []) if item.get("signal_kind") == "forward_opinion"]
-        requested = set((record.get("request_payload") or {}).get("symbols", []))
-        if (
-            basis_date is None
-            or {str(item.get("symbol") or "").upper() for item in signals} != {str(item).upper() for item in requested}
-            or len(signals) != len(requested)
-            or any(_as_date(item.get("date")) != basis_date for item in signals)
-        ):
-            issues.append("incomplete_forward_signals")
-        outcomes = [] if issues or basis_date is None else [_signal_outcome(item, basis_date=basis_date) for item in signals]
+
+    evaluable = [
+        (record, basis_date)
+        for record, _, basis_date, issues in prepared
+        if basis_date is not None and not issues
+    ]
+    outcome_symbols = sorted(
+        {
+            str(item.get("symbol") or "").upper()
+            for record, _ in evaluable
+            for item in record.get("signals", [])
+            if item.get("signal_kind") == "forward_opinion"
+            and str(item.get("symbol") or "").strip()
+        }
+    )
+    bars_by_symbol = (
+        load_eligible_bars(
+            outcome_symbols,
+            start_date=min(basis_date for _, basis_date in evaluable),
+            end_date=datetime.now(TW_TIMEZONE).date(),
+        )
+        if evaluable and outcome_symbols
+        else {}
+    )
+
+    run_reports: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    valid_costs: set[tuple[float, float]] = set()
+    for record, evidence, basis_date, issues in prepared:
+        signals = [
+            item
+            for item in record.get("signals", [])
+            if item.get("signal_kind") == "forward_opinion"
+        ]
+        execution = (record.get("request_payload") or {}).get("execution", {})
+        fees = _finite_number(execution.get("fees"))
+        slippage = _finite_number(execution.get("slippage"))
+        if not issues and fees is not None and slippage is not None:
+            valid_costs.add((fees, slippage))
+        if issues or basis_date is None:
+            outcomes = []
+        else:
+            outcomes = [
+                _signal_outcome(
+                    item,
+                    basis_date=basis_date,
+                    bars_by_symbol=bars_by_symbol,
+                )
+                for item in signals
+            ]
         if any(item["status"] == "invalid_signal" for item in outcomes):
             issues.append("invalid_forward_signal")
+        if not issues and basis_date is not None:
+            for outcome in outcomes:
+                if outcome["status"] == "resolved":
+                    outcome["basis_date"] = basis_date.isoformat()
+                    outcome["net_position_return"] = (
+                        _net_return(
+                            outcome["actual_return"],
+                            outcome["position"],
+                            fees=fees,
+                            slippage=slippage,
+                        )
+                        if fees is not None and slippage is not None
+                        else None
+                    )
         report = {
             "run_id": record["run_id"],
             "basis_date": basis_date.isoformat() if basis_date else None,
@@ -501,33 +650,34 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
             "issues": issues,
             "outcomes": outcomes,
         }
+        if report["status"] == "resolved":
+            report["gross_portfolio_return"] = sum(
+                item["gross_position_return"] for item in outcomes
+            )
+            net_returns = [item.get("net_position_return") for item in outcomes]
+            report["net_portfolio_return"] = (
+                sum(float(value) for value in net_returns)
+                if all(value is not None for value in net_returns)
+                else None
+            )
         run_reports.append(report)
         if report["status"] == "resolved":
-            for outcome in outcomes:
-                outcome["basis_date"] = basis_date.isoformat()
             resolved.extend(outcomes)
 
-    fees = [float((record.get("request_payload") or {}).get("execution", {}).get("fees", 0)) for record in records]
-    slippages = [float((record.get("request_payload") or {}).get("execution", {}).get("slippage", 0)) for record in records]
-    fees_value = fees[0] if fees and len(set(fees)) == 1 else None
-    slippage_value = slippages[0] if slippages and len(set(slippages)) == 1 else None
-    for point in resolved:
-        point["net_position_return"] = (
-            _net_return(point["actual_return"], point["position"], fees=fees_value, slippage=slippage_value)
-            if fees_value is not None and slippage_value is not None
-            else None
-        )
-    # Attach run-level returns after cost values are known; each valid basis date has one run.
-    for report in run_reports:
-        if report["status"] != "resolved":
-            continue
-        report["gross_portfolio_return"] = sum(item["gross_position_return"] for item in report["outcomes"])
-        report["net_portfolio_return"] = (
-            sum(item["net_position_return"] for item in report["outcomes"])
-            if fees_value is not None and slippage_value is not None
-            else None
-        )
+    fees_value = next(iter(valid_costs))[0] if len(valid_costs) == 1 else None
+    slippage_value = next(iter(valid_costs))[1] if len(valid_costs) == 1 else None
     errors = [item["actual_return"] - item["score"] for item in resolved]
+    resolved_reports = [
+        item for item in run_reports if item["status"] == "resolved"
+    ]
+    net_return_points = [
+        {
+            "basis_date": item["basis_date"],
+            "return": item["net_portfolio_return"],
+        }
+        for item in resolved_reports
+        if item.get("net_portfolio_return") is not None
+    ]
     return {
         "cohort_id": cohort_id,
         "runs": run_reports,
@@ -542,13 +692,22 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
             "brier": mean(item["brier"] for item in resolved) if resolved else None,
             "active_position_share": mean(item["position"] > 0 for item in resolved) if resolved else None,
             "gross_position_return": _compound_daily(
-                [{"basis_date": item["basis_date"], "return": item["gross_portfolio_return"]} for item in run_reports if item["status"] == "resolved"],
+                [
+                    {
+                        "basis_date": item["basis_date"],
+                        "return": item["gross_portfolio_return"],
+                    }
+                    for item in resolved_reports
+                ],
                 "return", weighted=True,
             ),
-            "net_position_return": _compound_daily(
-                [{"basis_date": item["basis_date"], "return": item["net_portfolio_return"]} for item in run_reports if item["status"] == "resolved"],
-                "return", weighted=True,
-            ) if fees_value is not None else None,
+            "net_position_return": (
+                _compound_daily(net_return_points, "return", weighted=True)
+                if len(net_return_points) == len(resolved_reports)
+                and fees_value is not None
+                and slippage_value is not None
+                else None
+            ),
             "matched_equal_weight_benchmark_return": _compound_daily(resolved, "actual_return", weighted=False),
         },
         "costs": {"fees": fees_value, "slippage": slippage_value},

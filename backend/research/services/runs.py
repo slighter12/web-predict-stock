@@ -21,6 +21,7 @@ from backend.research.repositories.runs import (
     list_research_run_records,
 )
 from backend.research.services.execution import execute_research_run
+from backend.research.services.prospective import validate_strict_cohort_start
 from backend.research.services.registry import (
     record_failure,
     record_rejection,
@@ -90,6 +91,7 @@ def create_research_run(
     run_id = run_id or str(uuid4())
     runtime_context = None
     try:
+        validate_strict_cohort_start(request, run_id=run_id)
         _record_registry_event(
             record_started,
             raise_on_failure=True,

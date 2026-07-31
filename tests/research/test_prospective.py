@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -7,37 +8,43 @@ from pydantic import ValidationError
 import backend.research.services.execution as execution_service
 import backend.research.services.prospective as prospective_service
 import backend.research.services.registry as registry_service
+from backend.platform.db.repository_helpers import json_dumps
+from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.research.api import PublicResearchRunCreateRequest
 from backend.research.contracts.runs import ResearchRunCreateRequest
 
 
 def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequest:
-    payload = {
-        "runtime_mode": "runtime_compatibility_mode",
-        "market": "TW",
-        "symbols": ["2330"],
-        "date_range": {"start": "2024-01-01", "end": "2024-01-04"},
-        "return_target": "open_to_open",
-        "horizon_days": 1,
-        "features": [{"name": "ma", "window": 5, "source": "close", "shift": 1}],
-        "model": {"type": "extra_trees", "params": {}},
-        "direction_model": {"type": "extra_trees", "params": {}},
-        "strategy": {
-            "type": "research_v1",
-            "threshold": 0.003,
-            "top_n": 1,
-            "allow_proactive_sells": True,
-        },
-        "execution": {"slippage": 0.001, "fees": 0.002},
-        "execution_route": "research_only",
-    }
-    if prospective:
-        payload["prospective_evidence"] = {
-            "mode": "strict_v1",
-            "cohort_id": "tw_2330_o2o_v1",
-            "basis_date": "2024-01-04",
-            "full_universe_symbols": ["2330"],
+    payload = (
+        prospective_service.strict_request_payload(
+            symbols=["2330"],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_2330,
+            full_universe_symbols=["2330"],
+        )
+        if prospective
+        else {
+            "runtime_mode": "runtime_compatibility_mode",
+            "market": "TW",
+            "symbols": ["2330"],
+            "date_range": {"start": "2024-01-01", "end": "2024-01-04"},
+            "return_target": "open_to_open",
+            "horizon_days": 1,
+            "features": [
+                {"name": "ma", "window": 5, "source": "close", "shift": 1}
+            ],
+            "model": {"type": "extra_trees", "params": {}},
+            "direction_model": {"type": "extra_trees", "params": {}},
+            "strategy": {
+                "type": "research_v1",
+                "threshold": 0.003,
+                "top_n": 1,
+                "allow_proactive_sells": True,
+            },
+            "execution": {"slippage": 0.001, "fees": 0.002},
+            "execution_route": "research_only",
         }
+    )
     payload.update(overrides)
     return ResearchRunCreateRequest.model_validate(payload)
 
@@ -45,12 +52,12 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
 @pytest.mark.parametrize(
     ("override", "message"),
     [
-        ({"market": "US"}, "requires market='TW'"),
-        ({"return_target": "close_to_close"}, "requires open_to_open"),
-        ({"horizon_days": 2}, "requires open_to_open"),
+        ({"market": "US"}, "strict_target_mismatch"),
+        ({"return_target": "close_to_close"}, "strict_target_mismatch"),
+        ({"horizon_days": 2}, "strict_target_mismatch"),
         (
             {"execution_route": "simulation_internal_v1"},
-            "requires execution_route='research_only'",
+            "strict_execution_route_mismatch",
         ),
         (
             {
@@ -58,8 +65,27 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
                     {"name": "ma", "window": 5, "source": "close", "shift": 2}
                 ]
             },
-            "requires every feature shift=1",
+            "strict_feature_recipe_mismatch",
         ),
+        (
+            {"date_range": {"start": "2024-01-01", "end": "2024-01-04"}},
+            "strict_date_range_recipe_mismatch",
+        ),
+        (
+            {
+                "direction_model": {
+                    "type": "extra_trees",
+                    "params": {
+                        "n_estimators": 200,
+                        "random_state": 42,
+                        "n_jobs": -1,
+                    },
+                    "confirmation_probability_threshold": 0.95,
+                }
+            },
+            "strict_model_recipe_mismatch",
+        ),
+        ({"factor_catalog_version": "changed"}, "strict_extended_recipe_mismatch"),
     ],
 )
 def test_strict_prospective_contract_rejects_non_frozen_configuration(
@@ -83,7 +109,7 @@ def test_strict_prospective_contract_rejects_duplicate_universe_snapshot():
 
 
 def test_strict_prospective_contract_rejects_execution_symbol_outside_snapshot():
-    with pytest.raises(ValidationError, match="symbols must be a subset"):
+    with pytest.raises(ValidationError, match="invalid_universe_snapshot"):
         _request(
             prospective=True,
             prospective_evidence={
@@ -95,6 +121,31 @@ def test_strict_prospective_contract_rejects_execution_symbol_outside_snapshot()
         )
 
 
+def test_strict_payload_builder_canonicalizes_execution_symbols():
+    payload = prospective_service.strict_request_payload(
+        symbols=[" 0001 ", "0000", "0001"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=["0000", "0001"],
+    )
+
+    assert payload["symbols"] == ["0000", "0001"]
+    ResearchRunCreateRequest.model_validate(payload)
+
+
+def test_strict_prospective_contract_rejects_noncanonical_symbol_order():
+    payload = prospective_service.strict_request_payload(
+        symbols=["0000", "0001"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=["0000", "0001"],
+    )
+    payload["symbols"] = ["0001", "0000"]
+
+    with pytest.raises(ValidationError, match="invalid_universe_snapshot"):
+        ResearchRunCreateRequest.model_validate(payload)
+
+
 def test_public_strict_prospective_contract_rejects_non_o2o_target():
     internal_payload = _request(prospective=True).model_dump(mode="json")
     payload = {
@@ -104,8 +155,21 @@ def test_public_strict_prospective_contract_rejects_non_o2o_target():
     }
     payload["return_target"] = "close_to_close"
 
-    with pytest.raises(ValidationError, match="requires open_to_open"):
+    with pytest.raises(ValidationError, match="strict_target_mismatch"):
         PublicResearchRunCreateRequest.model_validate(payload)
+
+
+def test_public_strict_prospective_contract_accepts_canonical_recipe():
+    internal = _request(prospective=True)
+    payload = {
+        name: value
+        for name, value in internal.model_dump(mode="json").items()
+        if name in PublicResearchRunCreateRequest.model_fields
+    }
+
+    public = PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert public.to_internal_request() == internal
 
 
 def test_non_strict_request_remains_compatible_with_non_strict_feature_shift():
@@ -134,6 +198,42 @@ def test_success_request_payload_writes_timezone_aware_frozen_timestamp_for_firs
     )
 
     assert payload["prospective_evidence"]["signal_frozen_at"] == frozen_at.isoformat()
+
+
+def test_success_request_payload_treats_missing_started_record_as_first_freeze(
+    monkeypatch, caplog
+):
+    frozen_at = datetime(2024, 1, 4, 5, 25, tzinfo=timezone.utc)
+
+    def missing_record(run_id):
+        raise DataNotFoundError(run_id)
+
+    monkeypatch.setattr(registry_service, "get_research_run_record", missing_record)
+    monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
+
+    with caplog.at_level("WARNING"):
+        payload = registry_service._success_request_payload(
+            run_id="strict-missing", request=_request(prospective=True)
+        )
+
+    assert payload["prospective_evidence"]["signal_frozen_at"] == frozen_at.isoformat()
+    assert "run_id=strict-missing" in caplog.text
+
+
+def test_success_request_payload_propagates_data_access_errors(monkeypatch):
+    def unavailable_record(run_id):
+        raise DataAccessError(run_id)
+
+    monkeypatch.setattr(
+        registry_service,
+        "get_research_run_record",
+        unavailable_record,
+    )
+
+    with pytest.raises(DataAccessError):
+        registry_service._success_request_payload(
+            run_id="strict-unavailable", request=_request(prospective=True)
+        )
 
 
 def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_retry(
@@ -186,7 +286,7 @@ class _Regressor:
 
 
 class _Classifier:
-    classes_ = [0, 1]
+    classes_ = (0, 1)
 
     def predict_proba(self, frame):
         return [[0.2, 0.8]]
@@ -223,8 +323,13 @@ def test_strict_forward_signal_uses_unshifted_basis_features_and_normal_mode_is_
     )
 
     strict_request = _request(prospective=True)
+    strict_strategy = prospective_service.resolve_runtime_strategy(
+        strategy=strict_request.strategy,
+        runtime_mode=strict_request.runtime_mode,
+        default_bundle_version=strict_request.default_bundle_version,
+    )["strategy"]
     strict_signals, strict_warning = execution_service.build_forward_opinion_signals(
-        _symbol_data(), strict_request, strict_request.strategy
+        _symbol_data(), strict_request, strict_strategy
     )
 
     assert strict_warning is None
@@ -271,47 +376,19 @@ def _strict_record(
     created_at: str = "2024-01-04T13:30:00+08:00",
     signal_frozen_at: str = "2024-01-04T13:25:00+08:00",
 ) -> dict:
-    evidence = prospective_service.prospective_evidence_payload(
+    request_payload = prospective_service.strict_request_payload(
+        symbols=["2330"],
         cohort_id=prospective_service.COHORT_2330,
         basis_date=date(2024, 1, 4),
         full_universe_symbols=["2330"],
     )
+    evidence = request_payload["prospective_evidence"]
     evidence["signal_frozen_at"] = signal_frozen_at
     return {
         "run_id": run_id,
         "status": "succeeded",
         "created_at": created_at,
-        "request_payload": {
-            "runtime_mode": "vnext_spec_mode",
-            "default_bundle_version": "research_spec_v1",
-            "market": "TW",
-            "symbols": ["2330"],
-            "return_target": "open_to_open",
-            "horizon_days": 1,
-            "execution_route": "research_only",
-            "features": [
-                {"name": "ma", "window": 5, "source": "close", "shift": 1},
-                {"name": "rsi", "window": 14, "source": "close", "shift": 1},
-            ],
-            "model": {
-                "type": "extra_trees",
-                "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-            },
-            "direction_model": {
-                "type": "extra_trees",
-                "params": {"n_estimators": 200, "random_state": 42, "n_jobs": -1},
-            },
-            "validation": {"method": "walk_forward", "splits": 3, "test_size": 0.2},
-            "baselines": ["buy_and_hold"],
-            "strategy": {
-                "type": "research_v1",
-                "threshold": None,
-                "top_n": None,
-                "allow_proactive_sells": True,
-            },
-            "execution": {"fees": 0.002, "slippage": 0.001},
-            "prospective_evidence": evidence,
-        },
+        "request_payload": request_payload,
         "signals": [
             {
                 "date": "2024-01-04",
@@ -325,9 +402,11 @@ def _strict_record(
     }
 
 
-def _bars(*rows: tuple[str, float]) -> dict[str, list[prospective_service.EligibleBar]]:
+def _bars(
+    *rows: tuple[str, float], symbol: str = "2330"
+) -> dict[str, list[prospective_service.EligibleBar]]:
     return {
-        "2330": [
+        symbol: [
             prospective_service.EligibleBar(
                 date=date.fromisoformat(day),
                 open=open_price,
@@ -339,6 +418,147 @@ def _bars(*rows: tuple[str, float]) -> dict[str, list[prospective_service.Eligib
             )
             for day, open_price in rows
         ]
+    }
+
+
+def _fail_if_bars_loaded(*args, **kwargs):
+    pytest.fail("invalid run must not load bars")
+
+
+def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
+    cohort_id = prospective_service.COHORT_2330
+    request_payload = prospective_service.strict_request_payload(
+        symbols=["2330"],
+        basis_date=date(2024, 1, 4),
+        cohort_id=cohort_id,
+        full_universe_symbols=["2330"],
+    )
+    candidate_rows = [
+        ("exact", json_dumps(request_payload)),
+        (
+            "false-positive",
+            json_dumps(
+                {
+                    "cohort_id": cohort_id,
+                    "prospective_evidence": {
+                        "cohort_id": prospective_service.COHORT_ALL_ACTIVE
+                    },
+                }
+            ),
+        ),
+    ]
+    statements = []
+
+    class _Result:
+        def all(self):
+            return candidate_rows
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            return _Result()
+
+    loaded = []
+
+    def load_record(run_id):
+        loaded.append(run_id)
+        return _strict_record(run_id)
+
+    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        prospective_service,
+        "get_research_run_record",
+        load_record,
+    )
+
+    records = prospective_service.list_cohort_run_records(cohort_id)
+
+    assert [record["run_id"] for record in records] == ["exact"]
+    assert loaded == ["exact"]
+    compiled = statements[0].compile()
+    assert str(compiled).count("request_payload_json LIKE") == 2
+    assert str(compiled).count("ESCAPE") == 2
+    assert '"tw/_2330/_o2o/_v1"' in compiled.params.values()
+
+
+def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 5, 0, 30, tzinfo=tz)
+
+    rows = [
+        SimpleNamespace(
+            date=date(2024, 1, 4),
+            symbol=symbol,
+            open=open_price,
+            high=open_price + 1,
+            low=open_price - 1,
+            close=open_price + 0.5,
+            source="twse",
+            raw_payload_id=index,
+        )
+        for index, (symbol, open_price) in enumerate(
+            [
+                ("2317", 90.0),
+                ("2317", 91.0),
+                ("2330", 100.0),
+                ("2454", 0.0),
+            ],
+            start=1,
+        )
+    ]
+    rows[1].date = date(2024, 1, 5)
+
+    class _ScalarResult:
+        def all(self):
+            return rows
+
+    class _Result:
+        def scalars(self):
+            return _ScalarResult()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            return _Result()
+
+    captured = {}
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        prospective_service,
+        "load_official_no_data_dates",
+        lambda **kwargs: captured.update(kwargs) or set(),
+    )
+
+    result = prospective_service.load_eligible_bars(
+        ["2317", "2330", "2454"],
+        start_date=date(2024, 1, 4),
+    )
+
+    assert captured == {
+        "start_date": date(2024, 1, 4),
+        "end_date": date(2024, 1, 5),
+    }
+    assert {
+        symbol: [bar.date for bar in bars]
+        for symbol, bars in result.items()
+    } == {
+        "2317": [date(2024, 1, 4), date(2024, 1, 5)],
+        "2330": [date(2024, 1, 4)],
     }
 
 
@@ -394,6 +614,159 @@ def test_cohort_evaluator_calculates_observed_o2o_return_direction_and_brier(mon
     assert result["metrics"]["net_position_return"] < 0.1
 
 
+def test_cohort_evaluator_loads_bars_once_per_multi_symbol_run(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 10, 0, 30, tzinfo=tz)
+
+    record = _strict_record("multi-symbol")
+    symbols = ["2317", "2330"]
+    record["request_payload"] = prospective_service.strict_request_payload(
+        symbols=symbols,
+        basis_date=date(2024, 1, 4),
+        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+        full_universe_symbols=symbols,
+    )
+    record["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-04T13:25:00+08:00"
+    record["signals"] = [
+        {
+            **record["signals"][0],
+            "symbol": symbol,
+            "score": 0.04 + index * 0.01,
+        }
+        for index, symbol in enumerate(symbols)
+    ]
+    calls = []
+
+    def load_bars(requested, **kwargs):
+        calls.append((requested, kwargs))
+        return {
+            **_bars(
+                ("2024-01-04", 99.0),
+                ("2024-01-05", 100.0),
+                ("2024-01-08", 120.0),
+                symbol="2317",
+            ),
+            **_bars(
+                ("2024-01-04", 99.0),
+                ("2024-01-05", 100.0),
+                ("2024-01-08", 110.0),
+                symbol="2330",
+            ),
+        }
+
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [record],
+    )
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+
+    result = prospective_service.evaluate_cohort(
+        prospective_service.COHORT_ALL_ACTIVE
+    )
+
+    assert calls == [
+        (
+            symbols,
+            {
+                "start_date": date(2024, 1, 4),
+                "end_date": date(2024, 1, 10),
+            },
+        )
+    ]
+    assert result["resolved_signal_count"] == 2
+
+
+def test_cohort_evaluator_reuses_one_bar_load_across_basis_dates(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == prospective_service.TW_TIMEZONE
+            return cls(2024, 1, 10, 0, 30, tzinfo=tz)
+
+    first = _strict_record("first-basis")
+    second = _strict_record("second-basis")
+    second["request_payload"] = prospective_service.strict_request_payload(
+        symbols=["2330"],
+        basis_date=date(2024, 1, 5),
+        cohort_id=prospective_service.COHORT_2330,
+        full_universe_symbols=["2330"],
+    )
+    second["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-05T13:25:00+08:00"
+    second["signals"][0]["date"] = "2024-01-05"
+    second["signals"][0]["score"] = 0.1
+    calls = []
+
+    def load_bars(requested, **kwargs):
+        calls.append((requested, kwargs))
+        return _bars(
+            ("2024-01-04", 99.0),
+            ("2024-01-05", 100.0),
+            ("2024-01-08", 110.0),
+            ("2024-01-09", 120.0),
+        )
+
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [first, second],
+    )
+    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
+    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert calls == [
+        (
+            ["2330"],
+            {
+                "start_date": date(2024, 1, 4),
+                "end_date": date(2024, 1, 10),
+            },
+        )
+    ]
+    assert [run["status"] for run in result["runs"]] == ["resolved", "resolved"]
+
+
+def test_correlation_logs_expected_failures(monkeypatch, caplog):
+    def fail_correlation(*args, **kwargs):
+        raise ValueError("invalid correlation")
+
+    monkeypatch.setattr(pd.Series, "corr", fail_correlation)
+    points = [
+        {"actual_return": 0.1, "score": 0.2},
+        {"actual_return": 0.2, "score": 0.3},
+    ]
+
+    with caplog.at_level("WARNING"):
+        result = prospective_service._correlation(points, "pearson")
+
+    assert result is None
+    assert "method=pearson point_count=2" in caplog.text
+
+
+def test_correlation_propagates_unexpected_failures(monkeypatch):
+    def fail_correlation(*args, **kwargs):
+        raise RuntimeError("unexpected correlation failure")
+
+    monkeypatch.setattr(pd.Series, "corr", fail_correlation)
+    points = [
+        {"actual_return": 0.1, "score": 0.2},
+        {"actual_return": 0.2, "score": 0.3},
+    ]
+
+    with pytest.raises(RuntimeError, match="unexpected correlation failure"):
+        prospective_service._correlation(points, "pearson")
+
+
 def test_cohort_evaluator_uses_frozen_timestamp_not_record_created_at(monkeypatch):
     monkeypatch.setattr(
         prospective_service,
@@ -433,6 +806,11 @@ def test_cohort_evaluator_requires_valid_same_day_frozen_timestamp(
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -449,9 +827,7 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     monkeypatch.setattr(
         prospective_service,
         "load_eligible_bars",
-        lambda *args, **kwargs: _bars(
-            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
-        ),
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
@@ -465,11 +841,68 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     assert result["resolved_signal_count"] == 0
 
 
+def test_failed_attempt_does_not_invalidate_successful_retry(monkeypatch):
+    failed = _strict_record("failed")
+    failed["status"] = "failed"
+    failed["signals"] = []
+    successful = _strict_record("successful")
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [failed, successful],
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        lambda *args, **kwargs: _bars(
+            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
+        ),
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert [run["status"] for run in result["runs"]] == ["invalid", "resolved"]
+    assert "duplicate_basis_date" not in result["runs"][1]["issues"]
+    assert result["completed_trading_days"] == 1
+
+
+def test_invalid_cost_record_does_not_poison_valid_metrics(monkeypatch):
+    invalid = _strict_record("invalid-cost")
+    invalid["request_payload"]["execution"]["slippage"] = 0.002
+    successful = _strict_record("successful")
+    monkeypatch.setattr(
+        prospective_service,
+        "list_cohort_run_records",
+        lambda cohort_id: [invalid, successful],
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        lambda *args, **kwargs: _bars(
+            ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
+        ),
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert result["runs"][0]["issues"] == [
+        "strict_cost_or_baseline_recipe_mismatch"
+    ]
+    assert result["runs"][1]["status"] == "resolved"
+    assert result["metrics"]["net_position_return"] is not None
+    assert result["costs"] == {"fees": 0.002, "slippage": 0.001}
+
+
 def test_cohort_evaluator_rejects_signal_date_that_differs_from_basis_date(monkeypatch):
     record = _strict_record("wrong-signal-date")
     record["signals"][0]["date"] = "2024-01-03"
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
@@ -484,6 +917,11 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
     )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -491,18 +929,112 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     assert result["runs"][0]["issues"] == ["strict_model_recipe_mismatch"]
 
 
+def test_cohort_evaluator_rejects_changed_direction_threshold(monkeypatch):
+    record = _strict_record("changed-direction-threshold")
+    record["request_payload"]["direction_model"][
+        "confirmation_probability_threshold"
+    ] = 0.95
+    monkeypatch.setattr(
+        prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
+    )
+
+    result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
+
+    assert result["runs"][0]["issues"] == ["strict_model_recipe_mismatch"]
+
+
+def test_strict_start_rejects_changed_all_active_snapshot(monkeypatch):
+    snapshot = [f"{number:04d}" for number in range(100)]
+    request = ResearchRunCreateRequest.model_validate(
+        prospective_service.strict_request_payload(
+            symbols=snapshot[:95],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            full_universe_symbols=snapshot,
+        )
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "active_tw_profile_symbols",
+        lambda: [*snapshot, "9999"],
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="current cohort snapshot",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            request,
+            run_id="snapshot-mismatch",
+        )
+
+
+def test_strict_start_rejects_execution_coverage_below_gate(monkeypatch):
+    snapshot = [f"{number:04d}" for number in range(100)]
+    request = ResearchRunCreateRequest.model_validate(
+        prospective_service.strict_request_payload(
+            symbols=snapshot[:94],
+            basis_date=date(2024, 1, 4),
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            full_universe_symbols=snapshot,
+        )
+    )
+    monkeypatch.setattr(
+        prospective_service, "active_tw_profile_symbols", lambda: snapshot
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="coverage is below 95%",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            request,
+            run_id="coverage-mismatch",
+        )
+
+
+def test_strict_start_rejects_second_valid_success(monkeypatch):
+    monkeypatch.setattr(
+        prospective_service,
+        "valid_successful_cohort_runs",
+        lambda **kwargs: [{"run_id": "existing"}],
+    )
+
+    with pytest.raises(
+        prospective_service.UnsupportedConfigurationError,
+        match="already exists",
+    ):
+        prospective_service.validate_strict_cohort_start(
+            _request(prospective=True),
+            run_id="new-run",
+        )
+
+
 def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkeypatch):
     record = _strict_record("insufficient-coverage")
     snapshot = [f"{number:04d}" for number in range(20)]
-    evidence = prospective_service.prospective_evidence_payload(
+    record["request_payload"] = prospective_service.strict_request_payload(
+        symbols=["0000"],
         cohort_id=prospective_service.COHORT_ALL_ACTIVE,
         basis_date=date(2024, 1, 4),
         full_universe_symbols=snapshot,
     )
-    evidence["signal_frozen_at"] = "2024-01-04T13:25:00+08:00"
-    record["request_payload"]["prospective_evidence"] = evidence
+    record["request_payload"]["prospective_evidence"][
+        "signal_frozen_at"
+    ] = "2024-01-04T13:25:00+08:00"
+    record["signals"][0]["symbol"] = "0000"
     monkeypatch.setattr(
         prospective_service, "list_cohort_run_records", lambda cohort_id: [record]
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "load_eligible_bars",
+        _fail_if_bars_loaded,
     )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_ALL_ACTIVE)
@@ -531,13 +1063,16 @@ def test_2330_preflight_requires_2330_to_be_data_ready(monkeypatch):
     assert result["full_universe_symbols"] == ["2330"]
     assert result["execution_symbols"] == []
     assert result["status"] == "no-opinion"
+    assert result["reason"] == (
+        "Symbol 2330 is not model-ready: forward_signal_unavailable."
+    )
 
 
 @pytest.mark.parametrize(
     ("ready_count", "expected_status"), [(94, "no-opinion"), (95, "ready")],
 )
 def test_all_active_preflight_applies_95_percent_coverage_gate(
-    monkeypatch, ready_count, expected_status
+    monkeypatch, caplog, ready_count, expected_status
 ):
     symbols = [f"{number:04d}" for number in range(100)]
     monkeypatch.setattr(prospective_service, "active_tw_profile_symbols", lambda: symbols)
@@ -552,10 +1087,17 @@ def test_all_active_preflight_applies_95_percent_coverage_gate(
         lambda *, symbol, **kwargs: None if int(symbol) < ready_count else "model_not_ready",
     )
 
-    result = prospective_service.preflight_cohort(
-        cohort_id=prospective_service.COHORT_ALL_ACTIVE,
-        basis_date=date(2024, 1, 4),
-    )
+    with caplog.at_level("INFO"):
+        result = prospective_service.preflight_cohort(
+            cohort_id=prospective_service.COHORT_ALL_ACTIVE,
+            basis_date=date(2024, 1, 4),
+        )
 
     assert result["execution_coverage_ratio"] == pytest.approx(ready_count / 100)
     assert result["status"] == expected_status
+    assert result["reason"] == (
+        None
+        if expected_status == "ready"
+        else "Execution coverage 94.00% is below 95%."
+    )
+    assert "processed=100 total=100" in caplog.text
