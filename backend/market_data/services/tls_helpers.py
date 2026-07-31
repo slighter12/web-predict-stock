@@ -164,24 +164,23 @@ def request_with_tls_fallback(
                     timeout_seconds=timeout_seconds,
                     verify=downloaded_verify,
                 )
-            except requests.RequestException:
-                logger.exception(
-                    "Failed %s after CA download url=%s",
+            except requests.RequestException as exc:
+                logger.error(
+                    "Failed %s after CA download error_type=%s",
                     context_label,
-                    url,
+                    type(exc).__name__,
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to download CA bundle for %s url=%s",
+            except Exception as exc:
+                logger.error(
+                    "Failed to download CA bundle for %s error_type=%s",
                     context_label,
-                    url,
+                    type(exc).__name__,
                 )
 
         if response is None and insecure_tls_fallback_enabled():
             logger.warning(
-                "Retrying %s without TLS verification url=%s",
+                "Retrying %s without TLS verification",
                 context_label,
-                url,
             )
             response = perform_tls_request(
                 method=method,

@@ -192,7 +192,8 @@ def fetch_twse_public_snapshot(
             verify=verify,
         )
         response.raise_for_status()
-    except requests.exceptions.SSLError:
+    except requests.exceptions.SSLError as exc:
+        error_type = type(exc).__name__
         response = None
         if _ca_auto_download_enabled():
             try:
@@ -203,15 +204,22 @@ def fetch_twse_public_snapshot(
                     verify=downloaded_verify,
                 )
                 response.raise_for_status()
-            except requests.RequestException:
-                logger.exception(
-                    "Failed to fetch TWSE public snapshot after CA download symbol_count=%s",
+            except requests.RequestException as exc:
+                error_type = type(exc).__name__
+                response = None
+                logger.error(
+                    "Failed to fetch TWSE public snapshot after CA download "
+                    "symbol_count=%s error_type=%s",
                     len(symbols),
+                    error_type,
                 )
-            except Exception:
-                logger.exception(
-                    "Failed to download TWSE MIS CA bundle symbol_count=%s",
+            except Exception as exc:
+                error_type = type(exc).__name__
+                logger.error(
+                    "Failed to download TWSE MIS CA bundle "
+                    "symbol_count=%s error_type=%s",
                     len(symbols),
+                    error_type,
                 )
 
         if response is None and _insecure_tls_fallback_enabled():
@@ -227,27 +235,44 @@ def fetch_twse_public_snapshot(
                 )
                 response.raise_for_status()
             except requests.RequestException as exc:
-                logger.exception(
-                    "Failed to fetch TWSE public snapshot with insecure fallback symbol_count=%s",
+                error_type = type(exc).__name__
+                logger.error(
+                    "Failed to fetch TWSE public snapshot with insecure fallback "
+                    "symbol_count=%s error_type=%s",
                     len(symbols),
+                    error_type,
                 )
                 raise ExternalFetchError(
-                    "Failed to fetch TWSE public snapshot."
-                ) from exc
+                    "Failed to fetch TWSE public snapshot.",
+                    error_type=error_type,
+                ) from None
 
         if response is None:
-            logger.exception(
-                "TWSE public snapshot TLS verification failed symbol_count=%s auto_download=%s insecure_fallback=%s",
+            logger.error(
+                "TWSE public snapshot TLS verification failed "
+                "symbol_count=%s auto_download=%s insecure_fallback=%s "
+                "error_type=%s",
                 len(symbols),
                 _ca_auto_download_enabled(),
                 _insecure_tls_fallback_enabled(),
+                error_type,
             )
-            raise ExternalFetchError("Failed to fetch TWSE public snapshot.") from None
+            raise ExternalFetchError(
+                "Failed to fetch TWSE public snapshot.",
+                error_type=error_type,
+            ) from None
     except requests.RequestException as exc:
-        logger.exception(
-            "Failed to fetch TWSE public snapshot symbol_count=%s", len(symbols)
+        error_type = type(exc).__name__
+        logger.error(
+            "Failed to fetch TWSE public snapshot "
+            "symbol_count=%s error_type=%s",
+            len(symbols),
+            error_type,
         )
-        raise ExternalFetchError("Failed to fetch TWSE public snapshot.") from exc
+        raise ExternalFetchError(
+            "Failed to fetch TWSE public snapshot.",
+            error_type=error_type,
+        ) from None
 
     payload_body = response.text
     observations = parse_snapshot_payload(

@@ -120,7 +120,7 @@ Run TW market daily batch ingestion when a broader local dataset is needed:
 ```
 
 The batch command bootstraps the TWSE/TPEX company universe when it is empty.
-Use an explicit date range for resumable daily OHLCV backfills:
+Backfill a weekday date range with bounded universe refresh retries:
 
 ```bash
 .venv/bin/python -m scripts.crawl_tw_daily_batch \
@@ -130,8 +130,16 @@ Use an explicit date range for resumable daily OHLCV backfills:
   --delay-seconds 1
 ```
 
-For a safe resumable sequence, first run the canary date with a refreshed
-universe, then run the requested range without refreshing it:
+Range runs emit one progress JSON object per attempted date to stderr and one
+final aggregate JSON object to stdout. `--delay-seconds` defaults to `1.0` and
+controls the pause between attempted dates; adjust it when throttling long
+range backfills. The aggregate field
+`universe_refresh_succeeded` is `true` only after a confirmed refresh, `false`
+after an attempted refresh without confirmed success, and `null` when the range
+runner did not attempt its bounded refresh.
+
+For an explicit canary-first sequence, first run the canary date with a
+refreshed universe, then run the requested range without refreshing it:
 
 ```bash
 .venv/bin/python -m scripts.crawl_tw_daily_batch 2026-07-24 --refresh-universe

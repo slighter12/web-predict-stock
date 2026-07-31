@@ -868,8 +868,8 @@ def execute_research_run(
             feature_config,
             shift_map,
             test_size,
-            peer_feature_map,
-            official_no_data_dates,
+            peer_feature_map=peer_feature_map,
+            official_no_data_dates=official_no_data_dates,
         )
         for symbol in request.symbols
     ]
