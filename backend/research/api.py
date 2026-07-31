@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
-from pydantic import Field, confloat, conint, conlist, field_validator
+from pydantic import Field, confloat, conint, conlist, field_validator, model_validator
 
 from backend.platform.http.request_context import get_request_id
 from backend.research.contracts.governance import (
@@ -18,6 +18,7 @@ from backend.research.contracts.runs import (
     FeatureRegistryResponse,
     FeatureSpec,
     ModelConfig,
+    ProspectiveEvidenceConfig,
     ResearchRunCreateRequest,
     ResearchRunRecordResponse,
     ResearchRunResponse,
@@ -65,6 +66,7 @@ class PublicResearchRunCreateRequest(RequestModel):
     baselines: list[BaselineName] = Field(default_factory=list)
     portfolio_aum: confloat(gt=0) | None = None  # type: ignore[valid-type]
     monitor_profile_id: ResearchMonitorProfileId | None = None
+    prospective_evidence: ProspectiveEvidenceConfig | None = None
 
     @field_validator("symbols")
     @classmethod
@@ -100,6 +102,16 @@ class PublicResearchRunCreateRequest(RequestModel):
         if value.end < value.start:
             raise ValueError("end must be on or after start")
         return value
+
+    @model_validator(mode="after")
+    def validate_prospective_evidence(self) -> "PublicResearchRunCreateRequest":
+        if self.prospective_evidence is None:
+            return self
+        try:
+            ResearchRunCreateRequest.model_validate(self.model_dump())
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
     def to_internal_request(self) -> ResearchRunCreateRequest:
         return ResearchRunCreateRequest(**self.model_dump())

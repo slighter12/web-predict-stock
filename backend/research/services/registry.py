@@ -5,9 +5,13 @@ from typing import Any
 
 from backend.shared.analytics import models as model_service
 from backend.research.domain.run_payload import build_research_run_payload
-from backend.platform.errors import BacktestError
-from backend.research.repositories.runs import persist_research_run_record
+from backend.platform.errors import BacktestError, DataNotFoundError
+from backend.research.repositories.runs import (
+    get_research_run_record,
+    persist_research_run_record,
+)
 from backend.platform.http.errors import research_run_error_code
+from backend.platform.time import utc_now
 from backend.research.contracts.runs import (
     ResearchRunCreateRequest,
     ResearchRunResponse,
@@ -30,6 +34,37 @@ logger = logging.getLogger(__name__)
 
 def _request_payload_from_model(request: ResearchRunCreateRequest) -> dict[str, Any]:
     return request.model_dump(mode="json")
+
+
+def _success_request_payload(
+    *, run_id: str, request: ResearchRunCreateRequest
+) -> dict[str, Any]:
+    payload = _request_payload_from_model(request)
+    evidence = payload.get("prospective_evidence")
+    if not isinstance(evidence, dict) or evidence.get("mode") != "strict_v1":
+        return payload
+
+    try:
+        existing_payload = get_research_run_record(run_id).get("request_payload")
+    except DataNotFoundError:
+        logger.warning(
+            "Strict research run record missing while freezing prospective "
+            "signal run_id=%s; initializing a new signal_frozen_at",
+            run_id,
+        )
+        existing_payload = None
+    existing_evidence = (
+        existing_payload.get("prospective_evidence")
+        if isinstance(existing_payload, dict)
+        else None
+    )
+    frozen_at = (
+        existing_evidence.get("signal_frozen_at")
+        if isinstance(existing_evidence, dict)
+        else None
+    )
+    evidence["signal_frozen_at"] = frozen_at or utc_now().isoformat()
+    return payload
 
 
 def _request_payload_value(
@@ -335,12 +370,13 @@ def record_success(
     warnings: list[str],
 ) -> dict[str, Any]:
     logger.info("Recording succeeded research run run_id=%s", run_id)
+    request_payload = _success_request_payload(run_id=run_id, request=request)
     return persist_research_run_record(
         _build_registry_payload(
             run_id=run_id,
             request_id=request_id,
             status="succeeded",
-            request=request,
+            request_payload=request_payload,
             runtime_context=runtime_context,
             validation_outcome=validation_summary.model_dump(mode="json")
             if validation_summary
