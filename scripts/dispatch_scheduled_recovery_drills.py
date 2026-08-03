@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 
 from backend.market_data.services.recovery import dispatch_due_recovery_drills
+from scripts._logging import configure_cli_logging
 
 
 def main() -> int:
+    configure_cli_logging()
     summary = dispatch_due_recovery_drills()
     print(json.dumps(summary, ensure_ascii=True, default=str))
     if int(summary["failed_count"]) > 0 or int(summary["error_count"]) > 0:

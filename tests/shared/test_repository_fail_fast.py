@@ -83,6 +83,11 @@ def test_persist_repositories_fail_fast(monkeypatch, module, func_name, payload)
     ("module", "func_name", "args"),
     [
         (research_run_repository, "get_research_run_snapshot", ("run_123",)),
+        (
+            research_run_repository,
+            "get_research_run_request_payload",
+            ("run_123",),
+        ),
         (research_run_repository, "list_research_run_snapshots", (20,)),
         (replay_repository, "list_replay_records", (20,)),
         (recovery_repository, "list_recovery_records", (20,)),

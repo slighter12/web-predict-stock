@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from datetime import date, timedelta
-from typing import Any, Iterable
+from typing import Any
 
 STRICT_MODE = "strict_v1"
 COHORT_2330 = "tw_2330_o2o_v1"

@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -152,11 +154,20 @@ def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
     statements = []
 
     class _CandidateResult:
-        def all(self):
-            return [
-                ("exact", exact_payload),
-                ("false-positive", false_positive_payload),
-            ]
+        def yield_per(self, size):
+            self.size = size
+            return self
+
+        def partitions(self, size):
+            self.size = size
+            return iter(
+                [
+                    [
+                        ("exact", exact_payload),
+                        ("false-positive", false_positive_payload),
+                    ]
+                ]
+            )
 
     class _RowResult:
         def scalars(self):
@@ -193,6 +204,200 @@ def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
     assert str(candidate_query).count("ESCAPE") == 2
     assert f'"{cohort_id.replace("_", "/_")}"' in candidate_query.params.values()
     assert statements[1].compile().params == {"run_id_1": ["exact"]}
+
+
+def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    exact_payload = research_run_repository.json_dumps(
+        {"prospective_evidence": {"cohort_id": cohort_id}}
+    )
+    false_positive_payload = research_run_repository.json_dumps(
+        {
+            "cohort_id": cohort_id,
+            "prospective_evidence": {"cohort_id": "tw_all_active_o2o_v1"},
+        }
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(bind=engine, tables=[ResearchRun.__table__])
+    testing_session_local = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine,
+    )
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ResearchRun(
+                    run_id="exact-sqlite",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    request_payload_json=exact_payload,
+                ),
+                ResearchRun(
+                    run_id="false-positive-sqlite",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    request_payload_json=false_positive_payload,
+                ),
+            ]
+        )
+        session.commit()
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+    monkeypatch.setattr(
+        research_run_repository,
+        "_attach_liquidity_coverages",
+        lambda session, payload: payload,
+    )
+
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["exact-sqlite"]
+    assert snapshots[0]["request_payload"]["prospective_evidence"]["cohort_id"] == (
+        cohort_id
+    )
+
+
+def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    candidate_rows = []
+    rows_by_id = {}
+    base_created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    for index in range(1001):
+        run_id = f"run-{index:04d}"
+        request_payload = research_run_repository.json_dumps(
+            {"prospective_evidence": {"cohort_id": cohort_id}}
+        )
+        created_at = base_created_at + timedelta(seconds=index)
+        candidate_rows.append((run_id, request_payload))
+        rows_by_id[run_id] = ResearchRun(
+            run_id=run_id,
+            status="succeeded",
+            created_at=created_at,
+            request_payload_json=request_payload,
+        )
+
+    statements = []
+    partition_sizes = []
+    row_batch_sizes = []
+
+    class _CandidateResult:
+        def yield_per(self, size):
+            assert size == 500
+            return self
+
+        def partitions(self, size):
+            partition_sizes.append(size)
+            return iter(
+                [
+                    candidate_rows[start : start + size]
+                    for start in range(0, len(candidate_rows), size)
+                ]
+            )
+
+    class _RowResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self.rows
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            if len(statements) == 1:
+                return _CandidateResult()
+            batch_index = len(statements) - 2
+            start = batch_index * 500
+            batch_ids = [
+                run_id
+                for run_id, _ in candidate_rows[start : start + 500]
+            ]
+            row_batch_sizes.append(len(batch_ids))
+            return _RowResult(
+                [rows_by_id[run_id] for run_id in reversed(batch_ids)]
+            )
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
+    monkeypatch.setattr(
+        research_run_repository,
+        "_attach_liquidity_coverages",
+        lambda session, payload: payload,
+    )
+
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert partition_sizes == [500]
+    assert row_batch_sizes == [500, 500, 1]
+    assert len(statements) == 4
+    assert [snapshot["run_id"] for snapshot in snapshots] == [
+        f"run-{index:04d}" for index in range(1001)
+    ]
+
+
+def test_project_persisted_snapshot_requires_private_metadata_keys():
+    with pytest.raises(ValueError, match="_artifact_presence.*_version_pack_values"):
+        research_run_projection.project_persisted_snapshot(
+            {"run_id": "missing-metadata"},
+            include_artifacts=True,
+        )
+
+
+def test_project_persisted_snapshot_parses_model_diagnostics_once(monkeypatch):
+    row = ResearchRun(
+        run_id="diagnostics-once",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json='{"task": "regression", "sample_count": 0}',
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{}",
+        comparison_eligibility="research_only_comparable",
+    )
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+    original_parser = research_run_projection._model_diagnostics_from_payload
+    parser_calls = 0
+
+    def _counting_parser(value):
+        nonlocal parser_calls
+        parser_calls += 1
+        return original_parser(value)
+
+    monkeypatch.setattr(
+        research_run_projection,
+        "_model_diagnostics_from_payload",
+        _counting_parser,
+    )
+
+    projected = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
+
+    assert parser_calls == 1
+    assert projected["model_diagnostics"]["sample_count"] == 0
+    assert projected["model_diagnostics"]["actual_vs_predicted"] == []
 
 
 def test_corrupt_baselines_json_is_not_marked_present():

@@ -14,9 +14,9 @@ from backend.market_data.services.research_inputs import (
     OFFICIAL_SOURCES,
     TW_TIMEZONE,
     EligibleBar,
-    list_active_tw_research_symbols as active_tw_profile_symbols,
+    list_active_tw_research_symbols,
     load_official_no_data_dates,
-    load_research_eligible_tw_bars as load_eligible_bars,
+    load_research_eligible_tw_bars,
 )
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
@@ -112,7 +112,11 @@ def _model_ready_symbol(
 
 
 def preflight_cohort(*, cohort_id: str, basis_date: date) -> dict[str, Any]:
-    full_symbols = ["2330"] if cohort_id == COHORT_2330 else active_tw_profile_symbols()
+    full_symbols = (
+        ["2330"]
+        if cohort_id == COHORT_2330
+        else list_active_tw_research_symbols()
+    )
     exclusions: dict[str, str] = {}
     if full_symbols:
         feature_config, shift_map = build_feature_config(
@@ -319,7 +323,7 @@ def validate_strict_cohort_start(
     expected_snapshot = (
         ["2330"]
         if evidence.cohort_id == COHORT_2330
-        else active_tw_profile_symbols()
+        else list_active_tw_research_symbols()
     )
     if evidence.full_universe_symbols != expected_snapshot:
         raise UnsupportedConfigurationError(
@@ -476,7 +480,7 @@ def evaluate_cohort(cohort_id: str) -> dict[str, Any]:
         }
     )
     bars_by_symbol = (
-        load_eligible_bars(
+        load_research_eligible_tw_bars(
             outcome_symbols,
             start_date=min(basis_date for _, basis_date in evaluable),
             end_date=datetime.now(TW_TIMEZONE).date(),

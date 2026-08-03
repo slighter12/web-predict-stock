@@ -49,6 +49,16 @@ def _is_probability(value: Any) -> bool:
     return _is_number(value) and 0.0 <= value <= 1.0
 
 
+def _is_valid_signal_row(signal: Mapping[str, Any]) -> bool:
+    return (
+        signal_date_key(signal) is not None
+        and _is_number(signal.get("score"))
+        and _is_number(signal.get("position"))
+        and _is_probability(signal.get("up_probability"))
+        and signal.get("predicted_direction") in {"up", "down"}
+    )
+
+
 def select_latest_signals(
     payload: Mapping[str, Any],
 ) -> LatestSignalSelection:
@@ -97,12 +107,7 @@ def select_latest_signals(
         invalid_row_indices.update(index for index, _ in candidates[1:])
         if signal_date != common_as_of:
             invalid_row_indices.add(selected_index)
-        if (
-            not _is_number(selected_signal.get("score"))
-            or not _is_number(selected_signal.get("position"))
-            or not _is_probability(selected_signal.get("up_probability"))
-            or selected_signal.get("predicted_direction") not in {"up", "down"}
-        ):
+        if not _is_valid_signal_row(selected_signal):
             invalid_row_indices.add(selected_index)
 
     snapshot_complete = (
@@ -126,9 +131,5 @@ def valid_latest_signals(
     return [
         item
         for item in select_latest_signals(payload).latest
-        if signal_date_key(item) is not None
-        and _is_number(item.get("score"))
-        and _is_number(item.get("position"))
-        and _is_probability(item.get("up_probability"))
-        and item.get("predicted_direction") in {"up", "down"}
+        if _is_valid_signal_row(item)
     ]

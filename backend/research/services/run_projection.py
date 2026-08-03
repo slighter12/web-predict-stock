@@ -123,8 +123,9 @@ def _model_diagnostics_from_payload(value: Any) -> dict[str, Any] | None:
     return payload
 
 
-def _summarize_model_diagnostics(value: Any) -> dict[str, Any] | None:
-    payload = _model_diagnostics_from_payload(value)
+def _summarize_model_diagnostics(
+    payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if payload is None:
         return None
     return {
@@ -200,19 +201,31 @@ def project_persisted_snapshot(
     include_artifacts: bool,
 ) -> dict[str, Any]:
     payload = dict(snapshot)
+    required_metadata_keys = (
+        "_artifact_presence",
+        "_version_pack_values",
+        "_raw_model_diagnostics",
+    )
+    missing_metadata_keys = [
+        key for key in required_metadata_keys if key not in payload
+    ]
+    if missing_metadata_keys:
+        raise ValueError(
+            "Persisted research run snapshot is missing required metadata keys: "
+            + ", ".join(missing_metadata_keys)
+        )
     artifact_presence = payload.pop("_artifact_presence")
     version_pack_values = payload.pop("_version_pack_values")
     raw_model_diagnostics = payload.pop("_raw_model_diagnostics")
     validation_outcome = payload.get("validation_outcome")
     payload["validation"] = _validation_summary_from_payload(validation_outcome)
+    parsed_model_diagnostics = _model_diagnostics_from_payload(raw_model_diagnostics)
     payload["model_diagnostics"] = (
-        _model_diagnostics_from_payload(raw_model_diagnostics)
+        parsed_model_diagnostics
         if include_artifacts
-        else _summarize_model_diagnostics(raw_model_diagnostics)
+        else _summarize_model_diagnostics(parsed_model_diagnostics)
     )
-    artifact_presence["model_diagnostics"] = (
-        _model_diagnostics_from_payload(raw_model_diagnostics) is not None
-    )
+    artifact_presence["model_diagnostics"] = parsed_model_diagnostics is not None
     artifact_presence["validation"] = payload["validation"] is not None
     artifact_presence["baselines"] = bool(artifact_presence["baselines"]) and (
         has_requested_baselines(

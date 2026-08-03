@@ -23,6 +23,8 @@ from backend.platform.time import utc_now
 
 logger = logging.getLogger(__name__)
 
+_PROSPECTIVE_COHORT_BATCH_SIZE = 500
+
 
 def _coerce_date(value: Any) -> date | None:
     if value is None:
@@ -433,39 +435,49 @@ def list_prospective_cohort_run_snapshots(
                 )
                 .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
             )
-            candidate_ids = []
-            for run_id, request_payload_json in session.execute(
-                candidate_stmt
-            ).all():
-                request_payload = json_loads(request_payload_json, None)
-                evidence = (
-                    request_payload.get("prospective_evidence")
-                    if isinstance(request_payload, dict)
-                    else None
+            snapshots: list[dict[str, Any]] = []
+            candidate_result = session.execute(
+                candidate_stmt.execution_options(
+                    yield_per=_PROSPECTIVE_COHORT_BATCH_SIZE
                 )
-                if (
-                    not isinstance(evidence, dict)
-                    or evidence.get("cohort_id") != cohort_id
-                ):
-                    continue
-                candidate_ids.append(run_id)
-
-            if not candidate_ids:
-                return []
-            row_stmt = (
-                select(ResearchRun)
-                .where(ResearchRun.run_id.in_(candidate_ids))
-                .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
             )
-            return [
-                (
+            for candidate_rows in candidate_result.partitions(
+                _PROSPECTIVE_COHORT_BATCH_SIZE
+            ):
+                candidate_ids = []
+                for run_id, request_payload_json in candidate_rows:
+                    request_payload = json_loads(request_payload_json, None)
+                    evidence = (
+                        request_payload.get("prospective_evidence")
+                        if isinstance(request_payload, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(evidence, dict)
+                        or evidence.get("cohort_id") != cohort_id
+                    ):
+                        continue
+                    candidate_ids.append(run_id)
+
+                if not candidate_ids:
+                    continue
+                row_stmt = (
+                    select(ResearchRun)
+                    .where(ResearchRun.run_id.in_(candidate_ids))
+                    .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
+                )
+                snapshots.extend(
                     _attach_liquidity_coverages(
                         session,
                         _run_row_to_snapshot(row, include_artifacts=True),
                     )
+                    for row in session.execute(row_stmt).scalars().all()
                 )
-                for row in session.execute(row_stmt).scalars().all()
-            ]
+
+            snapshots.sort(
+                key=lambda snapshot: (snapshot["created_at"], snapshot["run_id"])
+            )
+            return snapshots
     except Exception as exc:
         logger.exception(
             "Failed to list prospective cohort runs cohort_id=%s",

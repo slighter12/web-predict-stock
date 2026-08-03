@@ -1,4 +1,6 @@
+import json
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -36,6 +38,33 @@ def test_command_entrypoint_passes_environment_to_runtime(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "alembic upgrade head" in output
     assert "{'status': 'ok'}" in output
+
+
+def test_command_entrypoint_configures_logging_and_uses_cli_logger(monkeypatch):
+    logging_calls = []
+    log_messages = []
+    monkeypatch.setattr(
+        ingestion_entrypoint,
+        "configure_cli_logging",
+        lambda: logging_calls.append(True),
+    )
+    monkeypatch.setattr(
+        ingestion_entrypoint,
+        "logger",
+        SimpleNamespace(
+            info=lambda message, *args: log_messages.append((message, args))
+        ),
+    )
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert logging_calls == [True]
+    assert log_messages and log_messages[0][0].startswith("Starting ingest")
 
 
 class _FakeResult:
@@ -730,6 +759,36 @@ def test_scrape_twse_data_records_failure(monkeypatch):
     assert records[0]["fetch_status"] == "failed"
 
 
+def test_fetch_twse_market_batch_uses_configured_timeout(monkeypatch):
+    class FakeResponse:
+        text = '{"stat":"OK","tables":[{"fields":["證券代號"],"data":[["2330"]]}]}'
+
+        def raise_for_status(self):
+            pass
+
+    request_kwargs = {}
+    monkeypatch.setattr(
+        scraper,
+        "_request_twse_daily_report",
+        lambda **kwargs: (request_kwargs.update(kwargs), FakeResponse())[1],
+    )
+    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: 101)
+    monkeypatch.setattr(scraper, "payload_declares_no_data", lambda payload: False)
+    monkeypatch.setattr(
+        scraper,
+        "parse_twse_mi_index_payload_body",
+        lambda *args, **kwargs: (
+            pd.DataFrame([{"symbol": "2330"}]),
+            scraper.RawTraceMetadata.from_ingest(101, scraper.TWSE_MI_INDEX_PARSER_VERSION),
+        ),
+    )
+
+    result = scraper.fetch_twse_market_batch(date(2024, 1, 2))
+
+    assert request_kwargs["timeout_seconds"] == scraper.OFFICIAL_BATCH_TIMEOUT_SECONDS
+    assert result.raw_row_count == 1
+
+
 def test_backfill_history_records_success(monkeypatch):
     class FakeTicker:
         def __init__(self, symbol: str):
@@ -947,6 +1006,21 @@ def test_build_minute_fetch_segments_groups_missing_days():
     assert segments[1][0].date() == date(2024, 1, 20)
 
 
+def test_build_minute_fetch_segments_skips_missing_days_after_window():
+    window_start = pd.Timestamp(
+        "2024-01-01 00:00:01", tz="Asia/Taipei"
+    ).to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+
+    segments = scraper._build_minute_fetch_segments(
+        missing_days=[date(2024, 2, 1)],
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+    assert segments == []
+
+
 def test_supplement_yahoo_minute_history_skips_historical_override(monkeypatch):
     monkeypatch.setattr(
         scraper,
@@ -1114,6 +1188,100 @@ def test_parse_tpex_aftertrading_payload_body_replays_successfully():
     assert cleaned.iloc[0]["source"] == scraper.SOURCE_TPEX_AFTERTRADING_OTC
     assert metadata.raw_payload_id == 302
     assert metadata.parser_version == scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION
+
+
+def test_parse_tpex_aftertrading_payload_body_selects_stock_table():
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {
+                "fields": ["Date", "Market Summary"],
+                "data": [["2024-01-02", "summary"]],
+            },
+            {
+                "fields": [
+                    "Code", "Name", "Close ", "Change (%)", "Open ", "High ", "Low",
+                    "Trade Vol. (shares) ", "Trade Amt. (NTD)",
+                ],
+                "data": [
+                    ["8049", "ABC", "10.5", "+0.2", "10", "11", "9", "1,000", "10,000"],
+                ],
+            },
+        ],
+    }
+
+    cleaned, _ = scraper.parse_tpex_aftertrading_payload_body(
+        json.dumps(payload),
+        trading_date=date(2024, 1, 2),
+    )
+
+    assert len(cleaned) == 1
+    assert cleaned.iloc[0]["symbol"] == "8049"
+
+
+def test_parse_tpex_aftertrading_payload_body_requires_stock_table():
+    payload = {
+        "stat": "ok",
+        "tables": [{"fields": ["Date", "Market Summary"], "data": []}],
+    }
+
+    with pytest.raises(
+        ValueError, match="TPEX afterTrading stock table was not found"
+    ):
+        scraper.parse_tpex_aftertrading_payload_body(
+            json.dumps(payload),
+            trading_date=date(2024, 1, 2),
+        )
+
+
+def test_parse_tpex_aftertrading_payload_body_logs_diagnostics_once_on_total_failure(
+    caplog,
+):
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {"fields": ["Date", "Market Summary"], "data": []},
+            {"fields": ["Code", "Close"], "data": []},
+        ],
+    }
+
+    with caplog.at_level("WARNING", logger=scraper.__name__):
+        with pytest.raises(ValueError, match="TPEX afterTrading stock table was not found"):
+            scraper.parse_tpex_aftertrading_payload_body(
+                json.dumps(payload),
+                trading_date=date(2024, 1, 2),
+            )
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "Required field aliases" in warnings[0].message
+
+
+def test_parse_tpex_aftertrading_payload_body_does_not_warn_for_summary_table_skip(
+    caplog,
+):
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {"fields": ["Date", "Market Summary"], "data": []},
+            {
+                "fields": [
+                    "Code", "Name", "Close", "Open", "High", "Low",
+                    "Trade Vol. (shares)",
+                ],
+                "data": [["8049", "ABC", "10.5", "10", "11", "9", "1,000"]],
+            },
+        ],
+    }
+
+    with caplog.at_level("WARNING", logger=scraper.__name__):
+        cleaned, _ = scraper.parse_tpex_aftertrading_payload_body(
+            json.dumps(payload),
+            trading_date=date(2024, 1, 2),
+        )
+
+    assert len(cleaned) == 1
+    assert not [record for record in caplog.records if record.levelname == "WARNING"]
 
 
 def test_replay_raw_ingest_record_rejects_unknown_source():

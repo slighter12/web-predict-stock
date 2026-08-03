@@ -4,9 +4,11 @@ import logging
 import math
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
-from typing import Any, Iterable, Sequence
+from numbers import Integral
+from typing import Any
 
 import pandas as pd
 
@@ -144,7 +146,7 @@ def exclude_non_official_rows_on_official_no_data(
 ) -> pd.DataFrame:
     if frame.empty or "source" not in frame.columns or not official_no_data_dates:
         return frame
-    row_dates = pd.to_datetime(frame.index).date
+    row_dates = pd.to_datetime(frame.index, errors="coerce").date
     excluded = (~frame["source"].isin(OFFICIAL_SOURCES)) & pd.Series(
         row_dates, index=frame.index
     ).isin(official_no_data_dates)
@@ -166,7 +168,8 @@ def list_active_tw_research_symbols() -> list[str]:
 
 def _as_date(value: Any) -> date | None:
     if isinstance(value, datetime):
-        return value.date()
+        parsed = value.date()
+        return parsed if type(parsed) is date else None
     if isinstance(value, date):
         return value
     if isinstance(value, str):
@@ -175,6 +178,30 @@ def _as_date(value: Any) -> date | None:
         except ValueError:
             return None
     return None
+
+
+def _as_positive_float(value: Any) -> float | None:
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(normalized) or normalized <= 0:
+        return None
+    return normalized
+
+
+def _as_raw_payload_id(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Integral):
+        return int(value)
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(normalized) or not normalized.is_integer():
+        return None
+    return int(normalized)
 
 
 def load_research_eligible_tw_bars(
@@ -206,20 +233,28 @@ def load_research_eligible_tw_bars(
     )
     result: dict[str, list[EligibleBar]] = defaultdict(list)
     for row in normalized.reset_index().itertuples(index=False):
-        values = [row.open, row.high, row.low, row.close]
-        if not all(
-            math.isfinite(float(value)) and float(value) > 0 for value in values
+        open_, high, low, close = (
+            _as_positive_float(value)
+            for value in (row.open, row.high, row.low, row.close)
+        )
+        trading_date = _as_date(row.date)
+        if (
+            trading_date is None
+            or open_ is None
+            or high is None
+            or low is None
+            or close is None
         ):
             continue
         result[str(row.symbol).upper()].append(
             EligibleBar(
-                date=_as_date(row.date) or row.date,
-                open=float(row.open),
-                high=float(row.high),
-                low=float(row.low),
-                close=float(row.close),
+                date=trading_date,
+                open=open_,
+                high=high,
+                low=low,
+                close=close,
                 source=str(row.source),
-                raw_payload_id=row.raw_payload_id,
+                raw_payload_id=_as_raw_payload_id(row.raw_payload_id),
             )
         )
     return dict(result)

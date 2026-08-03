@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import sys
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -16,44 +15,34 @@ import requests
 import yfinance as yf
 from sqlalchemy import text
 
-try:
-    from backend.database import (
-        DailyOHLCV,
-        MinuteOHLCV,
-        RawIngestAudit,
-        engine,
-    )
-    from backend.market_data.services.company_crawlers import crawl_tw_company_profiles
-    from backend.market_data.domain.official_daily import (
-        OFFICIAL_SOURCES,
-        SOURCE_TPEX_AFTERTRADING_OTC,
-        SOURCE_TWSE,
-        SOURCE_TWSE_MI_INDEX,
-        TW_TIMEZONE,
-        payload_declares_no_data,
-    )
-    from backend.market_data.services.company_profiles import (
-        list_active_tw_company_profiles,
-    )
-    from backend.market_data.services.tls_helpers import (
-        request_with_tls_fallback,
-    )
-    from backend.platform.errors import (
-        DataAccessError,
-        ExternalFetchError,
-        UnsupportedConfigurationError,
-    )
-    from backend.platform.time import utc_now
-except ImportError:
-    print(
-        "Error: Could not import from backend.database. Make sure the backend directory is in the Python path."
-    )
-    sys.exit(1)
-
-logging.basicConfig(
-    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+from backend.database import (
+    DailyOHLCV,
+    MinuteOHLCV,
+    RawIngestAudit,
+    engine,
 )
+from backend.market_data.services.company_crawlers import crawl_tw_company_profiles
+from backend.market_data.domain.official_daily import (
+    OFFICIAL_SOURCES,
+    SOURCE_TPEX_AFTERTRADING_OTC,
+    SOURCE_TWSE,
+    SOURCE_TWSE_MI_INDEX,
+    TW_TIMEZONE,
+    payload_declares_no_data,
+)
+from backend.market_data.services.company_profiles import (
+    list_active_tw_company_profiles,
+)
+from backend.market_data.services.tls_helpers import (
+    request_with_tls_fallback,
+)
+from backend.platform.errors import (
+    DataAccessError,
+    ExternalFetchError,
+    UnsupportedConfigurationError,
+)
+from backend.platform.time import utc_now
+
 logger = logging.getLogger(__name__)
 
 BATCH_STATUS_SUCCEEDED = "succeeded"
@@ -546,6 +535,7 @@ def _build_minute_fetch_segments(
     sorted_days = sorted(missing_days)
     index = 0
     while index < len(sorted_days):
+        segment_start_index = index
         segment_start_day = sorted_days[index]
         segment_end_day = min(
             segment_start_day + timedelta(days=YFINANCE_MINUTE_SEGMENT_DAYS - 1),
@@ -566,6 +556,8 @@ def _build_minute_fetch_segments(
         if segment_start < segment_end:
             segments.append((segment_start, segment_end))
         while index < len(sorted_days) and sorted_days[index] <= segment_end_day:
+            index += 1
+        if index == segment_start_index:
             index += 1
     return segments
 
@@ -806,7 +798,7 @@ def parse_twse_mi_index_payload_body(
     for item in selected_table.get("data", []):
         if not isinstance(item, list):
             continue
-        row = dict(zip(fields, item))
+        row = dict(zip(fields, item, strict=False))
         rows.append(
             {
                 "symbol": str(row[field_map["symbol"]]).strip().upper(),
@@ -839,25 +831,64 @@ def parse_tpex_aftertrading_payload_body(
     tables = payload.get("tables") or []
     if not tables:
         raise ValueError("TPEX afterTrading payload does not contain tables.")
-    selected_table = tables[0]
-    fields = [str(field).strip() for field in selected_table.get("fields", [])]
-    field_map = {
-        "symbol": _find_field_name(fields, ("代號", "code", "security code")),
-        "open": _find_field_name(fields, ("開盤", "open", "open ")),
-        "high": _find_field_name(fields, ("最高", "high", "high ")),
-        "low": _find_field_name(fields, ("最低", "low")),
-        "close": _find_field_name(fields, ("收盤", "close", "close ")),
-        "volume": _find_field_name(
-            fields,
-            ("成交股數", "trade vol. (shares)", "trade volume (shares)"),
+    field_aliases = {
+        "symbol": ("代號", "code", "security code"),
+        "open": ("開盤", "open"),
+        "high": ("最高", "high"),
+        "low": ("最低", "low"),
+        "close": ("收盤", "close"),
+        "volume": (
+            "成交股數",
+            "trade vol. (shares)",
+            "trade volume (shares)",
         ),
     }
+    selected_table = None
+    selected_field_map = None
+    field_matching_diagnostics: list[str] = []
+    for table_index, table in enumerate(tables):
+        if not isinstance(table, dict):
+            field_matching_diagnostics.append(
+                f"table_index={table_index}: table is not an object"
+            )
+            continue
+        raw_fields = table.get("fields", [])
+        if not isinstance(raw_fields, list):
+            field_matching_diagnostics.append(
+                f"table_index={table_index}: fields is not a list"
+            )
+            continue
+        fields = [str(field).strip() for field in raw_fields]
+        try:
+            field_map = {
+                key: _find_field_name(fields, aliases)
+                for key, aliases in field_aliases.items()
+            }
+        except ValueError as exc:
+            field_matching_diagnostics.append(
+                f"table_index={table_index}: {exc}"
+            )
+            continue
+        selected_table = table
+        selected_field_map = field_map
+        break
+
+    if selected_table is None or selected_field_map is None:
+        logger.warning(
+            "TPEX afterTrading stock table was not found; "
+            "field-matching diagnostics=%s",
+            "; ".join(field_matching_diagnostics) or "no table diagnostics",
+        )
+        raise ValueError("TPEX afterTrading stock table was not found.")
+
+    fields = [str(field).strip() for field in selected_table.get("fields", [])]
+    field_map = selected_field_map
 
     rows = []
     for item in selected_table.get("data", []):
         if not isinstance(item, list):
             continue
-        row = dict(zip(fields, item))
+        row = dict(zip(fields, item, strict=False))
         rows.append(
             {
                 "symbol": str(row[field_map["symbol"]]).strip().upper(),
@@ -1055,7 +1086,9 @@ def fetch_twse_market_batch(trading_date: date) -> BatchFetchResult:
 
     try:
         response = _request_twse_daily_report(
-            url=url, headers=headers, timeout_seconds=30
+            url=url,
+            headers=headers,
+            timeout_seconds=OFFICIAL_BATCH_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
         payload_body = response.text

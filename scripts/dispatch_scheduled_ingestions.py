@@ -5,9 +5,11 @@ import json
 from backend.market_data.services.scheduled_ingestion import (
     dispatch_due_scheduled_ingestions,
 )
+from scripts._logging import configure_cli_logging
 
 
 def main() -> int:
+    configure_cli_logging()
     summary = dispatch_due_scheduled_ingestions()
     print(json.dumps(summary, ensure_ascii=True, default=str))
     if int(summary["failed_count"]) > 0:

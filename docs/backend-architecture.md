@@ -22,11 +22,13 @@ api -> services -> domain/policies/contracts
              \-> repositories -> database
 ```
 
+Neither `contracts/` nor `domain/` may depend on the `api` layer.
+
 - `contracts/` owns transport and cross-boundary data shapes. It may call pure
   policy validators, but must not depend on domain, service, repository,
-  database, or command-script code.
+  database, API, or command-script code.
 - `domain/` owns deterministic transformations and invariants. It may depend on
-  contracts, but not on services, repositories, the database, or scripts.
+  contracts, but not on services, repositories, the database, API, or scripts.
 - `policies/` owns stable named policy constants and recipe validation. It is
   transport-agnostic and must not import contracts, services, repositories,
   APIs, the database, or scripts. Types shared by contracts and policies belong

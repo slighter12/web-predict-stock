@@ -425,7 +425,7 @@ def _fail_if_bars_loaded(*args, **kwargs):
     pytest.fail("invalid run must not load bars")
 
 
-def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
+def test_list_cohort_run_records_projects_artifact_enabled_snapshots(monkeypatch):
     cohort_id = prospective_service.COHORT_2330
     snapshots = [{"run_id": "exact"}]
     monkeypatch.setattr(
@@ -452,7 +452,7 @@ def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
     assert [record["run_id"] for record in records] == ["exact"]
 
 
-def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
+def test_load_research_eligible_tw_bars_uses_tw_date_for_default_audit_end(monkeypatch):
     class _FixedDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -506,7 +506,7 @@ def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
         lambda **kwargs: captured.update(kwargs) or set(),
     )
 
-    result = prospective_service.load_eligible_bars(
+    result = prospective_service.load_research_eligible_tw_bars(
         ["2317", "2330", "2454"],
         start_date=date(2024, 1, 4),
     )
@@ -532,7 +532,7 @@ def test_cohort_evaluator_keeps_unresolved_outcome_out_of_completed_sample(monke
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(("2024-01-05", 100.0)),
     )
 
@@ -553,7 +553,7 @@ def test_cohort_evaluator_calculates_observed_o2o_return_direction_and_brier(mon
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -627,7 +627,9 @@ def test_cohort_evaluator_loads_bars_once_per_multi_symbol_run(monkeypatch):
         lambda cohort_id: [record],
     )
     monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+    monkeypatch.setattr(
+        prospective_service, "load_research_eligible_tw_bars", load_bars
+    )
 
     result = prospective_service.evaluate_cohort(
         prospective_service.COHORT_ALL_ACTIVE
@@ -682,7 +684,9 @@ def test_cohort_evaluator_reuses_one_bar_load_across_basis_dates(monkeypatch):
         lambda cohort_id: [first, second],
     )
     monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+    monkeypatch.setattr(
+        prospective_service, "load_research_eligible_tw_bars", load_bars
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -737,7 +741,7 @@ def test_cohort_evaluator_uses_frozen_timestamp_not_record_created_at(monkeypatc
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -770,7 +774,7 @@ def test_cohort_evaluator_requires_valid_same_day_frozen_timestamp(
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -788,7 +792,7 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -815,7 +819,7 @@ def test_failed_attempt_does_not_invalidate_successful_retry(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -839,7 +843,7 @@ def test_invalid_cost_record_does_not_poison_valid_metrics(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -863,7 +867,7 @@ def test_cohort_evaluator_rejects_signal_date_that_differs_from_basis_date(monke
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -881,7 +885,7 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -901,7 +905,7 @@ def test_cohort_evaluator_rejects_changed_direction_threshold(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -922,7 +926,7 @@ def test_strict_start_rejects_changed_all_active_snapshot(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "active_tw_profile_symbols",
+        "list_active_tw_research_symbols",
         lambda: [*snapshot, "9999"],
     )
 
@@ -947,7 +951,7 @@ def test_strict_start_rejects_execution_coverage_below_gate(monkeypatch):
         )
     )
     monkeypatch.setattr(
-        prospective_service, "active_tw_profile_symbols", lambda: snapshot
+        prospective_service, "list_active_tw_research_symbols", lambda: snapshot
     )
 
     with pytest.raises(
@@ -995,7 +999,7 @@ def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkey
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -1037,7 +1041,9 @@ def test_all_active_preflight_applies_95_percent_coverage_gate(
     monkeypatch, caplog, ready_count, expected_status
 ):
     symbols = [f"{number:04d}" for number in range(100)]
-    monkeypatch.setattr(prospective_service, "active_tw_profile_symbols", lambda: symbols)
+    monkeypatch.setattr(
+        prospective_service, "list_active_tw_research_symbols", lambda: symbols
+    )
     monkeypatch.setattr(
         prospective_service,
         "load_official_no_data_dates",

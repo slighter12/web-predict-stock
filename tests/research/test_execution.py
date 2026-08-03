@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import backend.research.services.execution as backtest_engine_service
-import backend.market_data.services.research_inputs as eligibility_service
+import backend.market_data.services.research_inputs as research_inputs
 from backend.market_data.repositories import official_audits as official_audits_repository
 from backend.database import Base, RawIngestAudit
 from backend.platform.errors import (
@@ -47,14 +47,14 @@ def _official_audit(
 ) -> RawIngestAudit:
     date_value = (
         trading_date.strftime("%Y%m%d")
-        if source_name == eligibility_service._BATCH_SOURCES[0]
+        if source_name == research_inputs._BATCH_SOURCES[0]
         else trading_date.strftime("%Y/%m/%d")
     )
     return RawIngestAudit(
         source_name=source_name,
         symbol=(
             "TWSE_BATCH_DAILY"
-            if source_name == eligibility_service._BATCH_SOURCES[0]
+            if source_name == research_inputs._BATCH_SOURCES[0]
             else "TPEX_BATCH_DAILY"
         ),
         market="TW",
@@ -86,12 +86,12 @@ def test_research_eligibility_excludes_non_official_row_on_official_no_data(
         session.add_all(
             [
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    source_name=research_inputs._BATCH_SOURCES[0],
                     trading_date=trading_date,
                     payload_body='{"stat": "沒有符合條件"}',
                 ),
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    source_name=research_inputs._BATCH_SOURCES[1],
                     trading_date=trading_date,
                     payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
                 ),
@@ -99,12 +99,12 @@ def test_research_eligibility_excludes_non_official_row_on_official_no_data(
         )
         session.commit()
 
-    dates = eligibility_service.load_official_no_data_dates(
+    dates = research_inputs.load_official_no_data_dates(
         start_date=trading_date, end_date=trading_date
     )
 
     assert dates == {trading_date}
-    assert eligibility_service.exclude_non_official_rows_on_official_no_data(
+    assert research_inputs.exclude_non_official_rows_on_official_no_data(
         _non_official_frame(trading_date), dates
     ).empty
 
@@ -117,7 +117,7 @@ def test_research_eligibility_uses_inclusive_tw_start_date_floor(
     fetch_timestamp_floor = datetime.combine(
         trading_date,
         datetime.min.time(),
-        tzinfo=eligibility_service.TW_TIMEZONE,
+        tzinfo=research_inputs.TW_TIMEZONE,
     ).astimezone(timezone.utc)
     with session_local() as session:
         session.add_all(
@@ -128,7 +128,7 @@ def test_research_eligibility_uses_inclusive_tw_start_date_floor(
                     payload_body='{"stat": "沒有符合條件"}',
                     fetch_timestamp=fetch_timestamp,
                 )
-                for source in eligibility_service._BATCH_SOURCES
+                for source in research_inputs._BATCH_SOURCES
                 for fetch_timestamp in (
                     fetch_timestamp_floor - timedelta(microseconds=1),
                     fetch_timestamp_floor,
@@ -137,7 +137,7 @@ def test_research_eligibility_uses_inclusive_tw_start_date_floor(
         )
         session.commit()
 
-    assert eligibility_service.load_official_no_data_dates(
+    assert research_inputs.load_official_no_data_dates(
         start_date=trading_date,
         end_date=trading_date,
     ) == {trading_date}
@@ -151,7 +151,7 @@ def test_research_eligibility_excludes_audits_before_tw_start_date_floor(
     fetch_timestamp_floor = datetime.combine(
         trading_date,
         datetime.min.time(),
-        tzinfo=eligibility_service.TW_TIMEZONE,
+        tzinfo=research_inputs.TW_TIMEZONE,
     ).astimezone(timezone.utc)
     with session_local() as session:
         session.add_all(
@@ -163,12 +163,12 @@ def test_research_eligibility_excludes_audits_before_tw_start_date_floor(
                     fetch_timestamp=fetch_timestamp_floor
                     - timedelta(microseconds=1),
                 )
-                for source in eligibility_service._BATCH_SOURCES
+                for source in research_inputs._BATCH_SOURCES
             ]
         )
         session.commit()
 
-    assert not eligibility_service.load_official_no_data_dates(
+    assert not research_inputs.load_official_no_data_dates(
         start_date=trading_date,
         end_date=trading_date,
     )
@@ -184,13 +184,13 @@ def test_research_eligibility_includes_delayed_historical_backfill_audits(
         session.add_all(
             [
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    source_name=research_inputs._BATCH_SOURCES[0],
                     trading_date=trading_date,
                     payload_body='{"stat": "沒有符合條件"}',
                     fetch_timestamp=delayed_fetch_timestamp,
                 ),
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    source_name=research_inputs._BATCH_SOURCES[1],
                     trading_date=trading_date,
                     payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
                     fetch_timestamp=delayed_fetch_timestamp,
@@ -199,7 +199,7 @@ def test_research_eligibility_includes_delayed_historical_backfill_audits(
         )
         session.commit()
 
-    assert eligibility_service.load_official_no_data_dates(
+    assert research_inputs.load_official_no_data_dates(
         start_date=trading_date,
         end_date=trading_date,
     ) == {trading_date}
@@ -217,14 +217,14 @@ def test_research_eligibility_loads_no_data_payloads_across_chunks(monkeypatch):
                     payload_body='{"stat": "沒有符合條件"}',
                 )
                 for trading_date in trading_dates
-                for source in eligibility_service._BATCH_SOURCES
+                for source in research_inputs._BATCH_SOURCES
             ]
         )
         session.commit()
 
-    monkeypatch.setattr(eligibility_service, "_AUDIT_PAYLOAD_CHUNK_SIZE", 2)
+    monkeypatch.setattr(research_inputs, "_AUDIT_PAYLOAD_CHUNK_SIZE", 2)
 
-    assert eligibility_service.load_official_no_data_dates(
+    assert research_inputs.load_official_no_data_dates(
         start_date=trading_dates[0],
         end_date=trading_dates[-1],
     ) == set(trading_dates)
@@ -239,7 +239,7 @@ def test_research_eligibility_keeps_non_official_row_without_two_latest_no_data_
     with session_local() as session:
         session.add(
             _official_audit(
-                source_name=eligibility_service._BATCH_SOURCES[0],
+                source_name=research_inputs._BATCH_SOURCES[0],
                 trading_date=trading_date,
                 payload_body='{"stat": "沒有符合條件"}',
             )
@@ -248,12 +248,12 @@ def test_research_eligibility_keeps_non_official_row_without_two_latest_no_data_
             session.add_all(
                 [
                     _official_audit(
-                        source_name=eligibility_service._BATCH_SOURCES[1],
+                        source_name=research_inputs._BATCH_SOURCES[1],
                         trading_date=trading_date,
                         payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
                     ),
                     _official_audit(
-                        source_name=eligibility_service._BATCH_SOURCES[1],
+                        source_name=research_inputs._BATCH_SOURCES[1],
                         trading_date=trading_date,
                         payload_body='{"stat": "ok", "tables": [{"totalCount": 1, "data": [["row"]]}]}',
                         offset=1,
@@ -262,12 +262,12 @@ def test_research_eligibility_keeps_non_official_row_without_two_latest_no_data_
             )
         session.commit()
 
-    dates = eligibility_service.load_official_no_data_dates(
+    dates = research_inputs.load_official_no_data_dates(
         start_date=trading_date, end_date=trading_date
     )
 
     assert not dates
-    assert len(eligibility_service.exclude_non_official_rows_on_official_no_data(
+    assert len(research_inputs.exclude_non_official_rows_on_official_no_data(
         _non_official_frame(trading_date), dates
     )) == 1
 
@@ -279,12 +279,12 @@ def test_research_eligibility_keeps_official_row_on_official_no_data(monkeypatch
         session.add_all(
             [
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    source_name=research_inputs._BATCH_SOURCES[0],
                     trading_date=trading_date,
                     payload_body='{"stat": "沒有符合條件"}',
                 ),
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    source_name=research_inputs._BATCH_SOURCES[1],
                     trading_date=trading_date,
                     payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
                 ),
@@ -293,14 +293,14 @@ def test_research_eligibility_keeps_official_row_on_official_no_data(monkeypatch
         session.commit()
 
     frame = _non_official_frame(trading_date).assign(
-        source=eligibility_service._BATCH_SOURCES[0]
+        source=research_inputs._BATCH_SOURCES[0]
     )
-    dates = eligibility_service.load_official_no_data_dates(
+    dates = research_inputs.load_official_no_data_dates(
         start_date=trading_date, end_date=trading_date
     )
 
     assert dates == {trading_date}
-    assert len(eligibility_service.exclude_non_official_rows_on_official_no_data(
+    assert len(research_inputs.exclude_non_official_rows_on_official_no_data(
         frame, dates
     )) == 1
 
@@ -312,17 +312,17 @@ def test_research_eligibility_keeps_fallback_when_latest_audit_failed(monkeypatc
         session.add_all(
             [
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    source_name=research_inputs._BATCH_SOURCES[0],
                     trading_date=trading_date,
                     payload_body='{"stat": "沒有符合條件"}',
                 ),
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[1],
+                    source_name=research_inputs._BATCH_SOURCES[1],
                     trading_date=trading_date,
                     payload_body='{"stat": "ok", "tables": [{"totalCount": 0, "data": []}]}',
                 ),
                 _official_audit(
-                    source_name=eligibility_service._BATCH_SOURCES[0],
+                    source_name=research_inputs._BATCH_SOURCES[0],
                     trading_date=trading_date,
                     payload_body="",
                     offset=1,
@@ -332,7 +332,7 @@ def test_research_eligibility_keeps_fallback_when_latest_audit_failed(monkeypatc
         )
         session.commit()
 
-    assert not eligibility_service.load_official_no_data_dates(
+    assert not research_inputs.load_official_no_data_dates(
         start_date=trading_date, end_date=trading_date
     )
 
@@ -354,7 +354,7 @@ def test_research_eligibility_keeps_rows_when_audit_query_fails(monkeypatch, cap
         _FailingSession,
     )
 
-    assert not eligibility_service.load_official_no_data_dates(
+    assert not research_inputs.load_official_no_data_dates(
         start_date=date(2026, 7, 10), end_date=date(2026, 7, 10)
     )
     assert "Failed to load official TW no-data audits" in caplog.text
@@ -375,7 +375,7 @@ def test_research_eligibility_keeps_rows_when_audit_evaluation_fails(
                     trading_date=trading_date,
                     payload_body='{"stat": "沒有符合條件"}',
                 )
-                for source in eligibility_service._BATCH_SOURCES
+                for source in research_inputs._BATCH_SOURCES
             ]
         )
         session.commit()
@@ -384,12 +384,12 @@ def test_research_eligibility_keeps_rows_when_audit_evaluation_fails(
         raise RuntimeError("audit evaluation unavailable")
 
     monkeypatch.setattr(
-        eligibility_service.official_daily,
+        research_inputs.official_daily,
         "payload_declares_no_data",
         _fail_evaluation,
     )
 
-    assert not eligibility_service.load_official_no_data_dates(
+    assert not research_inputs.load_official_no_data_dates(
         start_date=trading_date,
         end_date=trading_date,
     )

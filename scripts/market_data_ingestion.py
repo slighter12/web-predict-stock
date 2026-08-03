@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 
-from backend.market_data.services import ingestion_runtime as _runtime
+from scripts._logging import configure_cli_logging
+
+try:
+    from backend.market_data.services import ingestion_runtime as _runtime
+except ImportError as exc:
+    print(
+        "Error: Could not import the market-data ingestion runtime: "
+        f"{exc}. Make sure the project dependencies and Python path are configured.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+logger = logging.getLogger(__name__)
 
 
 def _main() -> None:
+    configure_cli_logging()
     print(
         "Run 'uv run alembic upgrade head' to create or migrate database tables "
         "before ingesting."
@@ -16,7 +31,7 @@ def _main() -> None:
     market = os.getenv("INGEST_MARKET", _runtime.MARKET_TW).upper()
     years = int(os.getenv("INGEST_YEARS", "5"))
     date_str = os.getenv("INGEST_DATE")
-    _runtime.logger.info(
+    logger.info(
         "Starting ingest symbol=%s market=%s years=%s date_override=%s",
         symbol,
         market,
