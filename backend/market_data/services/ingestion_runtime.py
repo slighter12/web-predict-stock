@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
 from io import StringIO
+from typing import Literal
 
 import pandas as pd
 import requests
@@ -384,6 +385,7 @@ def _empty_minute_supplement_summary(
         "window_end": window_end,
         "segment_count": 0,
         "segments_succeeded": 0,
+        "segments_empty": 0,
         "segments_failed": 0,
         "covered_trading_days": 0,
         "input_rows": 0,
@@ -1573,6 +1575,16 @@ def backfill_history(
     return cleaned, metadata
 
 
+_YfinanceMinuteSegmentStatus = Literal["succeeded", "empty", "failed"]
+
+
+@dataclass(frozen=True)
+class _YfinanceMinuteSegmentResult:
+    dataframe: pd.DataFrame
+    metadata: RawTraceMetadata | None
+    status: _YfinanceMinuteSegmentStatus
+
+
 def fetch_yfinance_minute_segment(
     *,
     ticker,
@@ -1580,7 +1592,7 @@ def fetch_yfinance_minute_segment(
     market: str,
     start_dt: datetime,
     end_dt: datetime,
-) -> tuple[pd.DataFrame, RawTraceMetadata | None]:
+) -> _YfinanceMinuteSegmentResult:
     fetch_timestamp = utc_now()
     expected_context = (
         f"symbol={symbol};market={market};interval={YFINANCE_MINUTE_INTERVAL};"
@@ -1621,7 +1633,9 @@ def fetch_yfinance_minute_segment(
             payload_body=payload_body,
             context_label=f"yfinance minute fetch failure {symbol}",
         )
-        return pd.DataFrame(), None
+        return _YfinanceMinuteSegmentResult(
+            dataframe=pd.DataFrame(), metadata=None, status="failed"
+        )
 
     if hist.empty:
         logger.warning(
@@ -1637,7 +1651,9 @@ def fetch_yfinance_minute_segment(
             payload_body=payload_body,
             context_label=f"yfinance minute empty fetch {symbol}",
         )
-        return pd.DataFrame(), None
+        return _YfinanceMinuteSegmentResult(
+            dataframe=pd.DataFrame(), metadata=None, status="empty"
+        )
 
     hist = hist.reset_index()
     payload_body = hist.to_json(orient="table", date_format="iso")
@@ -1667,7 +1683,9 @@ def fetch_yfinance_minute_segment(
             payload_body=payload_body,
             context_label=f"yfinance minute parse failure {symbol}",
         )
-        return pd.DataFrame(), None
+        return _YfinanceMinuteSegmentResult(
+            dataframe=pd.DataFrame(), metadata=None, status="failed"
+        )
 
     logger.info(
         "Fetched yfinance minute rows=%s symbol=%s market=%s start=%s end=%s",
@@ -1677,7 +1695,9 @@ def fetch_yfinance_minute_segment(
         start_dt,
         end_dt,
     )
-    return cleaned, metadata
+    return _YfinanceMinuteSegmentResult(
+        dataframe=cleaned, metadata=metadata, status="succeeded"
+    )
 
 
 def supplement_yahoo_minute_history(
@@ -1751,18 +1771,23 @@ def supplement_yahoo_minute_history(
     ticker = yf.Ticker(to_yfinance_ticker(symbol, market_code))
 
     for segment_start, segment_end in segments:
-        segment_df, metadata = fetch_yfinance_minute_segment(
+        segment = fetch_yfinance_minute_segment(
             ticker=ticker,
             symbol=symbol,
             market=market_code,
             start_dt=segment_start,
             end_dt=segment_end,
         )
-        if segment_df.empty or metadata is None:
+        if segment.status == "empty":
+            summary["segments_empty"] += 1
+            continue
+        if segment.status == "failed" or segment.metadata is None:
             summary["segments_failed"] += 1
             continue
 
-        load_summary = load_minute_to_db(segment_df, metadata=metadata)
+        load_summary = load_minute_to_db(
+            segment.dataframe, metadata=segment.metadata
+        )
         summary["segments_succeeded"] += 1
         summary["input_rows"] += int(load_summary["input_rows"])
         summary["upserted_rows"] += int(load_summary["upserted_rows"])
@@ -1777,9 +1802,11 @@ def supplement_yahoo_minute_history(
         )
     )
     summary["covered_trading_days"] = len(covered_days)
-    if summary["segments_failed"] and summary["segments_succeeded"]:
+    if summary["segments_failed"] and (
+        summary["segments_succeeded"] or summary["segments_empty"]
+    ):
         summary["status"] = "partial_failure"
-    elif summary["segments_failed"] and not summary["segments_succeeded"]:
+    elif summary["segments_failed"]:
         summary["status"] = "failed"
 
     return summary

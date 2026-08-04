@@ -44,6 +44,7 @@ export interface MinuteSupplementSummary {
   window_end: string | null;
   segment_count: number;
   segments_succeeded: number;
+  segments_empty: number;
   segments_failed: number;
   covered_trading_days: number;
   input_rows: number;

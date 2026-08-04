@@ -1129,13 +1129,14 @@ def test_supplement_yahoo_minute_history_fetches_missing_segments(monkeypatch):
                 }
             ]
         )
-        return (
-            df,
-            scraper.RawTraceMetadata(
+        return scraper._YfinanceMinuteSegmentResult(
+            dataframe=df,
+            metadata=scraper.RawTraceMetadata(
                 raw_payload_id=501,
                 archive_object_reference="raw_ingest_audit:501",
                 parser_version=scraper.YFINANCE_MINUTE_PARSER_VERSION,
             ),
+            status="succeeded",
         )
 
     monkeypatch.setattr(scraper, "fetch_yfinance_minute_segment", fake_fetch)
@@ -1160,10 +1161,101 @@ def test_supplement_yahoo_minute_history_fetches_missing_segments(monkeypatch):
     assert summary["status"] == "succeeded"
     assert summary["segment_count"] == 2
     assert summary["segments_succeeded"] == 2
+    assert summary["segments_empty"] == 0
     assert summary["segments_failed"] == 0
     assert summary["covered_trading_days"] == 3
     assert summary["input_rows"] == 2
     assert summary["upserted_rows"] == 2
+
+
+def test_supplement_yahoo_minute_history_counts_empty_segment_as_success(monkeypatch):
+    window_start = pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (window_start, window_end),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_list_symbol_daily_trading_days",
+        lambda **kwargs: [date(2024, 1, 2)],
+    )
+    monkeypatch.setattr(scraper, "_list_symbol_minute_trading_days", lambda **kwargs: [])
+    monkeypatch.setattr(
+        scraper,
+        "_build_minute_fetch_segments",
+        lambda **kwargs: [(window_start, window_end)],
+    )
+    monkeypatch.setattr(scraper.yf, "Ticker", lambda symbol: object())
+    monkeypatch.setattr(
+        scraper,
+        "fetch_yfinance_minute_segment",
+        lambda **kwargs: scraper._YfinanceMinuteSegmentResult(
+            dataframe=pd.DataFrame(), metadata=None, status="empty"
+        ),
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240131",
+    )
+
+    assert summary["status"] == "succeeded"
+    assert summary["segments_succeeded"] == 0
+    assert summary["segments_empty"] == 1
+    assert summary["segments_failed"] == 0
+
+
+def test_supplement_yahoo_minute_history_reports_partial_failure_after_empty_success(
+    monkeypatch,
+):
+    window_start = pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (window_start, window_end),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_list_symbol_daily_trading_days",
+        lambda **kwargs: [date(2024, 1, 2), date(2024, 1, 3)],
+    )
+    monkeypatch.setattr(scraper, "_list_symbol_minute_trading_days", lambda **kwargs: [])
+    monkeypatch.setattr(
+        scraper,
+        "_build_minute_fetch_segments",
+        lambda **kwargs: [(window_start, window_end), (window_start, window_end)],
+    )
+    monkeypatch.setattr(scraper.yf, "Ticker", lambda symbol: object())
+    responses = iter(
+        [
+            scraper._YfinanceMinuteSegmentResult(
+                dataframe=pd.DataFrame(), metadata=None, status="empty"
+            ),
+            scraper._YfinanceMinuteSegmentResult(
+                dataframe=pd.DataFrame(), metadata=None, status="failed"
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_yfinance_minute_segment",
+        lambda **kwargs: next(responses),
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240131",
+    )
+
+    assert summary["status"] == "partial_failure"
+    assert summary["segments_succeeded"] == 0
+    assert summary["segments_empty"] == 1
+    assert summary["segments_failed"] == 1
 
 
 def test_parse_twse_mi_index_payload_body_replays_successfully():
