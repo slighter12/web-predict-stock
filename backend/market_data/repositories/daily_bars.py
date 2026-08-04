@@ -30,7 +30,7 @@ def get_data(
         query = query.where(DailyOHLCV.source == source)
     if market:
         query = query.where(DailyOHLCV.market == market)
-    query = query.order_by(DailyOHLCV.date.asc())
+    query = query.order_by(DailyOHLCV.date.asc(), DailyOHLCV.symbol.asc())
 
     try:
         with engine.connect() as connection:

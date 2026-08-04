@@ -214,7 +214,7 @@ def project_persisted_snapshot(
             "Persisted research run snapshot is missing required metadata keys: "
             + ", ".join(missing_metadata_keys)
         )
-    artifact_presence = payload.pop("_artifact_presence")
+    artifact_presence = dict(payload.pop("_artifact_presence"))
     version_pack_values = payload.pop("_version_pack_values")
     raw_model_diagnostics = payload.pop("_raw_model_diagnostics")
     validation_outcome = payload.get("validation_outcome")

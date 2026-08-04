@@ -29,7 +29,13 @@ def _main() -> None:
     )
     symbol = os.getenv("INGEST_SYMBOL", "2330")
     market = os.getenv("INGEST_MARKET", _runtime.MARKET_TW).upper()
-    years = int(os.getenv("INGEST_YEARS", "5"))
+    try:
+        years = int(os.getenv("INGEST_YEARS", "5"))
+        if years < 1:
+            raise ValueError
+    except ValueError:
+        print("Error: INGEST_YEARS must be a positive integer.", file=sys.stderr)
+        raise SystemExit(2) from None
     date_str = os.getenv("INGEST_DATE")
     logger.info(
         "Starting ingest symbol=%s market=%s years=%s date_override=%s",

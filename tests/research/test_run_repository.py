@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 import backend.research.repositories.runs as research_run_repository
@@ -176,6 +176,13 @@ def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
         def all(self):
             return [exact_row]
 
+    class _CoverageResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
     class _Session:
         def __enter__(self):
             return self
@@ -185,14 +192,13 @@ def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
 
         def execute(self, statement):
             statements.append(statement)
-            return _CandidateResult() if len(statements) == 1 else _RowResult()
+            if len(statements) == 1:
+                return _CandidateResult()
+            if len(statements) == 2:
+                return _RowResult()
+            return _CoverageResult()
 
     monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
-    monkeypatch.setattr(
-        research_run_repository,
-        "_attach_liquidity_coverages",
-        lambda session, payload: payload,
-    )
 
     snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
         cohort_id
@@ -200,10 +206,10 @@ def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
 
     assert [snapshot["run_id"] for snapshot in snapshots] == ["exact"]
     candidate_query = statements[0].compile()
-    assert str(candidate_query).count("request_payload_json LIKE") == 2
-    assert str(candidate_query).count("ESCAPE") == 2
+    assert '"cohort/_id"' in candidate_query.params.values()
     assert f'"{cohort_id.replace("_", "/_")}"' in candidate_query.params.values()
     assert statements[1].compile().params == {"run_id_1": ["exact"]}
+    assert statements[2].compile().params == {"run_id_1": ["exact"]}
 
 
 def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
@@ -220,7 +226,13 @@ def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
         }
     )
     engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(bind=engine, tables=[ResearchRun.__table__])
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+        ],
+    )
     testing_session_local = sessionmaker(
         autocommit=False,
         autoflush=False,
@@ -243,17 +255,29 @@ def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
                     created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
                     request_payload_json=false_positive_payload,
                 ),
+                ResearchRunLiquidityCoverage(
+                    run_id="exact-sqlite",
+                    bucket_key="large",
+                    bucket_label="Large",
+                    full_universe_count=4,
+                    execution_universe_count=3,
+                    full_universe_ratio=0.4,
+                    execution_coverage_ratio=0.75,
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="exact-sqlite",
+                    bucket_key="active",
+                    bucket_label="Active",
+                    full_universe_count=6,
+                    execution_universe_count=6,
+                    full_universe_ratio=0.6,
+                    execution_coverage_ratio=1.0,
+                ),
             ]
         )
         session.commit()
 
     monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
-    monkeypatch.setattr(
-        research_run_repository,
-        "_attach_liquidity_coverages",
-        lambda session, payload: payload,
-    )
-
     snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
         cohort_id
     )
@@ -262,6 +286,10 @@ def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
     assert snapshots[0]["request_payload"]["prospective_evidence"]["cohort_id"] == (
         cohort_id
     )
+    assert [
+        item["bucket_key"]
+        for item in snapshots[0]["liquidity_bucket_coverages"]
+    ] == ["active", "large"]
 
 
 def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
@@ -288,6 +316,7 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
     statements = []
     partition_sizes = []
     row_batch_sizes = []
+    coverage_batch_sizes = []
 
     class _CandidateResult:
         def yield_per(self, size):
@@ -324,23 +353,21 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
             statements.append(statement)
             if len(statements) == 1:
                 return _CandidateResult()
-            batch_index = len(statements) - 2
+            batch_index = (len(statements) - 2) // 2
             start = batch_index * 500
             batch_ids = [
                 run_id
                 for run_id, _ in candidate_rows[start : start + 500]
             ]
+            if len(statements) % 2 == 1:
+                coverage_batch_sizes.append(len(batch_ids))
+                return _RowResult([])
             row_batch_sizes.append(len(batch_ids))
             return _RowResult(
                 [rows_by_id[run_id] for run_id in reversed(batch_ids)]
             )
 
     monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
-    monkeypatch.setattr(
-        research_run_repository,
-        "_attach_liquidity_coverages",
-        lambda session, payload: payload,
-    )
 
     snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
         cohort_id
@@ -348,14 +375,15 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
 
     assert partition_sizes == [500]
     assert row_batch_sizes == [500, 500, 1]
-    assert len(statements) == 4
+    assert coverage_batch_sizes == [500, 500, 1]
+    assert len(statements) == 7
     assert [snapshot["run_id"] for snapshot in snapshots] == [
         f"run-{index:04d}" for index in range(1001)
     ]
 
 
 def test_project_persisted_snapshot_requires_private_metadata_keys():
-    with pytest.raises(ValueError, match="_artifact_presence.*_version_pack_values"):
+    with pytest.raises(ValueError, match=r"_artifact_presence.*_version_pack_values"):
         research_run_projection.project_persisted_snapshot(
             {"run_id": "missing-metadata"},
             include_artifacts=True,
@@ -398,6 +426,115 @@ def test_project_persisted_snapshot_parses_model_diagnostics_once(monkeypatch):
     assert parser_calls == 1
     assert projected["model_diagnostics"]["sample_count"] == 0
     assert projected["model_diagnostics"]["actual_vs_predicted"] == []
+
+
+def test_run_row_to_snapshot_parses_reused_json_fields_once(monkeypatch):
+    equity_curve_json = '[{"equity": 1.0}]'
+    signals_json = '[{"symbol": "2330"}]'
+    scoring_factor_ids_json = '["momentum"]'
+    row = ResearchRun(
+        run_id="reused-json-fields",
+        status="succeeded",
+        equity_curve_json=equity_curve_json,
+        signals_json=signals_json,
+        scoring_factor_ids_json=scoring_factor_ids_json,
+    )
+    original_json_loads = research_run_repository.json_loads
+    calls = {
+        equity_curve_json: 0,
+        signals_json: 0,
+        scoring_factor_ids_json: 0,
+    }
+
+    def _counting_json_loads(value, default):
+        if value in calls:
+            calls[value] += 1
+        return original_json_loads(value, default)
+
+    monkeypatch.setattr(
+        research_run_repository,
+        "json_loads",
+        _counting_json_loads,
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert calls == {
+        equity_curve_json: 1,
+        signals_json: 1,
+        scoring_factor_ids_json: 1,
+    }
+    assert snapshot["equity_curve"] == [{"equity": 1.0}]
+    assert snapshot["signals"] == [{"symbol": "2330"}]
+    assert snapshot["scoring_factor_ids"] == ["momentum"]
+    assert snapshot["_version_pack_values"]["scoring_factor_ids"] == ["momentum"]
+    assert snapshot["_artifact_presence"]["equity_curve"] is True
+    assert snapshot["_artifact_presence"]["signals"] is True
+
+
+@pytest.mark.parametrize(
+    ("stored_value", "expected_value"),
+    [
+        (None, []),
+        ("{not-json", []),
+        ("null", None),
+    ],
+)
+def test_run_row_to_snapshot_preserves_json_fallback_behavior(
+    stored_value,
+    expected_value,
+):
+    row = ResearchRun(
+        run_id="json-fallback-behavior",
+        status="succeeded",
+        equity_curve_json=stored_value,
+        signals_json=stored_value,
+        scoring_factor_ids_json=stored_value,
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert snapshot["equity_curve"] == expected_value
+    assert snapshot["signals"] == expected_value
+    assert snapshot["scoring_factor_ids"] == expected_value
+    assert snapshot["_version_pack_values"]["scoring_factor_ids"] == expected_value
+    assert snapshot["_artifact_presence"]["equity_curve"] is False
+    assert snapshot["_artifact_presence"]["signals"] is False
+
+
+def test_project_persisted_snapshot_does_not_mutate_reused_snapshot():
+    row = ResearchRun(
+        run_id="reused-snapshot",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json=(
+            '{"task": "regression", "sample_count": 1, '
+            '"actual_vs_predicted": [{"actual": 0.1, "predicted": 0.2}]}'
+        ),
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{}",
+        comparison_eligibility="research_only_comparable",
+    )
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+    original_artifact_presence = dict(snapshot["_artifact_presence"])
+
+    summary = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
+    detail = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=True,
+    )
+
+    assert snapshot["_artifact_presence"] == original_artifact_presence
+    assert summary["model_diagnostics"]["actual_vs_predicted"] == []
+    assert detail["model_diagnostics"]["actual_vs_predicted"] == [
+        {"actual": 0.1, "predicted": 0.2}
+    ]
 
 
 def test_corrupt_baselines_json_is_not_marked_present():
@@ -859,6 +996,77 @@ def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypat
     }
     assert loaded["opinion_artifact"]["state"] == "do-not-adopt"
     assert loaded["opinion_artifact"]["evidence_limitations"]
+
+
+def test_list_research_run_snapshots_batches_liquidity_coverages(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[ResearchRun.__table__, ResearchRunLiquidityCoverage.__table__],
+    )
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ResearchRun(
+                    run_id="run-old",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                ),
+                ResearchRun(
+                    run_id="run-new",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="run-new",
+                    bucket_key="large",
+                    bucket_label="Large",
+                    full_universe_count=4,
+                    execution_universe_count=3,
+                    full_universe_ratio=0.4,
+                    execution_coverage_ratio=0.75,
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="run-new",
+                    bucket_key="active",
+                    bucket_label="Active",
+                    full_universe_count=6,
+                    execution_universe_count=6,
+                    full_universe_ratio=0.6,
+                    execution_coverage_ratio=1.0,
+                ),
+            ]
+        )
+        session.commit()
+
+    select_statements = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _capture_selects(
+        connection,
+        cursor,
+        statement,
+        parameters,
+        context,
+        executemany,
+    ):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    snapshots = research_run_repository.list_research_run_snapshots()
+
+    assert len(select_statements) == 2
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["run-new", "run-old"]
+    assert [
+        coverage["bucket_key"]
+        for coverage in snapshots[0]["liquidity_bucket_coverages"]
+    ] == ["active", "large"]
+    assert snapshots[1]["liquidity_bucket_coverages"] == []
 
 
 def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeypatch):

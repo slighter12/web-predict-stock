@@ -32,3 +32,19 @@ def test_configure_cli_logging_defaults_to_info_for_unknown_level(monkeypatch):
     _logging.configure_cli_logging()
 
     assert config["level"] == logging.INFO
+
+
+def test_configure_cli_logging_defaults_to_info_for_non_level_logging_attribute(
+    monkeypatch,
+):
+    config = {}
+    monkeypatch.setenv("LOG_LEVEL", "BASIC_FORMAT")
+    monkeypatch.setattr(
+        _logging.logging,
+        "basicConfig",
+        lambda **kwargs: config.update(kwargs),
+    )
+
+    _logging.configure_cli_logging()
+
+    assert config["level"] == logging.INFO

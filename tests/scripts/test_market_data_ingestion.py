@@ -40,6 +40,38 @@ def test_command_entrypoint_passes_environment_to_runtime(monkeypatch, capsys):
     assert "{'status': 'ok'}" in output
 
 
+@pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+def test_command_entrypoint_rejects_invalid_ingest_years(monkeypatch, capsys, value):
+    monkeypatch.setenv("INGEST_YEARS", value)
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: pytest.fail("invalid configuration must not start ingestion"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        ingestion_entrypoint._main()
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "INGEST_YEARS must be a positive integer" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_command_entrypoint_defaults_ingest_years_to_five(monkeypatch):
+    captured = {}
+    monkeypatch.delenv("INGEST_YEARS", raising=False)
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: captured.update(kwargs) or {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert captured["years"] == 5
+
+
 def test_command_entrypoint_configures_logging_and_uses_cli_logger(monkeypatch):
     logging_calls = []
     log_messages = []

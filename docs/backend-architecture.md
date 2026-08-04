@@ -36,7 +36,8 @@ Neither `contracts/` nor `domain/` may depend on the `api` layer.
 - `repositories/` owns persistence queries and raw persistence snapshots. It
   does not build domain opinions, API responses, or service projections.
 - `services/` orchestrates repositories, domain logic, and other context
-  services.
+  services. New direct database imports are forbidden; existing direct imports
+  are an explicit legacy baseline enforced by the architecture test.
 - `api.py` performs HTTP translation and delegates work to services.
 - `scripts/` is a command boundary. Backend modules must never import it.
 
@@ -56,6 +57,14 @@ Neither `contracts/` nor `domain/` may depend on the `api` layer.
 repository directly. This is an explicit, narrow legacy exception enforced by
 the architecture test; new exceptions should not be added. A future signals
 service facade can remove it without changing the current public API.
+
+The service-to-database legacy baseline is limited to
+`backend.market_data.services.{ingestion_runtime,ops,readiness,tick_governance}`
+and
+`backend.research.services.{_foundation_flow,capability_gates,governance,micro_kpis,tradability}`.
+The architecture test rejects direct database imports from additional service
+modules. These exceptions should move behind context repositories as the
+affected workflows are revised.
 
 ## Compatibility
 

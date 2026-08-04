@@ -351,6 +351,7 @@ def test_crawl_single_source_reports_failed_reconciliation(monkeypatch, caplog):
     assert summary["errors"] == [
         "exchange=TWSE reconciliation error_type=RuntimeError"
     ]
+    assert "write failed" not in summary["errors"][0]
     matching_records = [
         record
         for record in caplog.records

@@ -13,6 +13,20 @@ FOUNDATION_REPOSITORY_EXCEPTION = (
     BACKEND / "research" / "services" / "_foundation_flow.py",
     "backend.signals.repositories",
 )
+SERVICE_DATABASE_EXCEPTIONS = tuple(
+    (BACKEND / context / "services" / module, "backend.database")
+    for context, module in (
+        ("market_data", "ingestion_runtime.py"),
+        ("market_data", "ops.py"),
+        ("market_data", "readiness.py"),
+        ("market_data", "tick_governance.py"),
+        ("research", "_foundation_flow.py"),
+        ("research", "capability_gates.py"),
+        ("research", "governance.py"),
+        ("research", "micro_kpis.py"),
+        ("research", "tradability.py"),
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +112,8 @@ def _matches_prefix(module: str, prefix: str) -> bool:
 def _assert_no_import_prefixes(
     files: list[Path],
     forbidden: tuple[str, ...],
+    *,
+    exceptions: tuple[tuple[Path, str], ...] = (),
 ) -> None:
     violations = []
     for path in files:
@@ -111,6 +127,12 @@ def _assert_no_import_prefixes(
                 None,
             )
             if matched is not None:
+                if any(
+                    path == exception_path
+                    and _matches_prefix(matched, exception_prefix)
+                    for exception_path, exception_prefix in exceptions
+                ):
+                    continue
                 violations.append(
                     f"{path.relative_to(ROOT)}:{reference.line} -> {matched}"
                 )
@@ -225,6 +247,18 @@ def test_api_modules_delegate_without_database_or_repository_access():
             *_layer_prefixes("domain", "repositories"),
             "scripts",
         ),
+    )
+
+
+def test_services_reject_unapproved_database_api_or_command_imports():
+    _assert_no_import_prefixes(
+        _context_layer_files("services"),
+        (
+            "backend.database",
+            *_layer_prefixes("api"),
+            "scripts",
+        ),
+        exceptions=SERVICE_DATABASE_EXCEPTIONS,
     )
 
 

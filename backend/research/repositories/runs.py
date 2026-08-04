@@ -24,6 +24,7 @@ from backend.platform.time import utc_now
 logger = logging.getLogger(__name__)
 
 _PROSPECTIVE_COHORT_BATCH_SIZE = 500
+_MISSING_OR_INVALID_JSON = object()
 
 
 def _coerce_date(value: Any) -> date | None:
@@ -52,7 +53,9 @@ def _run_row_to_snapshot(
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
     request_payload = json_loads(row.request_payload_json, None)
     metrics = json_loads(row.metrics_json, None)
-    signals = json_loads(row.signals_json, []) if include_artifacts else []
+    equity_curve = json_loads(row.equity_curve_json, _MISSING_OR_INVALID_JSON)
+    signals = json_loads(row.signals_json, _MISSING_OR_INVALID_JSON)
+    scoring_factor_ids = json_loads(row.scoring_factor_ids_json, [])
     parsed_baselines = json_loads(row.baselines_json, None)
     baselines = parsed_baselines if isinstance(parsed_baselines, dict) else {}
     warnings = json_loads(row.warnings_json, [])
@@ -73,14 +76,18 @@ def _run_row_to_snapshot(
         "rejection_reason": row.rejection_reason,
         "request_payload": request_payload,
         "metrics": metrics,
-        "equity_curve": json_loads(row.equity_curve_json, [])
+        "equity_curve": (
+            [] if equity_curve is _MISSING_OR_INVALID_JSON else equity_curve
+        )
         if include_artifacts
         else [],
-        "signals": signals if include_artifacts else [],
+        "signals": ([] if signals is _MISSING_OR_INVALID_JSON else signals)
+        if include_artifacts
+        else [],
         "baselines": baselines,
         "warnings": warnings,
         "factor_catalog_version": row.factor_catalog_version,
-        "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
+        "scoring_factor_ids": scoring_factor_ids,
         "external_signal_policy_version": row.external_signal_policy_version,
         "external_lineage_version": row.external_lineage_version,
         "cluster_snapshot_version": row.cluster_snapshot_version,
@@ -116,9 +123,8 @@ def _run_row_to_snapshot(
             "metrics": isinstance(metrics, dict),
             "model_diagnostics": False,
             "equity_curve": row.equity_curve_json is not None
-            and isinstance(json_loads(row.equity_curve_json, None), list),
-            "signals": row.signals_json is not None
-            and isinstance(json_loads(row.signals_json, None), list),
+            and isinstance(equity_curve, list),
+            "signals": row.signals_json is not None and isinstance(signals, list),
             "validation": False,
             "baselines": isinstance(parsed_baselines, dict),
         },
@@ -157,7 +163,7 @@ def _run_row_to_snapshot(
             "reward_definition_version": row.reward_definition_version,
             "state_definition_version": row.state_definition_version,
             "rollout_control_version": row.rollout_control_version,
-            "scoring_factor_ids": json_loads(row.scoring_factor_ids_json, []),
+            "scoring_factor_ids": scoring_factor_ids,
         },
     }
     return payload
@@ -167,23 +173,44 @@ def _attach_liquidity_coverages(
     session: Any,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    coverages_by_run_id = _load_liquidity_coverages(
+        session,
+        [payload["run_id"]],
+    )
+    payload["liquidity_bucket_coverages"] = coverages_by_run_id.get(
+        payload["run_id"], []
+    )
+    return payload
+
+
+def _load_liquidity_coverages(
+    session: Any,
+    run_ids: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    if not run_ids:
+        return {}
+
     stmt = (
         select(ResearchRunLiquidityCoverage)
-        .where(ResearchRunLiquidityCoverage.run_id == payload["run_id"])
-        .order_by(ResearchRunLiquidityCoverage.bucket_key.asc())
+        .where(ResearchRunLiquidityCoverage.run_id.in_(run_ids))
+        .order_by(
+            ResearchRunLiquidityCoverage.run_id.asc(),
+            ResearchRunLiquidityCoverage.bucket_key.asc(),
+        )
     )
-    payload["liquidity_bucket_coverages"] = [
-        {
-            "bucket_key": row.bucket_key,
-            "bucket_label": row.bucket_label,
-            "full_universe_count": row.full_universe_count,
-            "execution_universe_count": row.execution_universe_count,
-            "full_universe_ratio": row.full_universe_ratio,
-            "execution_coverage_ratio": row.execution_coverage_ratio,
-        }
-        for row in session.execute(stmt).scalars().all()
-    ]
-    return payload
+    coverages_by_run_id: dict[str, list[dict[str, Any]]] = {}
+    for row in session.execute(stmt).scalars().all():
+        coverages_by_run_id.setdefault(row.run_id, []).append(
+            {
+                "bucket_key": row.bucket_key,
+                "bucket_label": row.bucket_label,
+                "full_universe_count": row.full_universe_count,
+                "execution_universe_count": row.execution_universe_count,
+                "full_universe_ratio": row.full_universe_ratio,
+                "execution_coverage_ratio": row.execution_coverage_ratio,
+            }
+        )
+    return coverages_by_run_id
 
 
 def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
@@ -466,13 +493,17 @@ def list_prospective_cohort_run_snapshots(
                     .where(ResearchRun.run_id.in_(candidate_ids))
                     .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
                 )
-                snapshots.extend(
-                    _attach_liquidity_coverages(
-                        session,
-                        _run_row_to_snapshot(row, include_artifacts=True),
-                    )
-                    for row in session.execute(row_stmt).scalars().all()
+                rows = session.execute(row_stmt).scalars().all()
+                coverages_by_run_id = _load_liquidity_coverages(
+                    session,
+                    [row.run_id for row in rows],
                 )
+                for row in rows:
+                    snapshot = _run_row_to_snapshot(row, include_artifacts=True)
+                    snapshot["liquidity_bucket_coverages"] = (
+                        coverages_by_run_id.get(row.run_id, [])
+                    )
+                    snapshots.append(snapshot)
 
             snapshots.sort(
                 key=lambda snapshot: (snapshot["created_at"], snapshot["run_id"])
@@ -494,12 +525,20 @@ def list_research_run_snapshots(limit: int = 20) -> list[dict[str, Any]]:
                 .order_by(desc(ResearchRun.created_at), desc(ResearchRun.run_id))
                 .limit(limit)
             )
-            return [
-                _attach_liquidity_coverages(
-                    session, _run_row_to_snapshot(row, include_artifacts=False)
+            rows = session.execute(stmt).scalars().all()
+            coverages_by_run_id = _load_liquidity_coverages(
+                session,
+                [row.run_id for row in rows],
+            )
+            snapshots = []
+            for row in rows:
+                snapshot = _run_row_to_snapshot(row, include_artifacts=False)
+                snapshot["liquidity_bucket_coverages"] = coverages_by_run_id.get(
+                    row.run_id,
+                    [],
                 )
-                for row in session.execute(stmt).scalars().all()
-            ]
+                snapshots.append(snapshot)
+            return snapshots
     except Exception as exc:
         logger.exception("Failed to list research runs from DB")
         raise DataAccessError("Failed to list research runs.") from exc

@@ -123,6 +123,84 @@ def test_load_research_eligible_tw_bars_filters_and_maps_multi_symbol_rows(
     }
 
 
+def test_load_research_eligible_tw_bars_uses_tw_date_for_default_audit_end(monkeypatch):
+    class _FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz == research_inputs.TW_TIMEZONE
+            return cls(2024, 1, 5, 0, 30, tzinfo=tz)
+
+    captured = {}
+    frame = pd.DataFrame(
+        [
+            {
+                "date": date(2024, 1, 4),
+                "symbol": "2317",
+                "open": 90.0,
+                "high": 91.0,
+                "low": 89.0,
+                "close": 90.5,
+                "source": "twse",
+                "raw_payload_id": 1,
+            },
+            {
+                "date": date(2024, 1, 5),
+                "symbol": "2317",
+                "open": 91.0,
+                "high": 92.0,
+                "low": 90.0,
+                "close": 91.5,
+                "source": "twse",
+                "raw_payload_id": 2,
+            },
+            {
+                "date": date(2024, 1, 4),
+                "symbol": "2330",
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "source": "twse",
+                "raw_payload_id": 3,
+            },
+            {
+                "date": date(2024, 1, 4),
+                "symbol": "2454",
+                "open": 0.0,
+                "high": 1.0,
+                "low": -1.0,
+                "close": 0.5,
+                "source": "twse",
+                "raw_payload_id": 4,
+            },
+        ]
+    ).set_index(["date", "symbol"])
+    monkeypatch.setattr(research_inputs, "datetime", _FixedDatetime)
+    monkeypatch.setattr(research_inputs, "get_data", lambda *args, **kwargs: frame)
+    monkeypatch.setattr(
+        research_inputs,
+        "load_official_no_data_dates",
+        lambda **kwargs: captured.update(kwargs) or set(),
+    )
+
+    result = research_inputs.load_research_eligible_tw_bars(
+        ["2317", "2330", "2454"],
+        start_date=date(2024, 1, 4),
+    )
+
+    assert captured == {
+        "start_date": date(2024, 1, 4),
+        "end_date": date(2024, 1, 5),
+    }
+    assert {
+        symbol: [bar.date for bar in bars]
+        for symbol, bars in result.items()
+    } == {
+        "2317": [date(2024, 1, 4), date(2024, 1, 5)],
+        "2330": [date(2024, 1, 4)],
+    }
+
+
 def test_load_research_eligible_tw_bars_accepts_single_symbol_date_index(
     monkeypatch,
 ):

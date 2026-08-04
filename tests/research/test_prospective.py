@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from types import SimpleNamespace
+from typing import get_args
 
 import pandas as pd
 import pytest
@@ -8,10 +8,14 @@ from pydantic import ValidationError
 import backend.research.services.execution as execution_service
 import backend.research.services.prospective as prospective_service
 import backend.research.services.registry as registry_service
-import backend.market_data.services.research_inputs as research_inputs
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.research.api import PublicResearchRunCreateRequest
-from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.contracts.runs import (
+    ProspectiveEvidenceCohortId,
+    ProspectiveEvidenceMode,
+    ResearchRunCreateRequest,
+)
+from backend.research.policies.prospective import COHORT_IDS, STRICT_MODE
 
 
 def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequest:
@@ -47,6 +51,11 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
     )
     payload.update(overrides)
     return ResearchRunCreateRequest.model_validate(payload)
+
+
+def test_prospective_contract_literals_match_policy_constants():
+    assert get_args(ProspectiveEvidenceMode) == (STRICT_MODE,)
+    assert set(get_args(ProspectiveEvidenceCohortId)) == set(COHORT_IDS)
 
 
 @pytest.mark.parametrize(
@@ -450,78 +459,6 @@ def test_list_cohort_run_records_projects_artifact_enabled_snapshots(monkeypatch
     records = prospective_service.list_cohort_run_records(cohort_id)
 
     assert [record["run_id"] for record in records] == ["exact"]
-
-
-def test_load_research_eligible_tw_bars_uses_tw_date_for_default_audit_end(monkeypatch):
-    class _FixedDatetime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            assert tz == prospective_service.TW_TIMEZONE
-            return cls(2024, 1, 5, 0, 30, tzinfo=tz)
-
-    rows = [
-        SimpleNamespace(
-            date=date(2024, 1, 4),
-            symbol=symbol,
-            open=open_price,
-            high=open_price + 1,
-            low=open_price - 1,
-            close=open_price + 0.5,
-            source="twse",
-            raw_payload_id=index,
-        )
-        for index, (symbol, open_price) in enumerate(
-            [
-                ("2317", 90.0),
-                ("2317", 91.0),
-                ("2330", 100.0),
-                ("2454", 0.0),
-            ],
-            start=1,
-        )
-    ]
-    rows[1].date = date(2024, 1, 5)
-
-    captured = {}
-    frame = pd.DataFrame(
-        [
-            {
-                "date": row.date,
-                "symbol": row.symbol,
-                "open": row.open,
-                "high": row.high,
-                "low": row.low,
-                "close": row.close,
-                "source": row.source,
-                "raw_payload_id": row.raw_payload_id,
-            }
-            for row in rows
-        ]
-    ).set_index(["date", "symbol"])
-    monkeypatch.setattr(research_inputs, "datetime", _FixedDatetime)
-    monkeypatch.setattr(research_inputs, "get_data", lambda *args, **kwargs: frame)
-    monkeypatch.setattr(
-        research_inputs,
-        "load_official_no_data_dates",
-        lambda **kwargs: captured.update(kwargs) or set(),
-    )
-
-    result = prospective_service.load_research_eligible_tw_bars(
-        ["2317", "2330", "2454"],
-        start_date=date(2024, 1, 4),
-    )
-
-    assert captured == {
-        "start_date": date(2024, 1, 4),
-        "end_date": date(2024, 1, 5),
-    }
-    assert {
-        symbol: [bar.date for bar in bars]
-        for symbol, bars in result.items()
-    } == {
-        "2317": [date(2024, 1, 4), date(2024, 1, 5)],
-        "2330": [date(2024, 1, 4)],
-    }
 
 
 def test_cohort_evaluator_keeps_unresolved_outcome_out_of_completed_sample(monkeypatch):
