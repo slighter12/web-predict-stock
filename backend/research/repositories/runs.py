@@ -462,16 +462,15 @@ def list_prospective_cohort_run_snapshots(
                 )
                 .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
             )
-            snapshots: list[dict[str, Any]] = []
             candidate_result = session.execute(
                 candidate_stmt.execution_options(
                     yield_per=_PROSPECTIVE_COHORT_BATCH_SIZE
                 )
             )
+            candidate_ids: list[str] = []
             for candidate_rows in candidate_result.partitions(
                 _PROSPECTIVE_COHORT_BATCH_SIZE
             ):
-                candidate_ids = []
                 for run_id, request_payload_json in candidate_rows:
                     request_payload = json_loads(request_payload_json, None)
                     evidence = (
@@ -486,11 +485,18 @@ def list_prospective_cohort_run_snapshots(
                         continue
                     candidate_ids.append(run_id)
 
-                if not candidate_ids:
-                    continue
+            snapshots: list[dict[str, Any]] = []
+            for start in range(
+                0,
+                len(candidate_ids),
+                _PROSPECTIVE_COHORT_BATCH_SIZE,
+            ):
+                candidate_batch = candidate_ids[
+                    start : start + _PROSPECTIVE_COHORT_BATCH_SIZE
+                ]
                 row_stmt = (
                     select(ResearchRun)
-                    .where(ResearchRun.run_id.in_(candidate_ids))
+                    .where(ResearchRun.run_id.in_(candidate_batch))
                     .order_by(ResearchRun.created_at.asc(), ResearchRun.run_id.asc())
                 )
                 rows = session.execute(row_stmt).scalars().all()

@@ -229,10 +229,12 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
             }
         ]
     )
+    df = pd.concat([df, df.assign(symbol="2317")], ignore_index=True)
     connections = []
     execute_plans = [
         [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
-        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=0), _FakeResult()],
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=-1), _FakeResult()],
     ]
 
     def fake_connect():
@@ -256,6 +258,7 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
 
     summary_a = scraper.load_to_db(df)
     summary_b = scraper.load_to_db(df)
+    summary_c = scraper.load_to_db(df)
 
     first_name = connections[0].to_sql_names[0][0]
     second_name = connections[1].to_sql_names[0][0]
@@ -264,7 +267,10 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
     assert summary_a["official_overrides"] == 1
     assert summary_a["upserted_rows"] == 1
     assert summary_b["official_overrides"] == 1
-    assert summary_b["upserted_rows"] == 1
+    assert summary_b["upserted_rows"] == 0
+    assert summary_c["official_overrides"] == 1
+    assert summary_c["upserted_rows"] == 2
+    assert len({connection.to_sql_names[0][0] for connection in connections}) == 3
     assert first_name != second_name
     assert connections[0].to_sql_names[0][1] == "append"
     assert connections[1].to_sql_names[0][1] == "append"
@@ -387,10 +393,12 @@ def test_load_minute_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch)
             }
         ]
     )
+    df = pd.concat([df, df.assign(symbol="2317")], ignore_index=True)
     connections = []
     execute_plans = [
         [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
-        [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(rowcount=0), _FakeResult()],
+        [_FakeResult(), _FakeResult(rowcount=-1), _FakeResult()],
     ]
 
     def fake_connect():
@@ -414,13 +422,16 @@ def test_load_minute_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch)
 
     summary_a = scraper.load_minute_to_db(df)
     summary_b = scraper.load_minute_to_db(df)
+    summary_c = scraper.load_minute_to_db(df)
 
     first_name = connections[0].to_sql_names[0][0]
     second_name = connections[1].to_sql_names[0][0]
     first_create_sql = connections[0].statements[0][0]
     second_create_sql = connections[1].statements[0][0]
     assert summary_a["upserted_rows"] == 1
-    assert summary_b["upserted_rows"] == 1
+    assert summary_b["upserted_rows"] == 0
+    assert summary_c["upserted_rows"] == 2
+    assert len({connection.to_sql_names[0][0] for connection in connections}) == 3
     assert first_name != second_name
     assert connections[0].to_sql_names[0][1] == "append"
     assert connections[1].to_sql_names[0][1] == "append"

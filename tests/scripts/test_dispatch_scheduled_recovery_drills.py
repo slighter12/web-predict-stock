@@ -56,6 +56,7 @@ def test_dispatch_scheduled_recovery_drills_main_returns_one_on_failure(
             "errors": [],
         },
     )
+    monkeypatch.setattr(module, "configure_cli_logging", lambda: None)
 
     exit_code = module.main()
 

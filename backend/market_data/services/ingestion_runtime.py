@@ -1391,7 +1391,7 @@ def load_to_db(df: pd.DataFrame, metadata: RawTraceMetadata | None = None) -> di
         summary["official_overrides"] = int(override_count)
         summary["upserted_rows"] = (
             result.rowcount
-            if result.rowcount and result.rowcount > 0
+            if result.rowcount is not None and result.rowcount >= 0
             else len(validated_df)
         )
         logger.info("Loaded OHLCV rows summary=%s", summary)
@@ -1480,7 +1480,7 @@ def load_minute_to_db(
                 raise
         summary["upserted_rows"] = (
             result.rowcount
-            if result.rowcount and result.rowcount > 0
+            if result.rowcount is not None and result.rowcount >= 0
             else len(validated_df)
         )
         logger.info("Loaded minute OHLCV rows summary=%s", summary)

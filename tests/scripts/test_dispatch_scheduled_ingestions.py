@@ -52,6 +52,7 @@ def test_dispatch_scheduled_ingestions_main_returns_one_on_failure(
             "records": [],
         },
     )
+    monkeypatch.setattr(module, "configure_cli_logging", lambda: None)
 
     exit_code = module.main()
 

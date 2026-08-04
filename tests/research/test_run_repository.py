@@ -317,6 +317,7 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
     partition_sizes = []
     row_batch_sizes = []
     coverage_batch_sizes = []
+    candidate_result_exhausted = []
 
     class _CandidateResult:
         def yield_per(self, size):
@@ -325,12 +326,9 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
 
         def partitions(self, size):
             partition_sizes.append(size)
-            return iter(
-                [
-                    candidate_rows[start : start + size]
-                    for start in range(0, len(candidate_rows), size)
-                ]
-            )
+            for start in range(0, len(candidate_rows), size):
+                yield candidate_rows[start : start + size]
+            candidate_result_exhausted.append(True)
 
     class _RowResult:
         def __init__(self, rows):
@@ -353,6 +351,7 @@ def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
             statements.append(statement)
             if len(statements) == 1:
                 return _CandidateResult()
+            assert candidate_result_exhausted == [True]
             batch_index = (len(statements) - 2) // 2
             start = batch_index * 500
             batch_ids = [
