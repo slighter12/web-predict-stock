@@ -31,11 +31,14 @@ from backend.shared.contracts.common import (
     StrategyType,
     ValidationMethod,
 )
-from backend.research.domain.artifact_summary import (
+from backend.research.contracts.artifacts import (
     ArtifactCompleteness,
     ReviewArtifactName,
 )
-from backend.research.domain.prospective_recipe import strict_recipe_issues
+from backend.research.policies.prospective import (
+    STRICT_MODE,
+    strict_recipe_issues,
+)
 from .runtime_metadata import (
     ConfigSources,
     EffectiveStrategyConfig,
@@ -116,9 +119,16 @@ class ValidationConfig(RequestModel):
     test_size: confloat(gt=0, lt=1) = 0.2  # type: ignore[valid-type]
 
 
+ProspectiveEvidenceMode = Literal["strict_v1"]
+ProspectiveEvidenceCohortId = Literal[
+    "tw_2330_o2o_v1",
+    "tw_all_active_o2o_v1",
+]
+
+
 class ProspectiveEvidenceConfig(RequestModel):
-    mode: Literal["strict_v1"] = "strict_v1"
-    cohort_id: Literal["tw_2330_o2o_v1", "tw_all_active_o2o_v1"]
+    mode: ProspectiveEvidenceMode = STRICT_MODE
+    cohort_id: ProspectiveEvidenceCohortId
     basis_date: date
     full_universe_symbols: conlist(str, min_length=1)  # type: ignore[valid-type]
 

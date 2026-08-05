@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-ReviewArtifactName = Literal[
-    "metrics",
-    "model_diagnostics",
-    "equity_curve",
-    "signals",
-    "validation",
-    "baselines",
-]
-ArtifactCompleteness = Literal["complete", "partial", "metadata_only"]
-ComparisonCaveatSeverity = Literal["blocker", "note"]
+from backend.research.contracts.artifacts import (
+    ArtifactCompleteness,
+    ComparisonCaveatSeverity,
+    ReviewArtifactName,
+)
 
 CORE_REVIEW_ARTIFACTS: tuple[ReviewArtifactName, ...] = (
     "metrics",

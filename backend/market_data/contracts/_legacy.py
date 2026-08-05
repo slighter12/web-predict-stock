@@ -54,6 +54,7 @@ class MinuteSupplementSummary(BaseModel):
     window_end: Optional[date] = None
     segment_count: int
     segments_succeeded: int
+    segments_empty: int = 0
     segments_failed: int
     covered_trading_days: int
     input_rows: int

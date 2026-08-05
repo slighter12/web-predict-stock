@@ -14,6 +14,7 @@ from backend.market_data.services.ingestion import (
     BATCH_STATUS_SUCCEEDED,
     ingest_tw_market_batch,
 )
+from scripts._logging import configure_cli_logging
 
 _TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -59,6 +60,7 @@ def _parse_trading_date(
 
 
 def main() -> int:
+    configure_cli_logging()
     parser = argparse.ArgumentParser(description="Ingest TW market daily batch data.")
     parser.add_argument("trading_date", nargs="?")
     parser.add_argument("--start-date")

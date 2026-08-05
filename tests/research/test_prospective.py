@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone
-from types import SimpleNamespace
+from typing import get_args
 
 import pandas as pd
 import pytest
@@ -8,10 +8,14 @@ from pydantic import ValidationError
 import backend.research.services.execution as execution_service
 import backend.research.services.prospective as prospective_service
 import backend.research.services.registry as registry_service
-from backend.platform.db.repository_helpers import json_dumps
 from backend.platform.errors import DataAccessError, DataNotFoundError
 from backend.research.api import PublicResearchRunCreateRequest
-from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.contracts.runs import (
+    ProspectiveEvidenceCohortId,
+    ProspectiveEvidenceMode,
+    ResearchRunCreateRequest,
+)
+from backend.research.policies.prospective import COHORT_IDS, STRICT_MODE
 
 
 def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequest:
@@ -47,6 +51,11 @@ def _request(*, prospective: bool = False, **overrides) -> ResearchRunCreateRequ
     )
     payload.update(overrides)
     return ResearchRunCreateRequest.model_validate(payload)
+
+
+def test_prospective_contract_literals_match_policy_constants():
+    assert get_args(ProspectiveEvidenceMode) == (STRICT_MODE,)
+    assert set(get_args(ProspectiveEvidenceCohortId)) == set(COHORT_IDS)
 
 
 @pytest.mark.parametrize(
@@ -189,7 +198,7 @@ def test_success_request_payload_writes_timezone_aware_frozen_timestamp_for_firs
 ):
     frozen_at = datetime(2024, 1, 4, 5, 25, tzinfo=timezone.utc)
     monkeypatch.setattr(
-        registry_service, "get_research_run_record", lambda run_id: {"request_payload": {}}
+        registry_service, "get_research_run_request_payload", lambda run_id: {}
     )
     monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
 
@@ -208,7 +217,9 @@ def test_success_request_payload_treats_missing_started_record_as_first_freeze(
     def missing_record(run_id):
         raise DataNotFoundError(run_id)
 
-    monkeypatch.setattr(registry_service, "get_research_run_record", missing_record)
+    monkeypatch.setattr(
+        registry_service, "get_research_run_request_payload", missing_record
+    )
     monkeypatch.setattr(registry_service, "utc_now", lambda: frozen_at)
 
     with caplog.at_level("WARNING"):
@@ -226,7 +237,7 @@ def test_success_request_payload_propagates_data_access_errors(monkeypatch):
 
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         unavailable_record,
     )
 
@@ -242,11 +253,9 @@ def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_r
     existing_timestamp = "2024-01-04T05:25:00+00:00"
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         lambda run_id: {
-            "request_payload": {
-                "prospective_evidence": {"signal_frozen_at": existing_timestamp}
-            }
+            "prospective_evidence": {"signal_frozen_at": existing_timestamp}
         },
     )
     monkeypatch.setattr(
@@ -265,7 +274,7 @@ def test_success_request_payload_preserves_existing_strict_frozen_timestamp_on_r
 def test_success_request_payload_leaves_non_strict_request_unchanged(monkeypatch):
     monkeypatch.setattr(
         registry_service,
-        "get_research_run_record",
+        "get_research_run_request_payload",
         lambda run_id: pytest.fail("non-strict payload must not read persisted state"),
     )
 
@@ -425,141 +434,31 @@ def _fail_if_bars_loaded(*args, **kwargs):
     pytest.fail("invalid run must not load bars")
 
 
-def test_list_cohort_run_records_only_loads_exact_candidates(monkeypatch):
+def test_list_cohort_run_records_projects_artifact_enabled_snapshots(monkeypatch):
     cohort_id = prospective_service.COHORT_2330
-    request_payload = prospective_service.strict_request_payload(
-        symbols=["2330"],
-        basis_date=date(2024, 1, 4),
-        cohort_id=cohort_id,
-        full_universe_symbols=["2330"],
-    )
-    candidate_rows = [
-        ("exact", json_dumps(request_payload)),
-        (
-            "false-positive",
-            json_dumps(
-                {
-                    "cohort_id": cohort_id,
-                    "prospective_evidence": {
-                        "cohort_id": prospective_service.COHORT_ALL_ACTIVE
-                    },
-                }
-            ),
-        ),
-    ]
-    statements = []
-
-    class _Result:
-        def all(self):
-            return candidate_rows
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, statement):
-            statements.append(statement)
-            return _Result()
-
-    loaded = []
-
-    def load_record(run_id):
-        loaded.append(run_id)
-        return _strict_record(run_id)
-
-    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
+    snapshots = [{"run_id": "exact"}]
     monkeypatch.setattr(
         prospective_service,
-        "get_research_run_record",
-        load_record,
+        "list_prospective_cohort_run_snapshots",
+        lambda requested_cohort_id: (
+            snapshots
+            if requested_cohort_id == cohort_id
+            else pytest.fail("unexpected cohort")
+        ),
+    )
+    monkeypatch.setattr(
+        prospective_service,
+        "project_persisted_snapshot",
+        lambda snapshot, include_artifacts: (
+            _strict_record(snapshot["run_id"])
+            if include_artifacts
+            else pytest.fail("cohort records require artifacts")
+        ),
     )
 
     records = prospective_service.list_cohort_run_records(cohort_id)
 
     assert [record["run_id"] for record in records] == ["exact"]
-    assert loaded == ["exact"]
-    compiled = statements[0].compile()
-    assert str(compiled).count("request_payload_json LIKE") == 2
-    assert str(compiled).count("ESCAPE") == 2
-    assert '"tw/_2330/_o2o/_v1"' in compiled.params.values()
-
-
-def test_load_eligible_bars_uses_tw_date_for_default_audit_end(monkeypatch):
-    class _FixedDatetime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            assert tz == prospective_service.TW_TIMEZONE
-            return cls(2024, 1, 5, 0, 30, tzinfo=tz)
-
-    rows = [
-        SimpleNamespace(
-            date=date(2024, 1, 4),
-            symbol=symbol,
-            open=open_price,
-            high=open_price + 1,
-            low=open_price - 1,
-            close=open_price + 0.5,
-            source="twse",
-            raw_payload_id=index,
-        )
-        for index, (symbol, open_price) in enumerate(
-            [
-                ("2317", 90.0),
-                ("2317", 91.0),
-                ("2330", 100.0),
-                ("2454", 0.0),
-            ],
-            start=1,
-        )
-    ]
-    rows[1].date = date(2024, 1, 5)
-
-    class _ScalarResult:
-        def all(self):
-            return rows
-
-    class _Result:
-        def scalars(self):
-            return _ScalarResult()
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return None
-
-        def execute(self, statement):
-            return _Result()
-
-    captured = {}
-    monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "SessionLocal", _Session)
-    monkeypatch.setattr(
-        prospective_service,
-        "load_official_no_data_dates",
-        lambda **kwargs: captured.update(kwargs) or set(),
-    )
-
-    result = prospective_service.load_eligible_bars(
-        ["2317", "2330", "2454"],
-        start_date=date(2024, 1, 4),
-    )
-
-    assert captured == {
-        "start_date": date(2024, 1, 4),
-        "end_date": date(2024, 1, 5),
-    }
-    assert {
-        symbol: [bar.date for bar in bars]
-        for symbol, bars in result.items()
-    } == {
-        "2317": [date(2024, 1, 4), date(2024, 1, 5)],
-        "2330": [date(2024, 1, 4)],
-    }
 
 
 def test_cohort_evaluator_keeps_unresolved_outcome_out_of_completed_sample(monkeypatch):
@@ -570,7 +469,7 @@ def test_cohort_evaluator_keeps_unresolved_outcome_out_of_completed_sample(monke
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(("2024-01-05", 100.0)),
     )
 
@@ -591,7 +490,7 @@ def test_cohort_evaluator_calculates_observed_o2o_return_direction_and_brier(mon
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -665,7 +564,9 @@ def test_cohort_evaluator_loads_bars_once_per_multi_symbol_run(monkeypatch):
         lambda cohort_id: [record],
     )
     monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+    monkeypatch.setattr(
+        prospective_service, "load_research_eligible_tw_bars", load_bars
+    )
 
     result = prospective_service.evaluate_cohort(
         prospective_service.COHORT_ALL_ACTIVE
@@ -720,7 +621,9 @@ def test_cohort_evaluator_reuses_one_bar_load_across_basis_dates(monkeypatch):
         lambda cohort_id: [first, second],
     )
     monkeypatch.setattr(prospective_service, "datetime", _FixedDatetime)
-    monkeypatch.setattr(prospective_service, "load_eligible_bars", load_bars)
+    monkeypatch.setattr(
+        prospective_service, "load_research_eligible_tw_bars", load_bars
+    )
 
     result = prospective_service.evaluate_cohort(prospective_service.COHORT_2330)
 
@@ -775,7 +678,7 @@ def test_cohort_evaluator_uses_frozen_timestamp_not_record_created_at(monkeypatc
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -808,7 +711,7 @@ def test_cohort_evaluator_requires_valid_same_day_frozen_timestamp(
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -826,7 +729,7 @@ def test_cohort_evaluator_rejects_duplicate_basis_date_without_double_counting(m
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -853,7 +756,7 @@ def test_failed_attempt_does_not_invalidate_successful_retry(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -877,7 +780,7 @@ def test_invalid_cost_record_does_not_poison_valid_metrics(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         lambda *args, **kwargs: _bars(
             ("2024-01-04", 99.0), ("2024-01-05", 100.0), ("2024-01-08", 110.0)
         ),
@@ -901,7 +804,7 @@ def test_cohort_evaluator_rejects_signal_date_that_differs_from_basis_date(monke
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -919,7 +822,7 @@ def test_cohort_evaluator_rejects_changed_frozen_recipe(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -939,7 +842,7 @@ def test_cohort_evaluator_rejects_changed_direction_threshold(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -960,7 +863,7 @@ def test_strict_start_rejects_changed_all_active_snapshot(monkeypatch):
     )
     monkeypatch.setattr(
         prospective_service,
-        "active_tw_profile_symbols",
+        "list_active_tw_research_symbols",
         lambda: [*snapshot, "9999"],
     )
 
@@ -985,7 +888,7 @@ def test_strict_start_rejects_execution_coverage_below_gate(monkeypatch):
         )
     )
     monkeypatch.setattr(
-        prospective_service, "active_tw_profile_symbols", lambda: snapshot
+        prospective_service, "list_active_tw_research_symbols", lambda: snapshot
     )
 
     with pytest.raises(
@@ -1033,7 +936,7 @@ def test_all_active_evaluator_rejects_execution_coverage_below_95_percent(monkey
     )
     monkeypatch.setattr(
         prospective_service,
-        "load_eligible_bars",
+        "load_research_eligible_tw_bars",
         _fail_if_bars_loaded,
     )
 
@@ -1075,7 +978,9 @@ def test_all_active_preflight_applies_95_percent_coverage_gate(
     monkeypatch, caplog, ready_count, expected_status
 ):
     symbols = [f"{number:04d}" for number in range(100)]
-    monkeypatch.setattr(prospective_service, "active_tw_profile_symbols", lambda: symbols)
+    monkeypatch.setattr(
+        prospective_service, "list_active_tw_research_symbols", lambda: symbols
+    )
     monkeypatch.setattr(
         prospective_service,
         "load_official_no_data_dates",

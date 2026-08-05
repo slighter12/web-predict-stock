@@ -12,6 +12,10 @@ def test_crawl_tw_daily_batch_main_returns_zero(capsys, monkeypatch, load_script
         "crawl_tw_daily_batch.py",
         "crawl_tw_daily_batch_script",
     )
+    logging_calls = []
+    monkeypatch.setattr(
+        module, "configure_cli_logging", lambda: logging_calls.append(True)
+    )
     calls = []
     monkeypatch.setattr(
         module,
@@ -34,6 +38,7 @@ def test_crawl_tw_daily_batch_main_returns_zero(capsys, monkeypatch, load_script
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    assert logging_calls == [True]
     assert calls == [
         {
             "trading_date": module.date(2026, 3, 20),

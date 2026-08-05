@@ -4,9 +4,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import backend.market_data.repositories.raw_ingest as raw_ingest_repository
+from backend.market_data.services import ingestion_runtime as scraper
 from backend.database import Base, RawIngestAudit
 from backend.platform.time import utc_now
-from scripts import market_data_ingestion as scraper
 
 
 def test_get_latest_successful_raw_ingest_skips_empty_payload(monkeypatch):

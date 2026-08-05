@@ -104,6 +104,7 @@ diagnostic surfaces unless a future roadmap promotes them.
 | What should be built next and in what order? | `docs/plan.md` |
 | How is success measured and what is excluded from v1 gates? | `docs/validation-gates.md` |
 | How do I run the repository locally? | `docs/dev.md` |
+| Which dependency directions and internal compatibility rules apply? | `docs/backend-architecture.md` |
 | What is implemented today, what is partial, and what is still pending? | `docs/implementation-status.md` |
 | Which open decisions still block durable policy? | `docs/decision-register.md` |
 | Which removed advanced features are future candidates? | `docs/deferred-feature-plan.md` |

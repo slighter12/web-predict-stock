@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
-from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine
+import pytest
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 import backend.research.repositories.runs as research_run_repository
+import backend.research.services.run_projection as research_run_projection
 from backend.database import (
     Base,
     MicrostructureObservation,
@@ -15,7 +16,7 @@ from backend.research.domain.version_pack import build_version_pack_payload
 
 
 def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
-    payload = research_run_repository._validation_summary_from_payload(
+    payload = research_run_projection._validation_summary_from_payload(
         {"method": "walk_forward", "metrics": {}}
     )
 
@@ -30,27 +31,32 @@ def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
 
 
 def test_legacy_validation_remains_present_in_artifact_summary():
-    row = SimpleNamespace(
-        status="succeeded",
-        comparison_eligibility="research_only_comparable",
-        metrics_json="{}",
-        equity_curve_json="[]",
-        signals_json="[]",
-        baselines_json=None,
+    validation = research_run_projection._validation_summary_from_payload(
+        {"method": "walk_forward", "metrics": {}}
     )
-
-    summary = research_run_repository._review_artifact_summary_from_row(
-        row,
-        request_payload={
-            "validation": {
-                "method": "walk_forward",
-                "splits": 3,
-                "test_size": 0.2,
+    summary = research_run_projection._project_reviewable_payload(
+        {
+            "status": "succeeded",
+            "comparison_eligibility": "research_only_comparable",
+            "request_payload": {
+                "validation": {
+                    "method": "walk_forward",
+                    "splits": 3,
+                    "test_size": 0.2,
+                },
+                "baselines": [],
             },
-            "baselines": [],
+            "validation": validation,
         },
-        validation_outcome={"method": "walk_forward", "metrics": {}},
-        model_diagnostics={"task": "regression", "sample_count": 0},
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": validation is not None,
+            "baselines": False,
+        },
+        summary_only=False,
     )
 
     assert summary["artifact_completeness"] == "complete"
@@ -59,23 +65,24 @@ def test_legacy_validation_remains_present_in_artifact_summary():
 
 
 def test_requested_missing_baseline_remains_partial_after_reload():
-    row = SimpleNamespace(
-        status="succeeded",
-        comparison_eligibility="research_only_comparable",
-        metrics_json="{}",
-        equity_curve_json="[]",
-        signals_json="[]",
-        baselines_json='{"buy_and_hold": {"sharpe": 0.5}}',
-    )
-
-    summary = research_run_repository._review_artifact_summary_from_row(
-        row,
-        request_payload={
-            "validation": None,
-            "baselines": ["buy_and_hold", "naive_momentum"],
+    summary = research_run_projection._project_reviewable_payload(
+        {
+            "status": "succeeded",
+            "comparison_eligibility": "research_only_comparable",
+            "request_payload": {
+                "validation": None,
+                "baselines": ["buy_and_hold", "naive_momentum"],
+            },
         },
-        validation_outcome=None,
-        model_diagnostics={"task": "regression", "sample_count": 0},
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": False,
+            "baselines": False,
+        },
+        summary_only=False,
     )
 
     assert summary["artifact_completeness"] == "partial"
@@ -84,7 +91,7 @@ def test_requested_missing_baseline_remains_partial_after_reload():
 
 
 def test_model_diagnostics_parser_preserves_direction_diagnostics():
-    payload = research_run_repository._model_diagnostics_from_payload(
+    payload = research_run_projection._model_diagnostics_from_payload(
         {
             "task": "regression",
             "sample_count": 2,
@@ -118,6 +125,440 @@ def test_model_diagnostics_parser_preserves_direction_diagnostics():
         [1, 0],
         [0, 1],
     ]
+
+
+def test_prospective_cohort_query_escapes_id_and_filters_false_positives(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    exact_payload = research_run_repository.json_dumps(
+        {
+            "prospective_evidence": {
+                "cohort_id": cohort_id,
+            }
+        }
+    )
+    false_positive_payload = research_run_repository.json_dumps(
+        {
+            "cohort_id": cohort_id,
+            "prospective_evidence": {
+                "cohort_id": "tw_all_active_o2o_v1",
+            },
+        }
+    )
+    exact_row = ResearchRun(
+        run_id="exact",
+        status="succeeded",
+        request_payload_json=exact_payload,
+    )
+    statements = []
+
+    class _CandidateResult:
+        def yield_per(self, size):
+            self.size = size
+            return self
+
+        def partitions(self, size):
+            self.size = size
+            return iter(
+                [
+                    [
+                        ("exact", exact_payload),
+                        ("false-positive", false_positive_payload),
+                    ]
+                ]
+            )
+
+    class _RowResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [exact_row]
+
+    class _CoverageResult:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            if len(statements) == 1:
+                return _CandidateResult()
+            if len(statements) == 2:
+                return _RowResult()
+            return _CoverageResult()
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
+
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["exact"]
+    candidate_query = statements[0].compile()
+    assert '"cohort/_id"' in candidate_query.params.values()
+    assert f'"{cohort_id.replace("_", "/_")}"' in candidate_query.params.values()
+    assert statements[1].compile().params == {"run_id_1": ["exact"]}
+    assert statements[2].compile().params == {"run_id_1": ["exact"]}
+
+
+def test_prospective_cohort_query_sqlite_escapes_id_and_filters_false_positives(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    exact_payload = research_run_repository.json_dumps(
+        {"prospective_evidence": {"cohort_id": cohort_id}}
+    )
+    false_positive_payload = research_run_repository.json_dumps(
+        {
+            "cohort_id": cohort_id,
+            "prospective_evidence": {"cohort_id": "tw_all_active_o2o_v1"},
+        }
+    )
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[
+            ResearchRun.__table__,
+            ResearchRunLiquidityCoverage.__table__,
+        ],
+    )
+    testing_session_local = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine,
+    )
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ResearchRun(
+                    run_id="exact-sqlite",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    request_payload_json=exact_payload,
+                ),
+                ResearchRun(
+                    run_id="false-positive-sqlite",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    request_payload_json=false_positive_payload,
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="exact-sqlite",
+                    bucket_key="large",
+                    bucket_label="Large",
+                    full_universe_count=4,
+                    execution_universe_count=3,
+                    full_universe_ratio=0.4,
+                    execution_coverage_ratio=0.75,
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="exact-sqlite",
+                    bucket_key="active",
+                    bucket_label="Active",
+                    full_universe_count=6,
+                    execution_universe_count=6,
+                    full_universe_ratio=0.6,
+                    execution_coverage_ratio=1.0,
+                ),
+            ]
+        )
+        session.commit()
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["exact-sqlite"]
+    assert snapshots[0]["request_payload"]["prospective_evidence"]["cohort_id"] == (
+        cohort_id
+    )
+    assert [
+        item["bucket_key"]
+        for item in snapshots[0]["liquidity_bucket_coverages"]
+    ] == ["active", "large"]
+
+
+def test_prospective_cohort_query_batches_rows_and_preserves_global_order(
+    monkeypatch,
+):
+    cohort_id = "tw_2330_o2o_v1"
+    candidate_rows = []
+    rows_by_id = {}
+    base_created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    for index in range(1001):
+        run_id = f"run-{index:04d}"
+        request_payload = research_run_repository.json_dumps(
+            {"prospective_evidence": {"cohort_id": cohort_id}}
+        )
+        created_at = base_created_at + timedelta(seconds=index)
+        candidate_rows.append((run_id, request_payload))
+        rows_by_id[run_id] = ResearchRun(
+            run_id=run_id,
+            status="succeeded",
+            created_at=created_at,
+            request_payload_json=request_payload,
+        )
+
+    statements = []
+    partition_sizes = []
+    row_batch_sizes = []
+    coverage_batch_sizes = []
+    candidate_result_exhausted = []
+
+    class _CandidateResult:
+        def yield_per(self, size):
+            assert size == 500
+            return self
+
+        def partitions(self, size):
+            partition_sizes.append(size)
+            for start in range(0, len(candidate_rows), size):
+                yield candidate_rows[start : start + size]
+            candidate_result_exhausted.append(True)
+
+    class _RowResult:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self.rows
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, statement):
+            statements.append(statement)
+            if len(statements) == 1:
+                return _CandidateResult()
+            assert candidate_result_exhausted == [True]
+            batch_index = (len(statements) - 2) // 2
+            start = batch_index * 500
+            batch_ids = [
+                run_id
+                for run_id, _ in candidate_rows[start : start + 500]
+            ]
+            if len(statements) % 2 == 1:
+                coverage_batch_sizes.append(len(batch_ids))
+                return _RowResult([])
+            row_batch_sizes.append(len(batch_ids))
+            return _RowResult(
+                [rows_by_id[run_id] for run_id in reversed(batch_ids)]
+            )
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", _Session)
+
+    snapshots = research_run_repository.list_prospective_cohort_run_snapshots(
+        cohort_id
+    )
+
+    assert partition_sizes == [500]
+    assert row_batch_sizes == [500, 500, 1]
+    assert coverage_batch_sizes == [500, 500, 1]
+    assert len(statements) == 7
+    assert [snapshot["run_id"] for snapshot in snapshots] == [
+        f"run-{index:04d}" for index in range(1001)
+    ]
+
+
+def test_project_persisted_snapshot_requires_private_metadata_keys():
+    with pytest.raises(ValueError, match=r"_artifact_presence.*_version_pack_values"):
+        research_run_projection.project_persisted_snapshot(
+            {"run_id": "missing-metadata"},
+            include_artifacts=True,
+        )
+
+
+def test_project_persisted_snapshot_parses_model_diagnostics_once(monkeypatch):
+    row = ResearchRun(
+        run_id="diagnostics-once",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json='{"task": "regression", "sample_count": 0}',
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{}",
+        comparison_eligibility="research_only_comparable",
+    )
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+    original_parser = research_run_projection._model_diagnostics_from_payload
+    parser_calls = 0
+
+    def _counting_parser(value):
+        nonlocal parser_calls
+        parser_calls += 1
+        return original_parser(value)
+
+    monkeypatch.setattr(
+        research_run_projection,
+        "_model_diagnostics_from_payload",
+        _counting_parser,
+    )
+
+    projected = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
+
+    assert parser_calls == 1
+    assert projected["model_diagnostics"]["sample_count"] == 0
+    assert projected["model_diagnostics"]["actual_vs_predicted"] == []
+
+
+def test_run_row_to_snapshot_parses_reused_json_fields_once(monkeypatch):
+    equity_curve_json = '[{"equity": 1.0}]'
+    signals_json = '[{"symbol": "2330"}]'
+    scoring_factor_ids_json = '["momentum"]'
+    row = ResearchRun(
+        run_id="reused-json-fields",
+        status="succeeded",
+        equity_curve_json=equity_curve_json,
+        signals_json=signals_json,
+        scoring_factor_ids_json=scoring_factor_ids_json,
+    )
+    original_json_loads = research_run_repository.json_loads
+    calls = {
+        equity_curve_json: 0,
+        signals_json: 0,
+        scoring_factor_ids_json: 0,
+    }
+
+    def _counting_json_loads(value, default):
+        if value in calls:
+            calls[value] += 1
+        return original_json_loads(value, default)
+
+    monkeypatch.setattr(
+        research_run_repository,
+        "json_loads",
+        _counting_json_loads,
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert calls == {
+        equity_curve_json: 1,
+        signals_json: 1,
+        scoring_factor_ids_json: 1,
+    }
+    assert snapshot["equity_curve"] == [{"equity": 1.0}]
+    assert snapshot["signals"] == [{"symbol": "2330"}]
+    assert snapshot["scoring_factor_ids"] == ["momentum"]
+    assert snapshot["_version_pack_values"]["scoring_factor_ids"] == ["momentum"]
+    assert snapshot["_artifact_presence"]["equity_curve"] is True
+    assert snapshot["_artifact_presence"]["signals"] is True
+
+
+@pytest.mark.parametrize(
+    ("stored_value", "expected_value"),
+    [
+        (None, []),
+        ("{not-json", []),
+        ("null", None),
+    ],
+)
+def test_run_row_to_snapshot_preserves_json_fallback_behavior(
+    stored_value,
+    expected_value,
+):
+    row = ResearchRun(
+        run_id="json-fallback-behavior",
+        status="succeeded",
+        equity_curve_json=stored_value,
+        signals_json=stored_value,
+        scoring_factor_ids_json=stored_value,
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert snapshot["equity_curve"] == expected_value
+    assert snapshot["signals"] == expected_value
+    assert snapshot["scoring_factor_ids"] == expected_value
+    assert snapshot["_version_pack_values"]["scoring_factor_ids"] == expected_value
+    assert snapshot["_artifact_presence"]["equity_curve"] is False
+    assert snapshot["_artifact_presence"]["signals"] is False
+
+
+def test_project_persisted_snapshot_does_not_mutate_reused_snapshot():
+    row = ResearchRun(
+        run_id="reused-snapshot",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json=(
+            '{"task": "regression", "sample_count": 1, '
+            '"actual_vs_predicted": [{"actual": 0.1, "predicted": 0.2}]}'
+        ),
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{}",
+        comparison_eligibility="research_only_comparable",
+    )
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+    original_artifact_presence = dict(snapshot["_artifact_presence"])
+
+    summary = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
+    detail = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=True,
+    )
+
+    assert snapshot["_artifact_presence"] == original_artifact_presence
+    assert summary["model_diagnostics"]["actual_vs_predicted"] == []
+    assert detail["model_diagnostics"]["actual_vs_predicted"] == [
+        {"actual": 0.1, "predicted": 0.2}
+    ]
+
+
+def test_corrupt_baselines_json_is_not_marked_present():
+    row = ResearchRun(
+        run_id="corrupt-baselines",
+        status="succeeded",
+        request_payload_json=None,
+        metrics_json="{}",
+        model_diagnostics_json='{"task": "regression", "sample_count": 0}',
+        equity_curve_json="[]",
+        signals_json="[]",
+        validation_outcome_json='{"method": "walk_forward", "metrics": {}}',
+        baselines_json="{not-json",
+        comparison_eligibility="research_only_comparable",
+    )
+
+    projected = research_run_projection.project_persisted_snapshot(
+        research_run_repository._run_row_to_snapshot(row),
+        include_artifacts=True,
+    )
+
+    assert projected["baselines"] == {}
+    assert projected["artifact_completeness"] == "partial"
+    assert "baselines" in projected["missing_artifacts"]
+    assert "baselines" not in projected["present_artifacts"]
 
 
 def test_research_run_repository_roundtrip(monkeypatch):
@@ -273,7 +714,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
     }
 
     research_run_repository.persist_research_run_record(payload)
-    loaded = research_run_repository.get_research_run_record("run_123")
+    loaded = research_run_projection.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
     assert loaded["request_payload"]["features"][0]["shift"] == 0
@@ -429,7 +870,7 @@ def test_research_run_repository_classifies_metadata_only_old_row(monkeypatch):
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_old")
+    loaded = research_run_projection.get_research_run_record("run_old")
 
     assert loaded["artifact_completeness"] == "metadata_only"
     assert loaded["present_artifacts"] == []
@@ -495,7 +936,7 @@ def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_partial")
+    loaded = research_run_projection.get_research_run_record("run_partial")
 
     assert loaded["artifact_completeness"] == "partial"
     assert loaded["present_artifacts"] == ["metrics"]
@@ -545,7 +986,7 @@ def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypat
         session.add(row)
         session.commit()
 
-    loaded = research_run_repository.get_research_run_record("run_running")
+    loaded = research_run_projection.get_research_run_record("run_running")
 
     assert loaded["artifact_completeness"] == "metadata_only"
     assert {item["code"] for item in loaded["comparison_caveats"]} >= {
@@ -554,6 +995,77 @@ def test_research_run_repository_marks_running_artifacts_not_evaluated(monkeypat
     }
     assert loaded["opinion_artifact"]["state"] == "do-not-adopt"
     assert loaded["opinion_artifact"]["evidence_limitations"]
+
+
+def test_list_research_run_snapshots_batches_liquidity_coverages(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(
+        bind=engine,
+        tables=[ResearchRun.__table__, ResearchRunLiquidityCoverage.__table__],
+    )
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ResearchRun(
+                    run_id="run-old",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                ),
+                ResearchRun(
+                    run_id="run-new",
+                    status="succeeded",
+                    symbols_json="[]",
+                    created_at=datetime(2024, 1, 2, tzinfo=timezone.utc),
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="run-new",
+                    bucket_key="large",
+                    bucket_label="Large",
+                    full_universe_count=4,
+                    execution_universe_count=3,
+                    full_universe_ratio=0.4,
+                    execution_coverage_ratio=0.75,
+                ),
+                ResearchRunLiquidityCoverage(
+                    run_id="run-new",
+                    bucket_key="active",
+                    bucket_label="Active",
+                    full_universe_count=6,
+                    execution_universe_count=6,
+                    full_universe_ratio=0.6,
+                    execution_coverage_ratio=1.0,
+                ),
+            ]
+        )
+        session.commit()
+
+    select_statements = []
+
+    @event.listens_for(engine, "before_cursor_execute")
+    def _capture_selects(
+        connection,
+        cursor,
+        statement,
+        parameters,
+        context,
+        executemany,
+    ):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    snapshots = research_run_repository.list_research_run_snapshots()
+
+    assert len(select_statements) == 2
+    assert [snapshot["run_id"] for snapshot in snapshots] == ["run-new", "run-old"]
+    assert [
+        coverage["bucket_key"]
+        for coverage in snapshots[0]["liquidity_bucket_coverages"]
+    ] == ["active", "large"]
+    assert snapshots[1]["liquidity_bucket_coverages"] == []
 
 
 def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeypatch):
@@ -603,7 +1115,7 @@ def test_list_research_run_records_keeps_summary_without_heavy_artifacts(monkeyp
     }
 
     research_run_repository.persist_research_run_record(payload)
-    listed = research_run_repository.list_research_run_records()
+    listed = research_run_projection.list_research_run_records()
 
     assert listed[0]["run_id"] == "run_list"
     assert listed[0]["artifact_completeness"] == "complete"
@@ -659,7 +1171,7 @@ def test_list_research_run_records_preserves_non_success_opinion_states(monkeypa
 
     listed_by_status = {
         item["status"]: item
-        for item in research_run_repository.list_research_run_records()
+        for item in research_run_projection.list_research_run_records()
     }
 
     assert set(listed_by_status) == set(statuses)

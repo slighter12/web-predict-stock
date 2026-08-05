@@ -99,6 +99,9 @@ V1 backend development should usually stay inside:
 - `backend/research/`
 - `backend/market_data/`
 
+See `docs/backend-architecture.md` for dependency direction and the enforced
+contract, domain, repository, service, and script boundaries.
+
 ## TW Daily Data Loading
 
 Populate market data into the configured database:

@@ -1,15 +1,102 @@
+import json
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 import requests
 
+import scripts.market_data_ingestion as ingestion_entrypoint
+from backend.market_data.services import ingestion_runtime as scraper
 from backend.platform.errors import (
     DataAccessError,
     ExternalFetchError,
     UnsupportedConfigurationError,
 )
-from scripts import market_data_ingestion as scraper
+
+
+def test_command_entrypoint_passes_environment_to_runtime(monkeypatch, capsys):
+    captured = {}
+    monkeypatch.setenv("INGEST_SYMBOL", "2317")
+    monkeypatch.setenv("INGEST_MARKET", "tw")
+    monkeypatch.setenv("INGEST_YEARS", "3")
+    monkeypatch.setenv("INGEST_DATE", "20260710")
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: captured.update(kwargs) or {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert captured == {
+        "symbol": "2317",
+        "market": "TW",
+        "years": 3,
+        "date_str": "20260710",
+    }
+    output = capsys.readouterr().out
+    assert "alembic upgrade head" in output
+    assert "{'status': 'ok'}" in output
+
+
+@pytest.mark.parametrize("value", ["invalid", "0", "-1"])
+def test_command_entrypoint_rejects_invalid_ingest_years(monkeypatch, capsys, value):
+    monkeypatch.setenv("INGEST_YEARS", value)
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: pytest.fail("invalid configuration must not start ingestion"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        ingestion_entrypoint._main()
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "INGEST_YEARS must be a positive integer" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_command_entrypoint_defaults_ingest_years_to_five(monkeypatch):
+    captured = {}
+    monkeypatch.delenv("INGEST_YEARS", raising=False)
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: captured.update(kwargs) or {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert captured["years"] == 5
+
+
+def test_command_entrypoint_configures_logging_and_uses_cli_logger(monkeypatch):
+    logging_calls = []
+    log_messages = []
+    monkeypatch.setattr(
+        ingestion_entrypoint,
+        "configure_cli_logging",
+        lambda: logging_calls.append(True),
+    )
+    monkeypatch.setattr(
+        ingestion_entrypoint,
+        "logger",
+        SimpleNamespace(
+            info=lambda message, *args: log_messages.append((message, args))
+        ),
+    )
+    monkeypatch.setattr(
+        ingestion_entrypoint._runtime,
+        "ingest_symbol",
+        lambda **kwargs: {"status": "ok"},
+    )
+
+    ingestion_entrypoint._main()
+
+    assert logging_calls == [True]
+    assert log_messages and log_messages[0][0].startswith("Starting ingest")
 
 
 class _FakeResult:
@@ -142,10 +229,12 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
             }
         ]
     )
+    df = pd.concat([df, df.assign(symbol="2317")], ignore_index=True)
     connections = []
     execute_plans = [
         [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
-        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=0), _FakeResult()],
+        [_FakeResult(), _FakeResult(scalar_value=1), _FakeResult(rowcount=-1), _FakeResult()],
     ]
 
     def fake_connect():
@@ -169,6 +258,7 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
 
     summary_a = scraper.load_to_db(df)
     summary_b = scraper.load_to_db(df)
+    summary_c = scraper.load_to_db(df)
 
     first_name = connections[0].to_sql_names[0][0]
     second_name = connections[1].to_sql_names[0][0]
@@ -177,7 +267,10 @@ def test_load_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch):
     assert summary_a["official_overrides"] == 1
     assert summary_a["upserted_rows"] == 1
     assert summary_b["official_overrides"] == 1
-    assert summary_b["upserted_rows"] == 1
+    assert summary_b["upserted_rows"] == 0
+    assert summary_c["official_overrides"] == 1
+    assert summary_c["upserted_rows"] == 2
+    assert len({connection.to_sql_names[0][0] for connection in connections}) == 3
     assert first_name != second_name
     assert connections[0].to_sql_names[0][1] == "append"
     assert connections[1].to_sql_names[0][1] == "append"
@@ -300,10 +393,12 @@ def test_load_minute_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch)
             }
         ]
     )
+    df = pd.concat([df, df.assign(symbol="2317")], ignore_index=True)
     connections = []
     execute_plans = [
         [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
-        [_FakeResult(), _FakeResult(rowcount=1), _FakeResult()],
+        [_FakeResult(), _FakeResult(rowcount=0), _FakeResult()],
+        [_FakeResult(), _FakeResult(rowcount=-1), _FakeResult()],
     ]
 
     def fake_connect():
@@ -327,13 +422,16 @@ def test_load_minute_to_db_uses_unique_staging_tables_and_cleans_up(monkeypatch)
 
     summary_a = scraper.load_minute_to_db(df)
     summary_b = scraper.load_minute_to_db(df)
+    summary_c = scraper.load_minute_to_db(df)
 
     first_name = connections[0].to_sql_names[0][0]
     second_name = connections[1].to_sql_names[0][0]
     first_create_sql = connections[0].statements[0][0]
     second_create_sql = connections[1].statements[0][0]
     assert summary_a["upserted_rows"] == 1
-    assert summary_b["upserted_rows"] == 1
+    assert summary_b["upserted_rows"] == 0
+    assert summary_c["upserted_rows"] == 2
+    assert len({connection.to_sql_names[0][0] for connection in connections}) == 3
     assert first_name != second_name
     assert connections[0].to_sql_names[0][1] == "append"
     assert connections[1].to_sql_names[0][1] == "append"
@@ -704,6 +802,36 @@ def test_scrape_twse_data_records_failure(monkeypatch):
     assert records[0]["fetch_status"] == "failed"
 
 
+def test_fetch_twse_market_batch_uses_configured_timeout(monkeypatch):
+    class FakeResponse:
+        text = '{"stat":"OK","tables":[{"fields":["證券代號"],"data":[["2330"]]}]}'
+
+        def raise_for_status(self):
+            pass
+
+    request_kwargs = {}
+    monkeypatch.setattr(
+        scraper,
+        "_request_twse_daily_report",
+        lambda **kwargs: (request_kwargs.update(kwargs), FakeResponse())[1],
+    )
+    monkeypatch.setattr(scraper, "persist_raw_ingest_record", lambda **kwargs: 101)
+    monkeypatch.setattr(scraper, "payload_declares_no_data", lambda payload: False)
+    monkeypatch.setattr(
+        scraper,
+        "parse_twse_mi_index_payload_body",
+        lambda *args, **kwargs: (
+            pd.DataFrame([{"symbol": "2330"}]),
+            scraper.RawTraceMetadata.from_ingest(101, scraper.TWSE_MI_INDEX_PARSER_VERSION),
+        ),
+    )
+
+    result = scraper.fetch_twse_market_batch(date(2024, 1, 2))
+
+    assert request_kwargs["timeout_seconds"] == scraper.OFFICIAL_BATCH_TIMEOUT_SECONDS
+    assert result.raw_row_count == 1
+
+
 def test_backfill_history_records_success(monkeypatch):
     class FakeTicker:
         def __init__(self, symbol: str):
@@ -921,6 +1049,21 @@ def test_build_minute_fetch_segments_groups_missing_days():
     assert segments[1][0].date() == date(2024, 1, 20)
 
 
+def test_build_minute_fetch_segments_skips_missing_days_after_window():
+    window_start = pd.Timestamp(
+        "2024-01-01 00:00:01", tz="Asia/Taipei"
+    ).to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+
+    segments = scraper._build_minute_fetch_segments(
+        missing_days=[date(2024, 2, 1)],
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+    assert segments == []
+
+
 def test_supplement_yahoo_minute_history_skips_historical_override(monkeypatch):
     monkeypatch.setattr(
         scraper,
@@ -986,13 +1129,14 @@ def test_supplement_yahoo_minute_history_fetches_missing_segments(monkeypatch):
                 }
             ]
         )
-        return (
-            df,
-            scraper.RawTraceMetadata(
+        return scraper._YfinanceMinuteSegmentResult(
+            dataframe=df,
+            metadata=scraper.RawTraceMetadata(
                 raw_payload_id=501,
                 archive_object_reference="raw_ingest_audit:501",
                 parser_version=scraper.YFINANCE_MINUTE_PARSER_VERSION,
             ),
+            status="succeeded",
         )
 
     monkeypatch.setattr(scraper, "fetch_yfinance_minute_segment", fake_fetch)
@@ -1017,10 +1161,101 @@ def test_supplement_yahoo_minute_history_fetches_missing_segments(monkeypatch):
     assert summary["status"] == "succeeded"
     assert summary["segment_count"] == 2
     assert summary["segments_succeeded"] == 2
+    assert summary["segments_empty"] == 0
     assert summary["segments_failed"] == 0
     assert summary["covered_trading_days"] == 3
     assert summary["input_rows"] == 2
     assert summary["upserted_rows"] == 2
+
+
+def test_supplement_yahoo_minute_history_counts_empty_segment_as_success(monkeypatch):
+    window_start = pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (window_start, window_end),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_list_symbol_daily_trading_days",
+        lambda **kwargs: [date(2024, 1, 2)],
+    )
+    monkeypatch.setattr(scraper, "_list_symbol_minute_trading_days", lambda **kwargs: [])
+    monkeypatch.setattr(
+        scraper,
+        "_build_minute_fetch_segments",
+        lambda **kwargs: [(window_start, window_end)],
+    )
+    monkeypatch.setattr(scraper.yf, "Ticker", lambda symbol: object())
+    monkeypatch.setattr(
+        scraper,
+        "fetch_yfinance_minute_segment",
+        lambda **kwargs: scraper._YfinanceMinuteSegmentResult(
+            dataframe=pd.DataFrame(), metadata=None, status="empty"
+        ),
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240131",
+    )
+
+    assert summary["status"] == "succeeded"
+    assert summary["segments_succeeded"] == 0
+    assert summary["segments_empty"] == 1
+    assert summary["segments_failed"] == 0
+
+
+def test_supplement_yahoo_minute_history_reports_partial_failure_after_empty_success(
+    monkeypatch,
+):
+    window_start = pd.Timestamp("2024-01-01 00:00:01", tz="Asia/Taipei").to_pydatetime()
+    window_end = pd.Timestamp("2024-01-31 12:00:00", tz="Asia/Taipei").to_pydatetime()
+    monkeypatch.setattr(
+        scraper,
+        "_resolve_minute_window",
+        lambda reference_time=None: (window_start, window_end),
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_list_symbol_daily_trading_days",
+        lambda **kwargs: [date(2024, 1, 2), date(2024, 1, 3)],
+    )
+    monkeypatch.setattr(scraper, "_list_symbol_minute_trading_days", lambda **kwargs: [])
+    monkeypatch.setattr(
+        scraper,
+        "_build_minute_fetch_segments",
+        lambda **kwargs: [(window_start, window_end), (window_start, window_end)],
+    )
+    monkeypatch.setattr(scraper.yf, "Ticker", lambda symbol: object())
+    responses = iter(
+        [
+            scraper._YfinanceMinuteSegmentResult(
+                dataframe=pd.DataFrame(), metadata=None, status="empty"
+            ),
+            scraper._YfinanceMinuteSegmentResult(
+                dataframe=pd.DataFrame(), metadata=None, status="failed"
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        scraper,
+        "fetch_yfinance_minute_segment",
+        lambda **kwargs: next(responses),
+    )
+
+    summary = scraper.supplement_yahoo_minute_history(
+        symbol="2330",
+        market="TW",
+        date_str="20240131",
+    )
+
+    assert summary["status"] == "partial_failure"
+    assert summary["segments_succeeded"] == 0
+    assert summary["segments_empty"] == 1
+    assert summary["segments_failed"] == 1
 
 
 def test_parse_twse_mi_index_payload_body_replays_successfully():
@@ -1088,6 +1323,100 @@ def test_parse_tpex_aftertrading_payload_body_replays_successfully():
     assert cleaned.iloc[0]["source"] == scraper.SOURCE_TPEX_AFTERTRADING_OTC
     assert metadata.raw_payload_id == 302
     assert metadata.parser_version == scraper.TPEX_AFTERTRADING_OTC_PARSER_VERSION
+
+
+def test_parse_tpex_aftertrading_payload_body_selects_stock_table():
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {
+                "fields": ["Date", "Market Summary"],
+                "data": [["2024-01-02", "summary"]],
+            },
+            {
+                "fields": [
+                    "Code", "Name", "Close ", "Change (%)", "Open ", "High ", "Low",
+                    "Trade Vol. (shares) ", "Trade Amt. (NTD)",
+                ],
+                "data": [
+                    ["8049", "ABC", "10.5", "+0.2", "10", "11", "9", "1,000", "10,000"],
+                ],
+            },
+        ],
+    }
+
+    cleaned, _ = scraper.parse_tpex_aftertrading_payload_body(
+        json.dumps(payload),
+        trading_date=date(2024, 1, 2),
+    )
+
+    assert len(cleaned) == 1
+    assert cleaned.iloc[0]["symbol"] == "8049"
+
+
+def test_parse_tpex_aftertrading_payload_body_requires_stock_table():
+    payload = {
+        "stat": "ok",
+        "tables": [{"fields": ["Date", "Market Summary"], "data": []}],
+    }
+
+    with pytest.raises(
+        ValueError, match="TPEX afterTrading stock table was not found"
+    ):
+        scraper.parse_tpex_aftertrading_payload_body(
+            json.dumps(payload),
+            trading_date=date(2024, 1, 2),
+        )
+
+
+def test_parse_tpex_aftertrading_payload_body_logs_diagnostics_once_on_total_failure(
+    caplog,
+):
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {"fields": ["Date", "Market Summary"], "data": []},
+            {"fields": ["Code", "Close"], "data": []},
+        ],
+    }
+
+    with caplog.at_level("WARNING", logger=scraper.__name__):
+        with pytest.raises(ValueError, match="TPEX afterTrading stock table was not found"):
+            scraper.parse_tpex_aftertrading_payload_body(
+                json.dumps(payload),
+                trading_date=date(2024, 1, 2),
+            )
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "Required field aliases" in warnings[0].message
+
+
+def test_parse_tpex_aftertrading_payload_body_does_not_warn_for_summary_table_skip(
+    caplog,
+):
+    payload = {
+        "stat": "ok",
+        "tables": [
+            {"fields": ["Date", "Market Summary"], "data": []},
+            {
+                "fields": [
+                    "Code", "Name", "Close", "Open", "High", "Low",
+                    "Trade Vol. (shares)",
+                ],
+                "data": [["8049", "ABC", "10.5", "10", "11", "9", "1,000"]],
+            },
+        ],
+    }
+
+    with caplog.at_level("WARNING", logger=scraper.__name__):
+        cleaned, _ = scraper.parse_tpex_aftertrading_payload_body(
+            json.dumps(payload),
+            trading_date=date(2024, 1, 2),
+        )
+
+    assert len(cleaned) == 1
+    assert not [record for record in caplog.records if record.levelname == "WARNING"]
 
 
 def test_replay_raw_ingest_record_rejects_unknown_source():
@@ -1609,6 +1938,9 @@ def test_market_batch_failures_do_not_expose_exception_details(
 
     assert result.error_message == expected_message
     assert "token=secret" not in str(result)
+    if stage == "parse":
+        assert result.metadata is not None
+        assert result.metadata.raw_payload_id == 1
 
 
 def test_ingest_tw_market_batch_collects_source_errors(monkeypatch):

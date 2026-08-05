@@ -6,7 +6,7 @@ from datetime import date
 from backend.market_data.contracts.operations import DataIngestionRequest
 from backend.market_data.services._normalization import clean_optional_text
 from backend.platform.errors import DataAccessError, UnsupportedConfigurationError
-from scripts import market_data_ingestion as scraper
+from backend.market_data.services import ingestion_runtime as scraper
 
 logger = logging.getLogger(__name__)
 

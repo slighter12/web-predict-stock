@@ -20,11 +20,16 @@ def test_dispatch_scheduled_ingestions_main_returns_zero(
             "records": [],
         },
     )
+    logging_calls = []
+    monkeypatch.setattr(
+        module, "configure_cli_logging", lambda: logging_calls.append(True)
+    )
 
     exit_code = module.main()
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    assert logging_calls == [True]
     assert '"succeeded_count": 1' in captured.out
 
 
@@ -47,6 +52,7 @@ def test_dispatch_scheduled_ingestions_main_returns_one_on_failure(
             "records": [],
         },
     )
+    monkeypatch.setattr(module, "configure_cli_logging", lambda: None)
 
     exit_code = module.main()
 
