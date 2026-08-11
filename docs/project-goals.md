@@ -31,7 +31,7 @@ V1 is the `TW daily Quant ML Research Workbench`.
 The product should make one baseline research loop easy to complete before it
 expands into a broader platform:
 
-`Dataset -> Features -> Prediction Task -> Model Diagnostics -> Strategy Backtest -> Experiment Comparison`
+`Dataset -> Features -> Prediction Task -> Model Diagnostics -> Strategy Backtest -> Research-run comparison`
 
 The workbench should optimize for research clarity, reproducibility, and model
 diagnosis. Strategy performance matters, but it is downstream of model quality
@@ -44,7 +44,7 @@ The project has four v1 strategic layers:
 1. TW daily data readiness
 2. Research reproducibility and persisted artifacts
 3. Model-quality diagnostics and prediction-task clarity
-4. Experiment comparison and offline backtest discipline
+4. Research-run comparison and offline backtest discipline
 
 Data readiness and reproducibility outrank model novelty, advanced signal
 breadth, and any execution-path expansion.
@@ -54,11 +54,11 @@ breadth, and any execution-path expansion.
 | Goal | Outcome | Why it matters | Evidence family |
 | --- | --- | --- | --- |
 | `G1` | Durable TW daily market-data foundation | Research quality collapses when the raw daily data layer is fragile or hindsight-cleaned | `KPI-DATA-*` |
-| `G2` | Reproducible and recoverable research outputs | A persisted experiment must be fully reviewable after reload, including config, diagnostics, predictions, signals, equity, baselines, warnings, and runtime metadata | `KPI-RESEARCH-*` |
+| `G2` | Reproducible and recoverable research outputs | A persisted research run must be fully reviewable after reload, carrying every artifact required by `SPEC-RUN-001` | `KPI-RESEARCH-*` |
 | `G3` | Clear prediction-task semantics | Regression and classification must be explicit task families; first code delivery implements regression diagnostics while classification remains specified | `KPI-ML-*`, `KPI-RESEARCH-*` |
 | `G4` | Model diagnostics before strategy claims | RMSE, MAE, residuals, actual-vs-predicted, rank/IC quality, and feature importance should be visible before backtest interpretation | `KPI-ML-*` |
 | `G5` | Defensible offline backtests | Strategy metrics should use declared target, price, cost, and portfolio assumptions | `KPI-COMP-*`, `KPI-COST-*` |
-| `G6` | Experiment comparison with caveats | The UI must explain which runs are comparable, why, and what changed across dataset, target, features, model config, diagnostics, and strategy metrics | `KPI-COMP-*` |
+| `G6` | Research-run comparison with caveats | The UI must explain which runs are comparable, why, and what changed across every `SPEC-COMP-001` dimension | `KPI-COMP-*` |
 
 ## Priority Order
 
@@ -74,7 +74,7 @@ If a lower-priority feature weakens a higher-priority layer, defer it.
 ## Decision Principles
 
 - Research usability should outrank product polish.
-- Raw data recoverability should precede advanced analytics trust.
+- Raw payload recoverability should precede advanced analytics trust.
 - Reproducibility should outrank model novelty.
 - Model-quality diagnosis should precede strategy-performance claims.
 - Comparability should outrank isolated backtest performance.
@@ -91,7 +91,7 @@ If a lower-priority feature weakens a higher-priority layer, defer it.
 - regression prediction diagnostics
 - classification task specification without first-pass implementation
 - deterministic offline backtest semantics
-- experiment registry, search, load, and comparison
+- research-run registry, search, load, and comparison
 - explicit fallback for old runs that lack complete artifacts
 
 ### Hidden Advanced Or Future Modules
@@ -122,6 +122,6 @@ When a proposal improves one goal but weakens another, resolve the conflict in
 this order:
 
 1. protect TW daily data readiness and recoverability
-2. protect persisted experiment reproducibility
+2. protect persisted research-run reproducibility
 3. protect prediction-task, target, label, backtest, and comparison semantics
 4. only then expand model families, signals, or advanced platform modules

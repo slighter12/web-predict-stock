@@ -29,12 +29,12 @@ in the v1 product navigation.
 | --- | --- | --- |
 | Workbench product direction | implemented | README, goals, plan, spec, and gates describe the v1 workbench direction |
 | Start / Builder / Experiments / Data Support shell | implemented | frontend shell uses task-oriented surfaces instead of the old platform-first navigation |
-| Baseline TW daily experiment builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
+| Baseline TW daily research-run builder | implemented | baseline workflow creates research runs from dataset, features, model, validation, and backtest settings |
 | Regression diagnostics contract | implemented | backend, frontend types, and review UI include `model_diagnostics`, including residual samples |
-| Persisted result artifacts | verified | new successful runs reload request config, diagnostics, equity curve, signals, baselines, metrics, warnings, runtime metadata, and artifact completeness summaries; old metadata-only records show explicit fallback copy |
+| Persisted result artifacts | verified | new successful runs reload every artifact required by `SPEC-RUN-001`, plus artifact completeness summaries; old metadata-only records show explicit fallback copy |
 | Experiments comparison | implemented | search, sort, load, and compare work for complete research-review runs; backend caveats block metadata-only, partial, and unfinished records |
-| Direction classification | implemented | provisionally calibrated tree classification confirms regression-ranked candidates and persists diagnostics; artifact completeness does not establish out-of-sample skill or investment viability |
-| Hybrid opinion review | implemented | the existing Opinion, direction-diagnostic, workflow-payload, and frontend type integration is retained; further frontend expansion is paused while backend contracts and evaluation mature |
+| Direction admission gate | implemented | provisionally calibrated tree classification admits candidates for regression ranking and persists diagnostics; artifact completeness does not establish out-of-sample skill or investment viability |
+| Hybrid opinion review | implemented | the existing Opinion, direction-diagnostic, workflow-payload, and frontend type integration is retained; the frontend rewrite is planned but has not started, so no active frontend feature development is underway while the backend-first pause remains in effect |
 | Data readiness | implemented | start surface uses requested-symbol TW daily readiness with ready/warning/missing-stale counts |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, external-signal, and tick-archive surfaces remain code foundations, not v1 main-flow commitments |
 
@@ -43,10 +43,10 @@ in the v1 product navigation.
 ### Frontend
 
 - `Start`
-  - task entry for baseline study, recent experiments, and data readiness
+  - task entry for a baseline research run, recent research runs, and data readiness
 - `Experiment Builder`
   - baseline TW daily research workflow
-  - regression ranking with direction-classification confirmation by default
+  - direction admission gate plus regression ranking by default
 - `Experiments`
   - persisted run lookup, result review, filtering, sorting, and comparison
 - `Data Support`
@@ -76,7 +76,7 @@ of the v1 information architecture.
 
 Hidden advanced paths may remain reachable for internal diagnostics or legacy
 tooling, but they should not be required to start, understand, or compare a
-baseline experiment.
+baseline research run.
 
 ## Code Reading Notes
 
@@ -106,7 +106,7 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
   and version-pack fields are persisted
 - tree-based regression model families are available through the shared tabular
   training path
-- strategy metrics, signals, equity curve, baselines, and validation summaries
+- the strategy artifacts required by `SPEC-RUN-001`, plus validation summaries,
   exist for new successful runs
 - `model_diagnostics` exists in contracts and persistence fields
 
@@ -150,8 +150,10 @@ These foundations are implementation inventory, not v1 product scope.
 
 - the existing hybrid Opinion review, direction diagnostics, workflow payload,
   and type integration are retained
-- no additional frontend feature development is active; frontend work is
-  limited to backend-contract compatibility, typecheck, and build verification
+- the frontend rewrite is planned but has not started; no active frontend feature
+  development is underway
+- the backend-first pause remains in effect, so frontend work is limited to
+  backend-contract compatibility, typecheck, and build verification
 - legacy or platform-era component names should be cleaned up only after the
   current workbench surfaces fully replace them
 - residual diagnostics now have a dedicated sample section in the persisted run
@@ -199,9 +201,8 @@ These foundations are implementation inventory, not v1 product scope.
   - `agent-browser` verified Start -> Builder -> Run -> Review -> Reload ->
     Compare
   - result: the builder defaulted to Extra Trees, a successful run showed
-    diagnostics, equity, validation, baselines, and signals, reload restored the
-    persisted result, and two comparable runs showed aligned dataset, target,
-    feature, model, and cost-basis fields
+    the `SPEC-RUN-001` artifacts plus validation, reload restored the persisted
+    result, and two comparable runs showed aligned `SPEC-COMP-001` dimensions
 - focused verification:
   - `.venv/bin/python -m pytest -q tests/research tests/market_data/test_market_data_api.py`
   - result: `86 passed`
@@ -212,8 +213,7 @@ These foundations are implementation inventory, not v1 product scope.
   - migration applied with `.venv/bin/python -m alembic upgrade head`
   - deterministic `V1VERIFY` TW daily fixture created and cleaned up
   - successful run reloaded through `GET /api/v1/research/runs/{run_id}`
-  - result: request config, diagnostics, residuals, equity curve, signals,
-    baselines, warnings, metrics, and runtime metadata reloaded correctly
+  - result: every `SPEC-RUN-001` artifact, plus residuals, reloaded correctly
 - browser smoke:
   - `agent-browser` verified the Experiments surface for a successful run and a
     metadata-only fallback record

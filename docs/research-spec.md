@@ -11,7 +11,7 @@ Workbench` v1.
 - dataset and feature contracts
 - model diagnostics
 - offline backtest artifacts
-- persisted experiment artifacts
+- persisted research-run artifacts
 - comparison labels and caveats
 
 ## Does Not Own
@@ -26,7 +26,7 @@ Workbench` v1.
 ## Decision Rule
 
 Use this document when deciding what metadata must be persisted, what counts as
-a valid research result, and when two experiments can be compared.
+a valid research result, and when two research runs can be compared.
 
 ## Normative Layers
 
@@ -37,7 +37,7 @@ The v1 spec has six layers:
 3. Prediction task contract
 4. Model diagnostics contract
 5. Offline backtest contract
-6. Persisted experiment and comparison contract
+6. Persisted research-run and comparison contract
 
 Phase 2 adds an opinion layer on top of the persisted research artifacts. The
 opinion layer is not a broker, live-order, or portfolio-control contract.
@@ -92,7 +92,7 @@ before rerun.
 ### SPEC-FEATURE-002: Feature lineage
 
 Advanced factor, peer, and external-signal fields may exist on the request, but
-they are hidden advanced modules in v1. A baseline experiment must not require
+they are hidden advanced modules in v1. A baseline research run must not require
 them.
 
 ## Prediction Task Contract
@@ -104,9 +104,14 @@ The v1 workbench recognizes two prediction task families:
 - `regression`
 - `classification`
 
-The default workbench run uses regression as the primary ranking model and a
-binary direction classifier as a confirmation model. Regression-only requests
-remain supported, but they cannot emit a prospective hybrid opinion.
+The two families have different jobs and neither is subordinate to the other
+(ADR-0005). Because the strategy is long-only, the binary direction classifier
+is the **admission gate**: it decides whether a symbol may enter the candidate
+set at all. The regression score is the **ranking and weighting** signal: it
+orders and sizes what the gate admitted.
+
+Regression-only requests remain supported, but they cannot emit a prospective
+hybrid opinion — without a gate there is no admission decision.
 
 ### SPEC-TASK-002: Regression target
 
@@ -242,11 +247,11 @@ New successful runs must return and persist:
 Strategy metrics remain important, but the result page should show model
 quality first.
 
-## Persisted Experiment Contract
+## Persisted Research-Run Contract
 
 ### SPEC-RUN-001: Persisted artifact completeness
 
-A persisted successful experiment must be reviewable after reload with the same
+A persisted successful research run must be reviewable after reload with the same
 core artifacts available in the latest in-session response:
 
 - request config
@@ -275,7 +280,7 @@ saved row and request payload:
 
 Validation and baselines are `not_required` when they were not requested.
 Missing values mean the artifact is unavailable on that saved record, not that
-the study evaluated the artifact and produced an empty result.
+the research run evaluated the artifact and produced an empty artifact.
 
 ### SPEC-RUN-003: Runtime metadata
 
@@ -303,7 +308,7 @@ Every run must persist:
 
 ### SPEC-COMP-001: Comparison dimensions
 
-Experiment comparison must expose:
+Research-run comparison must expose:
 
 - dataset and date range
 - target family and horizon

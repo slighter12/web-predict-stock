@@ -21,14 +21,14 @@ and identify advanced gates that are excluded from v1 pass/fail.
 ## Decision Rule
 
 Use this document when deciding whether the v1 workbench is ready for a
-researcher to create, inspect, reload, and compare TW daily ML experiments.
+researcher to create, inspect, reload, and compare TW daily ML research runs.
 
 ## V1 Gate and KPI Index
 
 - `KPI-DATA-*`: TW daily data readiness and recoverability
 - `KPI-ML-*`: prediction-task and model-diagnostic completeness
-- `KPI-RESEARCH-*`: persisted experiment completeness
-- `KPI-COMP-*`: experiment comparison clarity
+- `KPI-RESEARCH-*`: persisted research-run completeness
+- `KPI-COMP-*`: research-run comparison clarity
 - `KPI-COST-*`: offline backtest cost and price-assumption completeness
 - `KPI-OPINION-*`: Phase 2 opinion artifact usefulness and safety
 - `GATE-V1-*`: v1 acceptance gates
@@ -89,14 +89,14 @@ drive the default workbench workflow.
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
 | `KPI-RESEARCH-001` | request persistence | persisted record includes the original request config | required |
-| `KPI-RESEARCH-002` | strategy artifact persistence | persisted record includes metrics, equity curve, signals, baselines, warnings, and runtime metadata | required for new runs |
+| `KPI-RESEARCH-002` | strategy artifact persistence | persisted record includes every artifact required by `SPEC-RUN-001` | required for new runs |
 | `KPI-RESEARCH-003` | old-run fallback clarity | historical records lacking artifacts expose artifact completeness and explicit fallback copy | required |
 
 ### Comparison
 
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
-| `KPI-COMP-001` | comparison dimension coverage | comparison displays dataset/date range, target, features, model config, diagnostics, strategy metrics, baseline delta, and eligibility | required |
+| `KPI-COMP-001` | comparison dimension coverage | comparison displays every dimension required by `SPEC-COMP-001` | required |
 | `KPI-COMP-002` | comparability reason clarity | non-comparable or metadata-only runs show the reason or missing fields | required |
 | `KPI-COMP-003` | model-first comparison | comparison does not treat strategy metrics as the only ranking surface | required |
 
@@ -134,7 +134,7 @@ Passes when:
 Passes when:
 
 - homepage exposes `Start Baseline Study`
-- one click starts the experiment builder
+- one click starts the research-run builder
 - baseline workflow does not require P7-P11, operations, or execution concepts
 - data readiness is visible as support context, not the primary hero
 
@@ -150,18 +150,17 @@ Passes when:
 
 Passes when:
 
-- persisted successful run reload includes request config, diagnostics, signals,
-  equity curve, baselines, metrics, warnings, and runtime metadata
+- persisted successful run reload includes every artifact required by
+  `SPEC-RUN-001`
 - old runs without artifacts show the fallback required by `KPI-RESEARCH-003`
 
-### GATE-V1-005: Experiments and Comparison
+### GATE-V1-005: Research Runs and Comparison
 
 Passes when:
 
-- experiments can be searched, filtered, sorted, selected, and loaded
+- research runs can be searched, filtered, sorted, selected, and loaded
 - two or more runs can be compared
-- comparison shows model diagnostics, strategy metrics, baseline delta, and
-  comparability caveats
+- comparison shows every `SPEC-COMP-001` dimension, plus comparability caveats
 
 ## Phase 2 Acceptance Gates
 

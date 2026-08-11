@@ -8,6 +8,7 @@ Define delivery sequencing, dependency rules, and completion logic for the
 ## Owns
 
 - v1 milestone order
+- phase sequencing beyond v1
 - dependency policy
 - completion criteria
 - hidden-advanced boundaries
@@ -56,11 +57,14 @@ inference, broad factor expansion, or tick archive operations.
 | Milestone | Primary goals | Primary outcome | Completion state target |
 | --- | --- | --- | --- |
 | `V1-Docs` | `G1` to `G6` | README, goals, plan, spec, and gates all describe a research workbench before a platform | `contract-defined` |
-| `V1-IA` | `G2`, `G3` | main UI starts with baseline study, recent experiments, and data readiness | `implemented` |
+| `V1-IA` | `G2`, `G3` | main UI starts with a baseline research run, recent research runs, and data readiness | `implemented` |
 | `V1-Diagnostics` | `G3`, `G4` | regression run response and persisted record include model diagnostics | `persisted-reviewable` |
-| `V1-Artifacts` | `G2`, `G5` | persisted run stores request config, diagnostics, predictions/signals, equity curve, baselines, warnings, and runtime metadata | `persisted-reviewable` |
-| `V1-Experiments` | `G6` | experiments can be searched, filtered, sorted, loaded, and compared with caveats | `implemented` |
+| `V1-Artifacts` | `G2`, `G5` | persisted run stores every artifact required by `SPEC-RUN-001` | `persisted-reviewable` |
+| `V1-Run-Comparison` | `G6` | research runs can be searched, filtered, sorted, loaded, and compared with caveats | `implemented` |
 | `V1-Classification-Spec` | `G3` | classification task fields and diagnostics are specified but not required in first code delivery | `contract-defined as part of V1-Docs` |
+
+`V1-Run-Comparison` was formerly named `V1-Experiments`; it was renamed when
+`CONTEXT.md` made `Research run` the canonical term.
 
 ## Delivery Order
 
@@ -69,7 +73,7 @@ inference, broad factor expansion, or tick archive operations.
 3. `V1-IA`
 4. `V1-Diagnostics`
 5. `V1-Artifacts`
-6. `V1-Experiments`
+6. `V1-Run-Comparison`
 
 `V1-Classification-Spec` is listed separately for visibility, but it is part of
 the documentation contract and should be completed with `V1-Docs`, not after
@@ -79,6 +83,34 @@ the implementation milestones.
 database contract changes, because model diagnostics are not useful if they only
 exist in the latest in-session response.
 
+## Phase 2 Sequencing
+
+Migrated from the retired `docs/decision-register.md`: this section carries
+`DEC-PHASE-003`, and retires `DEC-PHASE-009` below.
+
+Phase 2 is **backend-first**. Diagnostics, signals, backtests, baselines, and
+warnings are synthesized into decision-useful opinion artifacts before any large
+new UI surface is added. Opinion quality is the product advance; a UI that
+presents a weak opinion more attractively is not.
+
+Normative behavior for the opinion layer lives in `SPEC-OPINION-*`
+(`docs/research-spec.md`) and `GATE-P2-*` (`docs/validation-gates.md`).
+The boundary on what an opinion may claim is ADR-0002; the shape of the
+prediction it rests on is ADR-0005.
+
+### Retired: retain-the-current-UI (`DEC-PHASE-009`)
+
+`DEC-PHASE-009` held that the existing hybrid review UI should stay in place
+untouched while Phase 2 remained backend-first. **That decision is retired.**
+Preserving the existing UI is no longer product intent: the frontend rewrite is
+planned but has not started. No active frontend feature development is underway;
+the backend-first pause remains in effect while backend contracts and evaluation
+mature. Backend-first sequencing above still holds; it is the ordering that
+survives, not the freeze.
+
+The planned frontend rewrite will align the canonical `Research run` term with
+the existing frontend surface labels; `docs/` already uses the canonical term.
+
 ## Dependency Rules
 
 ### Must Exist Before Later Work
@@ -86,14 +118,15 @@ exist in the latest in-session response.
 - `V1-Docs` before UI or API changes that could widen scope
 - `V1-IA` before adding advanced surfaces to the homepage
 - `V1-Diagnostics` before treating strategy metrics as the result-page center
-- `V1-Artifacts` before claiming persisted experiments are reviewable
-- `V1-Experiments` before adding richer comparison scoring
+- `V1-Artifacts` before claiming persisted research runs are reviewable
+- `V1-Run-Comparison` before adding richer comparison scoring
 
 ### Hidden Advanced Policy
 
 Execution, adaptive, peer, factor, external-signal, and tick archive work may
 remain reachable through secondary diagnostics or backend APIs, but these
-capabilities must not be required to start or understand a baseline experiment.
+capabilities must not be required to start or understand a baseline research
+run.
 
 ### Deferred Work
 

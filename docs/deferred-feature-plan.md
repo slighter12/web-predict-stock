@@ -51,7 +51,7 @@ or Experiments workflow.
 | --- | --- | --- |
 | Broker or live-order execution | deferred | What guarded execution safety model, reconciliation, audit, kill-switch, and manual-confirmation rules are required before this becomes active? |
 | Simulation-platform integration | deferred | Which simulator is the baseline, and what comparison artifact does it produce? |
-| Adaptive or RL workflow | deferred | What researcher decision does adaptation explain better than static experiments? |
+| Adaptive or RL workflow | deferred | What researcher decision does adaptation explain better than static research runs? |
 | Peer inference and clustering | deferred | Which v1 analysis question needs peer context, and how is leakage avoided? |
 | Broad factor catalog expansion | deferred | Which factors are required for the baseline TW daily task family? |
 | External-signal breadth | deferred | Which signal timing and audit rules make it research-safe? |
@@ -109,4 +109,5 @@ or account-control behavior.
 - avoid adding developer-runbook details for deferred modules to `docs/dev.md`
 - replace removed runbook content with feature-plan decisions only when a
   product question is ready to answer
-- update `docs/decision-register.md` before promoting any deferred candidate
+- add an ADR under `docs/adr/` before promoting any deferred candidate; see
+  ADR-0017

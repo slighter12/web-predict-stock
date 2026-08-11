@@ -1,10 +1,13 @@
-# TW Daily Quant ML Research Workbench
+# Quant Research-to-Opinion Workbench
 
-This repository is a research-first workbench for TW daily quantitative ML
-experiments. The v1 product is intentionally narrow: help a researcher create a
-baseline study, inspect model quality, review the resulting strategy backtest,
-and compare persisted experiments without treating the app as an execution or
-data-control suite.
+This repository turns quantitative research artifacts into model opinions a solo
+investor-researcher reads before deciding for themselves. It is market-phased and
+starts with Taiwan daily equity data (ADR-0003).
+
+The v1 loop is intentionally narrow: create a baseline research run, inspect
+model quality, review the resulting strategy backtest, and compare persisted
+research runs. It is not a broker, a live-trading system, or a personalized
+advisory product — see ADR-0002 for where that boundary sits.
 
 ## V1 Product Flow
 
@@ -15,12 +18,13 @@ The main workflow is:
 3. Prediction task
 4. Model diagnostics
 5. Strategy backtest
-6. Experiment comparison
+6. Research-run comparison
 
 The default prediction task combines forward-return regression with a
-provisionally calibrated direction classifier. Regression ranks predicted
-returns; classification confirms direction before the workbench emits
-prospective model output for review. Artifact completeness does not establish
+provisionally calibrated direction classifier. Because the strategy is
+long-only, the classifier is the admission gate deciding which symbols may enter
+the candidate set at all, and the regression score ranks and weights what it
+admitted (ADR-0005). Artifact completeness does not establish
 out-of-sample skill or investment viability.
 
 ## What This Repository Owns
@@ -30,7 +34,7 @@ out-of-sample skill or investment viability.
 - tabular regression model diagnostics
 - calibrated direction-classification diagnostics
 - strategy backtest artifacts derived from model scores
-- experiment registry and comparison context
+- research-run registry and comparison context
 - data-readiness diagnostics needed to explain research reliability
 
 ## What This Repository Does Not Own For V1
@@ -52,11 +56,11 @@ promotes them deliberately.
 | --- | --- | --- |
 | Research-run core | implemented | run creation, registry records, runtime metadata, and saved-run lookup exist |
 | TW daily data readiness | implemented with diagnostics | ingestion, replay, lifecycle, important-event, and recovery surfaces support data trust checks |
-| Baseline experiment builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
+| Baseline research-run builder | implemented | a researcher can start from the baseline workflow without editing API payloads |
 | Regression diagnostics | implemented | successful regression runs return and reload model-quality artifacts before strategy interpretation |
-| Hybrid model opinion | implemented | regression ranking and direction confirmation produce a common-date, manual-review opinion; holdout signals remain evaluation-only |
-| Persisted artifact reload | verified | new successful runs reload request config, diagnostics, equity, signals, baselines, warnings, runtime metadata, and artifact completeness summaries |
-| Experiment comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; metadata-only and partial records expose backend caveats before comparison |
+| Hybrid model opinion | implemented | regression ranking and the direction gate produce a common-date, manual-review opinion; holdout signals remain evaluation-only |
+| Persisted artifact reload | verified | new successful runs reload every artifact required by `SPEC-RUN-001`, plus artifact completeness summaries |
+| Research-run comparison | usable for v1 loop | search, load, and compare work for complete research-review runs; metadata-only and partial records expose backend caveats before comparison |
 | Advanced/platform modules | hidden advanced | execution, adaptive, peer, factor, and tick archive capabilities are not v1 main-flow surfaces |
 
 For the fuller implementation inventory, use
@@ -78,9 +82,13 @@ diagnostic surfaces unless a future roadmap promotes them.
 
 ### Frontend
 
+The frontend rewrite is planned but has not started. No active frontend feature
+development is underway; the backend-first pause remains in effect while backend
+contracts and evaluation mature.
+
 - Start surface for the three common tasks:
-  - start a baseline study
-  - open recent experiments
+  - start a baseline research run
+  - open recent research runs
   - check data readiness
 - Experiment Builder for the baseline TW daily research workflow
 - Experiments surface for persisted run lookup, review, and comparison
@@ -88,8 +96,8 @@ diagnostic surfaces unless a future roadmap promotes them.
 
 ## Still Partial Or Deferred
 
-- direction classification is implemented as provisional confirmation; its
-  calibration gates and pooled diagnostics do not establish per-symbol skill
+- the direction admission gate is provisionally calibrated; its calibration
+  gates and pooled diagnostics do not establish per-symbol skill
 - richer pairwise comparison explanations can still improve review workflow, but
   incomplete artifacts and backend comparison caveats now block optimistic compare
 - execution, adaptive, peer, factor, and tick archive modules are deferred from
@@ -99,6 +107,11 @@ diagnostic surfaces unless a future roadmap promotes them.
 
 | Question | Owner |
 | --- | --- |
+| What does this term mean? | [`CONTEXT.md`](CONTEXT.md) |
+| Why was something decided this way? | [`docs/adr/`](docs/adr/) |
+| Where do I start when picking up any task? | [`docs/agents/domain.md`](docs/agents/domain.md) |
+| How do I review a product-direction proposal? | [`docs/review-checklist.md`](docs/review-checklist.md) |
+| Which decisions are still missing? | [`docs/open-decisions.md`](docs/open-decisions.md) |
 | Why does this project exist and what is in or out of v1 scope? | `docs/project-goals.md` |
 | What behavior, fields, diagnostics, and comparison rules must exist? | `docs/research-spec.md` |
 | What should be built next and in what order? | `docs/plan.md` |
@@ -106,25 +119,32 @@ diagnostic surfaces unless a future roadmap promotes them.
 | How do I run the repository locally? | `docs/dev.md` |
 | Which dependency directions and internal compatibility rules apply? | `docs/backend-architecture.md` |
 | What is implemented today, what is partial, and what is still pending? | `docs/implementation-status.md` |
-| Which open decisions still block durable policy? | `docs/decision-register.md` |
 | Which removed advanced features are future candidates? | `docs/deferred-feature-plan.md` |
+
+The first three rows answer three different kinds of question about the same
+thing and do not overlap: a glossary entry says what a term *means*, a spec says
+what it must *satisfy*, an ADR says why it was *decided*. See ADR-0001.
 
 ## Suggested Reading Paths
 
 ### New To The Repository
 
 1. `README.md`
-2. `docs/project-goals.md`
-3. `docs/research-spec.md`
-4. `docs/dev.md`
+2. [`CONTEXT.md`](CONTEXT.md)
+3. `docs/project-goals.md`
+4. `docs/research-spec.md`
+5. `docs/dev.md`
 
 ### Planning The Next Chunk Of Work
 
-1. `docs/project-goals.md`
-2. `docs/research-spec.md`
-3. `docs/plan.md`
-4. `docs/validation-gates.md`
-5. `docs/implementation-status.md`
+1. [`docs/adr/README.md`](docs/adr/README.md)
+2. [`docs/review-checklist.md`](docs/review-checklist.md)
+3. [`docs/open-decisions.md`](docs/open-decisions.md)
+4. `docs/project-goals.md`
+5. `docs/research-spec.md`
+6. `docs/plan.md`
+7. `docs/validation-gates.md`
+8. `docs/implementation-status.md`
 
 ## Quickstart
 
@@ -158,7 +178,7 @@ test commands are intentionally owned by [`docs/dev.md`](docs/dev.md).
 ├── backend/                # app, platform, shared, system, research, market_data, signals, execution
 ├── frontend/               # Svelte workbench surfaces for builder, experiments, and data diagnostics
 ├── scripts/                # local operational entrypoints and utilities
-├── docs/                   # goals, spec, plan, validation, dev, status
+├── docs/                   # adr, open decisions, goals, spec, plan, validation, dev, status
 ├── tests/                  # domain tests plus script entrypoint coverage
 └── docker-compose.yml      # PostgreSQL + TimescaleDB service
 ```
