@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.research.contracts.runs import (
+    ComparisonCaveat,
     OpinionArtifact,
     ResearchRunCreateRequest,
     ResearchRunResponse,
@@ -13,6 +14,7 @@ from backend.research.domain.artifact_summary import (
     has_requested_baselines,
 )
 from backend.research.domain.opinion import build_opinion_artifact
+from backend.research.domain.result_caveats import warnings_with_result_caveats
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.repositories.runs import (
     get_research_run_snapshot,
@@ -148,6 +150,7 @@ def _project_reviewable_payload(
         request_payload=projected.get("request_payload"),
         comparison_eligibility=projected.get("comparison_eligibility"),
         artifact_presence=artifact_presence,
+        market=projected.get("market"),
     )
     projected.update(summary)
     projected["opinion_artifact"] = build_opinion_artifact(
@@ -166,6 +169,12 @@ def project_live_response(
         "status": "succeeded",
         "request_payload": request_payload,
     }
+    payload["warnings"] = warnings_with_result_caveats(
+        payload.get("warnings"),
+        status="succeeded",
+        market=payload.get("market"),
+        request_payload=request_payload,
+    )
     projected = _project_reviewable_payload(
         payload,
         artifact_presence={
@@ -187,7 +196,11 @@ def project_live_response(
             "present_artifacts": projected["present_artifacts"],
             "missing_artifacts": projected["missing_artifacts"],
             "not_required_artifacts": projected["not_required_artifacts"],
-            "comparison_caveats": projected["comparison_caveats"],
+            "comparison_caveats": [
+                ComparisonCaveat.model_validate(item)
+                for item in projected["comparison_caveats"]
+            ],
+            "warnings": projected["warnings"],
             "opinion_artifact": OpinionArtifact.model_validate(
                 projected["opinion_artifact"]
             ),

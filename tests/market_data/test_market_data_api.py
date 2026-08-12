@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 import backend.market_data.api as data_plane_api
 import backend.market_data.repositories.company_profiles as company_profile_repository
 import backend.market_data.services.company_crawlers as company_crawlers
+import backend.market_data.services.company_profiles as company_profile_service
 import backend.market_data.services.readiness as readiness_service
 from backend.app import app
 from backend.database import (
@@ -126,15 +127,13 @@ def test_tw_company_crawl_does_not_expose_request_url(
     monkeypatch,
 ):
     feed_url_with_token = "https://feed.test/company?token=secret"  # noqa: S105
-    monkeypatch.setenv(
-        company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV,
-        feed_url_with_token,
-    )
+    requested_urls = []
     monkeypatch.setattr(
         company_crawlers,
         "_request_company_feed_with_tls_fallback",
-        lambda **kwargs: (_ for _ in ()).throw(
-            requests.HTTPError(f"Forbidden for url: {kwargs['url']}")
+        lambda **kwargs: requested_urls.append(kwargs["url"])
+        or (_ for _ in ()).throw(
+            requests.HTTPError(f"Forbidden for url: {feed_url_with_token}")
         ),
     )
     monkeypatch.setattr(
@@ -151,6 +150,7 @@ def test_tw_company_crawl_does_not_expose_request_url(
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "EXTERNAL_FETCH_FAILED"
     assert response.json()["error"]["message"] == "Failed to fetch TW company feed."
+    assert requested_urls == [company_crawlers.TWSE_COMPANY_SOURCE.url]
     assert "HTTPError" in caplog.text
     assert "token=secret" not in response.text
     assert "token=secret" not in caplog.text
@@ -178,6 +178,27 @@ def test_tw_company_crawl_endpoint_does_not_reconcile_profiles(
             99,
             [{"CompanyCode": "2330", "CompanyName": "TSMC"}],
         ),
+    )
+    monkeypatch.setattr(
+        company_profile_service,
+        "get_raw_ingest_record",
+        lambda raw_payload_id: type(
+            "RawRecord",
+            (),
+            {
+                "source_name": "twse_company_profile",
+                "market": "TW",
+                "symbol": "TW_COMPANY_UNIVERSE",
+                "parser_version": "tw_company_profile_v1",
+                "fetch_status": "success",
+                "expected_symbol_context": (
+                    "source=twse_company_profile;market=TW"
+                ),
+                "payload_body": (
+                    '[{"CompanyCode":"2330","CompanyName":"TSMC"}]'
+                ),
+            },
+        )(),
     )
     with testing_session_local() as session:
         session.add_all(
@@ -289,7 +310,7 @@ def test_tw_daily_readiness_endpoint(monkeypatch):
                     "covered_trading_days": 13,
                     "missing_trading_days": 1,
                     "stale_trading_days": 1,
-                    "warnings": ["Missing 1 of 14 requested trading days."],
+                    "warnings": ["Missing 1 of 14 known TW market dates."],
                 },
             ],
         },
@@ -311,39 +332,38 @@ def test_tw_daily_readiness_endpoint(monkeypatch):
     assert response.json()["symbols"][1]["symbol"] == "2317"
 
 
-def test_tw_daily_readiness_counts_missing_weekdays(monkeypatch):
+def _readiness_session_local(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(
         bind=engine, tables=[DailyOHLCV.__table__, RawIngestAudit.__table__]
     )
     testing_session_local = sessionmaker(bind=engine)
     monkeypatch.setattr(readiness_service, "SessionLocal", testing_session_local)
+    return testing_session_local
+
+
+def _daily_row(symbol: str, row_date: date) -> DailyOHLCV:
+    return DailyOHLCV(
+        date=row_date,
+        symbol=symbol,
+        source="test",
+        market="TW",
+        open=1,
+        high=1,
+        low=1,
+        close=1,
+        volume=100,
+    )
+
+
+def test_tw_daily_readiness_counts_observed_market_dates_not_weekdays(monkeypatch):
+    testing_session_local = _readiness_session_local(monkeypatch)
 
     with testing_session_local() as session:
         session.add_all(
             [
-                DailyOHLCV(
-                    date=date(2026, 3, 2),
-                    symbol="2330",
-                    source="test",
-                    market="TW",
-                    open=1,
-                    high=1,
-                    low=1,
-                    close=1,
-                    volume=100,
-                ),
-                DailyOHLCV(
-                    date=date(2026, 3, 4),
-                    symbol="2330",
-                    source="test",
-                    market="TW",
-                    open=1,
-                    high=1,
-                    low=1,
-                    close=1,
-                    volume=100,
-                ),
+                _daily_row("2330", date(2026, 3, 2)),
+                _daily_row("2330", date(2026, 3, 7)),
             ]
         )
         session.commit()
@@ -351,16 +371,91 @@ def test_tw_daily_readiness_counts_missing_weekdays(monkeypatch):
     request = data_plane_api.TwDailyReadinessRequest(
         market="TW",
         symbols=["2330"],
-        date_range={"start": date(2026, 3, 2), "end": date(2026, 3, 4)},
+        date_range={"start": date(2026, 3, 2), "end": date(2026, 3, 8)},
+    )
+
+    summary = readiness_service.summarize_tw_daily_readiness(request)
+
+    assert summary["overall_status"] == "ready"
+    assert summary["summary"]["ready"] == 1
+    assert summary["symbols"][0]["requested_trading_days"] == 2
+    assert summary["symbols"][0]["covered_trading_days"] == 2
+    assert summary["symbols"][0]["missing_trading_days"] == 0
+
+
+def test_tw_daily_readiness_uses_market_wide_dates_for_denominator(monkeypatch):
+    testing_session_local = _readiness_session_local(monkeypatch)
+
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                _daily_row("2330", date(2026, 3, 2)),
+                _daily_row("2317", date(2026, 3, 3)),
+            ]
+        )
+        session.commit()
+
+    request = data_plane_api.TwDailyReadinessRequest(
+        market="TW",
+        symbols=["2330"],
+        date_range={"start": date(2026, 3, 2), "end": date(2026, 3, 3)},
     )
 
     summary = readiness_service.summarize_tw_daily_readiness(request)
 
     assert summary["overall_status"] == "warning"
-    assert summary["summary"]["warning"] == 1
-    assert summary["symbols"][0]["requested_trading_days"] == 3
-    assert summary["symbols"][0]["covered_trading_days"] == 2
+    assert summary["symbols"][0]["requested_trading_days"] == 2
+    assert summary["symbols"][0]["covered_trading_days"] == 1
     assert summary["symbols"][0]["missing_trading_days"] == 1
+    assert summary["symbols"][0]["warnings"] == [
+        "Missing 1 of 2 known TW market dates.",
+        "Latest daily row is 1 known TW market date(s) behind 2026-03-03.",
+    ]
+
+
+def test_tw_daily_readiness_reports_range_with_no_known_market_dates(monkeypatch):
+    testing_session_local = _readiness_session_local(monkeypatch)
+
+    with testing_session_local() as session:
+        session.add(_daily_row("2330", date(2026, 3, 2)))
+        session.commit()
+
+    request = data_plane_api.TwDailyReadinessRequest(
+        market="TW",
+        symbols=["2330"],
+        date_range={"start": date(2026, 3, 7), "end": date(2026, 3, 8)},
+    )
+
+    summary = readiness_service.summarize_tw_daily_readiness(request)
+
+    assert summary["overall_status"] == "warning"
+    assert summary["symbols"][0]["requested_trading_days"] == 0
+    assert summary["symbols"][0]["covered_trading_days"] == 0
+    assert summary["symbols"][0]["missing_trading_days"] == 0
+    assert summary["symbols"][0]["warnings"] == [
+        "No known TW market dates found in the requested date range."
+    ]
+
+
+def test_tw_daily_readiness_reports_empty_storage(monkeypatch):
+    _readiness_session_local(monkeypatch)
+    request = data_plane_api.TwDailyReadinessRequest(
+        market="TW",
+        symbols=["2330"],
+        date_range={"start": date(2026, 3, 2), "end": date(2026, 3, 8)},
+    )
+
+    summary = readiness_service.summarize_tw_daily_readiness(request)
+
+    assert summary["overall_status"] == "missing"
+    assert summary["summary"]["missing"] == 1
+    assert summary["symbols"][0]["requested_trading_days"] == 0
+    assert summary["symbols"][0]["covered_trading_days"] == 0
+    assert summary["symbols"][0]["missing_trading_days"] == 0
+    assert summary["symbols"][0]["warnings"] == [
+        "No TW daily rows found for the requested symbol.",
+        "No known TW market dates found in the requested date range.",
+    ]
 
 
 def test_recovery_lifecycle_and_important_event_endpoints(monkeypatch):
@@ -560,7 +655,7 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
         "gate_id": "GATE-P1-OPS-001",
         "overall_status": "pass",
         "metrics": {
-            "KPI-DATA-001": {
+            "KPI-OPS-001": {
                 "value": 100.0,
                 "status": "pass",
                 "numerator": 20,
@@ -569,7 +664,7 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
                 "window": "rolling 20 trading days",
                 "details": {},
             },
-            "KPI-DATA-008": {
+            "KPI-OPS-008": {
                 "value": 5,
                 "status": "pass",
                 "numerator": 5,

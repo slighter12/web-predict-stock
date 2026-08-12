@@ -14,6 +14,10 @@ from backend.research.domain.signal_snapshot import (
     signal_date_key as _signal_date_key,
     valid_latest_signals as _valid_latest_signals,
 )
+from backend.research.domain.result_caveats import (
+    TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+    TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+)
 
 OPINION_ARTIFACT_VERSION = "phase2_opinion_artifact_v1"
 OMITTED_DETAIL_LIMITATION = (
@@ -102,19 +106,23 @@ def _risk_context(
     symbol: str | None = None,
 ) -> tuple[str, list[dict[str, str]], str]:
     warnings = [str(item) for item in _as_list(payload.get("warnings"))]
-    if warnings:
-        if symbol is None:
-            return (
-                "Persisted warnings were evaluated per symbol; unmatched warnings remain "
-                "run-level/unscoped.",
-                _refs(("warnings", "warnings")),
-                "warning_summary",
-            )
+    caveats = [_as_mapping(item) for item in _as_list(payload.get("comparison_caveats"))]
+    universe_caveat = next(
+        (
+            item
+            for item in caveats
+            if item.get("code") == TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE
+        ),
+        None,
+    )
+
+    if symbol is not None:
         warning = next(
             (
                 item
                 for item in warnings
-                if re.search(
+                if item != TW_POINT_IN_TIME_MEMBERSHIP_WARNING
+                and re.search(
                     rf"(?<![A-Za-z0-9]){re.escape(symbol)}(?![A-Za-z0-9])",
                     item,
                     re.IGNORECASE,
@@ -128,19 +136,42 @@ def _risk_context(
                 _refs(("warnings", "warnings")),
                 "warning",
             )
+
+    if warnings:
+        if TW_POINT_IN_TIME_MEMBERSHIP_WARNING in warnings:
+            return (
+                TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+                _refs(("warnings", "warnings")),
+                "warning",
+            )
+        if symbol is None and universe_caveat is None:
+            return (
+                "Persisted warnings were evaluated per symbol; unmatched warnings remain "
+                "run-level/unscoped.",
+                _refs(("warnings", "warnings")),
+                "warning_summary",
+            )
+
+    if universe_caveat is not None:
+        return (
+            str(universe_caveat.get("label") or TW_POINT_IN_TIME_MEMBERSHIP_WARNING),
+            _refs(("comparison_caveats", "comparison_caveats")),
+            "caveat",
+        )
+
+    if warnings:
         return (
             "Persisted run-level/unscoped warning has no reliable symbol match.",
             _refs(("warnings", "warnings")),
             "unscoped_warning",
         )
 
-    caveats = [_as_mapping(item) for item in _as_list(payload.get("comparison_caveats"))]
     if caveats:
         caveat = caveats[0]
         code = str(caveat.get("code", "COMPARISON_CAVEAT"))
         severity = str(caveat.get("severity", "blocker"))
         return (
-            f"Persisted run-level caveat {code} with severity {severity} "
+            f"Run-level caveat {code} with severity {severity} "
             "applies to all symbols.",
             _refs(("comparison_caveats", "comparison_caveats")),
             "caveat",
@@ -165,7 +196,12 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
             ),
             "stale_freshness",
         )
-    if _as_list(payload.get("comparison_caveats")):
+    blocker_caveats = [
+        _as_mapping(item)
+        for item in _as_list(payload.get("comparison_caveats"))
+        if _as_mapping(item).get("severity") == "blocker"
+    ]
+    if blocker_caveats:
         return (
             "Do not adopt if persisted comparison caveats still apply.",
             _refs(("comparison_caveats", "comparison_caveats")),

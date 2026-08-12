@@ -152,7 +152,17 @@ def _build_prospective_prediction_features(
                 f"[{symbol}] Strict prospective features cannot reproduce model "
                 f"columns from the unshifted frame: {missing_columns}."
             )
-    return unshifted_features.reindex(columns=model_columns).dropna()
+    return _build_prediction_features(unshifted_features, model_columns)
+
+
+def _build_prediction_features(
+    features: pd.DataFrame,
+    model_columns: list[str],
+) -> pd.DataFrame:
+    return model_service.filter_complete_case_rows(
+        features.reindex(columns=model_columns),
+        columns=model_columns,
+    )
 
 
 def load_symbol_data(
@@ -248,7 +258,10 @@ def load_symbol_data(
         "actuals": y_test.rename(symbol),
         "predictions": predictions,
         "feature_names": list(X_train.columns),
-        "prediction_features": df_features.reindex(columns=X.columns).dropna(),
+        "prediction_features": _build_prediction_features(
+            df_features,
+            list(X.columns),
+        ),
         "prospective_prediction_features": prospective_prediction_features,
         "feature_importance": _extract_feature_importance(model, list(X_train.columns)),
         "open": df_model.loc[X_test.index, "open"].rename(symbol),
@@ -1027,9 +1040,9 @@ def execute_research_run(
             ],
             "capacity_screening_version": p3_summary["capacity_screening_version"],
             "adv_basis_version": p3_summary["adv_basis_version"],
-            "missing_feature_policy_version": p3_summary[
-                "missing_feature_policy_version"
-            ],
+            "missing_feature_policy_version": (
+                model_service.MISSING_FEATURE_POLICY_VERSION
+            ),
             "execution_cost_model_version": p3_summary["execution_cost_model_version"],
             "split_policy_version": build_split_policy_version(
                 request.validation.method if request.validation else None
@@ -1087,7 +1100,7 @@ def execute_research_run(
         tradability_state=p3_summary["tradability_state"],
         tradability_contract_version=p3_summary["tradability_contract_version"],
         capacity_screening_active=p3_summary["capacity_screening_active"],
-        missing_feature_policy_state=p3_summary["missing_feature_policy_state"],
+        missing_feature_policy_state=model_service.MISSING_FEATURE_POLICY_STATE,
         corporate_event_state=p3_summary["corporate_event_state"],
         full_universe_count=p3_summary["full_universe_count"],
         execution_universe_count=p3_summary["execution_universe_count"],

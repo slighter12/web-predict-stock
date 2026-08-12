@@ -55,6 +55,24 @@ def test_public_request_accepts_direction_model_defaults():
     )
 
 
+def test_public_request_model_defaults_and_explicit_overrides():
+    payload = make_payload()
+    payload.pop("model")
+
+    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert request.model.type == "extra_trees"
+    assert request.direction_model is None
+
+    payload["model"] = {"type": "xgboost", "params": {}}
+    payload["direction_model"] = {}
+    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert request.model.type == "xgboost"
+    assert request.direction_model is not None
+    assert request.direction_model.type == "extra_trees"
+
+
 def test_public_request_rejects_unknown_direction_calibration_policy():
     payload = make_payload()
     payload["direction_model"] = {

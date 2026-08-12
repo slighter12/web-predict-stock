@@ -84,7 +84,7 @@ class FeatureRegistryResponse(BaseModel):
 
 
 class ModelConfig(RequestModel):
-    type: ModelType = Field(default="xgboost", description="Model identifier.")
+    type: ModelType = Field(default="extra_trees", description="Model identifier.")
     params: Dict[str, object] = Field(default_factory=dict)
 
 

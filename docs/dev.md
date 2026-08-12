@@ -205,22 +205,23 @@ INGEST_SYMBOL=2330 INGEST_MARKET=TW INGEST_YEARS=3 \
   .venv/bin/python -m scripts.market_data_ingestion
 ```
 
-The Start readiness panel may report `warning` when some requested trading days
-are missing. That does not automatically block v1 research runs; the blocker is
-insufficient model-ready rows after feature generation, shifting, target
-alignment, and null filtering.
+The Start readiness panel may report `warning` when some known TW market dates
+in the requested range are missing. That does not automatically block v1
+research runs; the blocker is insufficient model-ready rows after feature
+generation, shifting, target alignment, and complete-case exclusion of training
+rows with non-finite model inputs or target values.
 
 After DB, migrations, backend, frontend, and data are ready, verify:
 
 - Start shows TW daily readiness context for the requested symbol
 - Builder opens from the baseline task and defaults to Extra Trees
 - Run creates a successful research record
-- Review shows diagnostics, equity, signals, plus validation and baselines when
+- Review shows the artifacts required by `SPEC-RUN-001`, plus validation when
   requested
 - Reload restores the persisted result and shows whether review artifacts are
   complete, partial, metadata-only, not requested, or unavailable on the record
-- Compare two complete runs and confirm dataset, target, feature, model,
-  cost-basis, metrics, baseline delta, and caveat fields are visible
+- Compare two complete runs and confirm every `SPEC-COMP-001` dimension is
+  visible, along with cost-basis and caveat fields
 - Compare complete versus partial or old metadata-only records and confirm the
   compare status blocks optimistic interpretation
 - Compare assumption mismatch cases and confirm the table flags dataset, target,

@@ -13,6 +13,10 @@ from backend.database import (
     ResearchRunLiquidityCoverage,
 )
 from backend.research.domain.version_pack import build_version_pack_payload
+from backend.research.domain.result_caveats import (
+    TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+    TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+)
 
 
 def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():
@@ -88,6 +92,30 @@ def test_requested_missing_baseline_remains_partial_after_reload():
     assert summary["artifact_completeness"] == "partial"
     assert "baselines" in summary["missing_artifacts"]
     assert "baselines" not in summary["present_artifacts"]
+
+
+def test_failed_tw_projection_does_not_add_universe_caveat():
+    projected = research_run_projection._project_reviewable_payload(
+        {
+            "status": "failed",
+            "market": "TW",
+            "comparison_eligibility": "comparison_metadata_only",
+            "request_payload": {"market": "TW", "validation": None, "baselines": []},
+        },
+        artifact_presence={
+            "metrics": False,
+            "model_diagnostics": False,
+            "equity_curve": False,
+            "signals": False,
+            "validation": False,
+            "baselines": False,
+        },
+        summary_only=False,
+    )
+
+    assert TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE not in {
+        item["code"] for item in projected["comparison_caveats"]
+    }
 
 
 def test_model_diagnostics_parser_preserves_direction_diagnostics():
@@ -427,6 +455,32 @@ def test_project_persisted_snapshot_parses_model_diagnostics_once(monkeypatch):
     assert projected["model_diagnostics"]["actual_vs_predicted"] == []
 
 
+@pytest.mark.parametrize(
+    "legacy_state",
+    ["native_missing_supported", "core_data_gaps_filtered"],
+)
+def test_run_projection_preserves_legacy_missing_feature_metadata(legacy_state):
+    row = ResearchRun(
+        run_id="legacy-missing-feature-policy",
+        status="succeeded",
+        missing_feature_policy_state=legacy_state,
+        missing_feature_policy_version="xgboost_native_missing_v1",
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+    projected = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
+
+    assert snapshot["missing_feature_policy_state"] == legacy_state
+    assert snapshot["_version_pack_values"]["missing_feature_policy_version"] == (
+        "xgboost_native_missing_v1"
+    )
+    assert projected["missing_feature_policy_state"] == legacy_state
+    assert projected["missing_feature_policy_version"] == "xgboost_native_missing_v1"
+
+
 def test_run_row_to_snapshot_parses_reused_json_fields_once(monkeypatch):
     equity_curve_json = '[{"equity": 1.0}]'
     signals_json = '[{"symbol": "2330"}]'
@@ -578,7 +632,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "run_id": "run_123",
         "request_id": "req_123",
         "status": "succeeded",
-        "market": "TW",
+        "market": None,
         "symbols": ["2330", "2317", "2454", "9999"],
         "strategy_type": "research_v1",
         "runtime_mode": "runtime_compatibility_mode",
@@ -597,6 +651,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "validation_outcome": {"ok": True},
         "rejection_reason": None,
         "request_payload": {
+            "market": "TW",
             "symbols": ["2330", "2317", "2454", "9999"],
             "direction_model": {"confirmation_probability_threshold": 0.5},
             "features": [
@@ -656,7 +711,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "tradability_state": "research_only",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
         "capacity_screening_active": False,
-        "missing_feature_policy_state": "native_missing_supported",
+        "missing_feature_policy_state": "complete_case_applied",
         "corporate_event_state": "clear",
         "full_universe_count": 1,
         "execution_universe_count": 1,
@@ -707,7 +762,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
                 "investability_screening_active": False,
                 "capacity_screening_version": "adv_ex_ante_buy_notional_0p5pct_v1",
                 "adv_basis_version": "raw_close_x_volume_active_session_v1",
-                "missing_feature_policy_version": "xgboost_native_missing_v1",
+                "missing_feature_policy_version": "complete_case_model_inputs_v1",
                 "execution_cost_model_version": "fees_slippage_only_v1",
             }
         ),
@@ -717,6 +772,8 @@ def test_research_run_repository_roundtrip(monkeypatch):
     loaded = research_run_projection.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
+    assert loaded["market"] is None
+    assert loaded["request_payload"]["market"] == "TW"
     assert loaded["request_payload"]["features"][0]["shift"] == 0
     assert loaded["effective_strategy"] == {"threshold": 0.003, "top_n": 3}
     assert loaded["comparison_eligibility"] == "research_only_comparable"
@@ -728,6 +785,14 @@ def test_research_run_repository_roundtrip(monkeypatch):
     assert loaded["artifact_completeness"] == "complete"
     assert loaded["missing_artifacts"] == []
     assert loaded["not_required_artifacts"] == ["validation", "baselines"]
+    assert loaded["warnings"] == []
+    assert loaded["comparison_caveats"] == [
+        {
+            "code": TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+            "label": TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+            "severity": "note",
+        }
+    ]
     assert loaded["opinion_artifact"]["state"] == "viable"
     assert [row["symbol"] for row in loaded["opinion_artifact"]["sell_or_avoid"]] == [
         "2317"
@@ -780,7 +845,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "flat_count": 3,
         "invalid_row_count": 0,
     }
-    assert checks["backtest_report_discipline"]["status"] == "pass"
+    assert checks["backtest_report_discipline"]["status"] == "warning"
     assert checks["backtest_report_discipline"]["result"]["metric_keys"] == [
         "max_drawdown",
         "sharpe",
@@ -825,10 +890,12 @@ def test_research_run_repository_roundtrip(monkeypatch):
         ],
         "missing_config_fallback_inputs": [],
     }
-    assert checks["text_evidence_summary"]["status"] == "not_evaluated"
-    assert checks["text_evidence_summary"]["result"]["caveat_count"] == 0
-    assert checks["text_evidence_summary"]["result"]["source_text_count"] == 0
-    assert checks["text_evidence_summary"]["result"]["summary_text"] == ""
+    assert checks["text_evidence_summary"]["status"] == "warning"
+    assert checks["text_evidence_summary"]["result"]["caveat_count"] == 1
+    assert checks["text_evidence_summary"]["result"]["source_text_count"] == 1
+    assert checks["text_evidence_summary"]["result"]["summary_text"] == (
+        TW_POINT_IN_TIME_MEMBERSHIP_WARNING
+    )
     assert all(item["source_artifact_references"] for item in checks.values())
     assert all(
         reference.get("symbol") == opinion_row["symbol"]
@@ -946,7 +1013,8 @@ def test_research_run_repository_classifies_partial_artifacts(monkeypatch):
         "signals",
     ]
     assert {item["code"] for item in loaded["comparison_caveats"]} == {
-        "REVIEW_ARTIFACTS_MISSING"
+        "REVIEW_ARTIFACTS_MISSING",
+        TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
     }
     assert loaded["opinion_artifact"]["state"] == "no-opinion"
     assert loaded["opinion_artifact"]["evidence_limitations"]
@@ -1232,7 +1300,7 @@ def test_research_run_repository_reassigns_existing_observation_run_id(monkeypat
         "tradability_state": "execution_ready",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
         "capacity_screening_active": False,
-        "missing_feature_policy_state": "native_missing_supported",
+        "missing_feature_policy_state": "complete_case_applied",
         "corporate_event_state": "clear",
         "full_universe_count": 1,
         "execution_universe_count": 1,
@@ -1265,7 +1333,7 @@ def test_research_run_repository_reassigns_existing_observation_run_id(monkeypat
                 "investability_screening_active": False,
                 "capacity_screening_version": "adv_ex_ante_buy_notional_0p5pct_v1",
                 "adv_basis_version": "raw_close_x_volume_active_session_v1",
-                "missing_feature_policy_version": "xgboost_native_missing_v1",
+                "missing_feature_policy_version": "complete_case_model_inputs_v1",
                 "execution_cost_model_version": "fees_slippage_only_v1",
             }
         ),
@@ -1323,7 +1391,7 @@ def test_research_run_repository_prunes_stale_monitor_observations(monkeypatch):
         "tradability_state": "execution_ready",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
         "capacity_screening_active": True,
-        "missing_feature_policy_state": "native_missing_supported",
+        "missing_feature_policy_state": "complete_case_applied",
         "corporate_event_state": "clear",
         "full_universe_count": 1,
         "execution_universe_count": 1,
@@ -1343,7 +1411,7 @@ def test_research_run_repository_prunes_stale_monitor_observations(monkeypatch):
                 "investability_screening_active": False,
                 "capacity_screening_version": "adv_ex_ante_buy_notional_0p5pct_v1",
                 "adv_basis_version": "raw_close_x_volume_active_session_v1",
-                "missing_feature_policy_version": "xgboost_native_missing_v1",
+                "missing_feature_policy_version": "complete_case_model_inputs_v1",
                 "execution_cost_model_version": "fees_slippage_only_v1",
             }
         ),
@@ -1445,7 +1513,7 @@ def test_research_run_repository_accepts_datetime_observation_dates(monkeypatch)
         "tradability_state": "execution_ready",
         "tradability_contract_version": "p3_tradability_monitoring_v1",
         "capacity_screening_active": True,
-        "missing_feature_policy_state": "native_missing_supported",
+        "missing_feature_policy_state": "complete_case_applied",
         "corporate_event_state": "clear",
         "full_universe_count": 1,
         "execution_universe_count": 1,
@@ -1478,7 +1546,7 @@ def test_research_run_repository_accepts_datetime_observation_dates(monkeypatch)
                 "investability_screening_active": False,
                 "capacity_screening_version": "adv_ex_ante_buy_notional_0p5pct_v1",
                 "adv_basis_version": "raw_close_x_volume_active_session_v1",
-                "missing_feature_policy_version": "xgboost_native_missing_v1",
+                "missing_feature_policy_version": "complete_case_model_inputs_v1",
                 "execution_cost_model_version": "fees_slippage_only_v1",
             }
         ),

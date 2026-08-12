@@ -374,14 +374,14 @@ def get_p8_phase_gate_summary() -> dict[str, Any]:
         "verification_gate_id": "GATE-VERIFICATION-001",
         "overall_status": overall_status,
         "metrics": {
-            "KPI-RESEARCH-002": _metric(
+            "KPI-PEER-001": _metric(
                 value=alignment_value,
                 status=alignment_status,
                 numerator=float(len(aligned_runs)) if comparable_count else None,
                 denominator=float(comparable_count) if comparable_count else None,
                 window="latest 50 peer-enabled comparable runs",
             ),
-            "KPI-RESEARCH-003": _metric(
+            "KPI-PEER-002": _metric(
                 value=reporting_value,
                 status=reporting_status,
                 numerator=float(len(reported_runs)) if comparable_count else None,

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from datetime import date
 from typing import Any
 
 import requests
@@ -17,9 +15,17 @@ from backend.market_data.repositories.raw_ingest import (
     persist_raw_ingest_record,
 )
 from backend.market_data.services.company_profiles import (
+    TPEX_COMPANY_SOURCE,
+    TW_COMPANY_PARSER_VERSION,
+    TW_COMPANY_SYMBOL,
+    TWSE_COMPANY_SOURCE,
+    CompanyProfileSource,
+    _build_profile_payload,
+    _extract_record_list,
+    _first_value,
     count_active_tw_company_profiles,
     list_active_tw_company_profiles,
-    save_tw_company_profile,
+    save_tw_company_profiles,
 )
 from backend.market_data.services.tls_helpers import request_with_tls_fallback
 from backend.platform.errors import (
@@ -31,18 +37,12 @@ from backend.platform.time import utc_now
 
 logger = logging.getLogger(__name__)
 
-TWSE_COMPANY_SOURCE_URL_ENV = "TWSE_COMPANY_SOURCE_URL"
-TPEX_COMPANY_SOURCE_URL_ENV = "TPEX_COMPANY_SOURCE_URL"
-TWSE_COMPANY_SOURCE_URL_DEFAULT = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
-TPEX_COMPANY_SOURCE_URL_DEFAULT = (
-    "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
-)
-TWSE_COMPANY_SOURCE_NAME = "twse_company_profile"
-TPEX_COMPANY_SOURCE_NAME = "tpex_company_profile"
-TW_COMPANY_PARSER_VERSION = "tw_company_profile_v1"
-TW_COMPANY_SYMBOL = "TW_COMPANY_UNIVERSE"
+TWSE_COMPANY_SOURCE_URL_DEFAULT = TWSE_COMPANY_SOURCE.url
+TPEX_COMPANY_SOURCE_URL_DEFAULT = TPEX_COMPANY_SOURCE.url
+TWSE_COMPANY_SOURCE_NAME = TWSE_COMPANY_SOURCE.source_name
+TPEX_COMPANY_SOURCE_NAME = TPEX_COMPANY_SOURCE.source_name
 _RECONCILIATION_MINIMUM_COVERAGE_RATIO = 0.95
-_PAYLOAD_RECORD_KEYS = ("records", "data", "items", "result", "results", "response")
+_TRUSTED_COMPANY_SOURCES = (TWSE_COMPANY_SOURCE, TPEX_COMPANY_SOURCE)
 
 
 def _describe_payload(payload: Any) -> str:
@@ -50,25 +50,6 @@ def _describe_payload(payload: Any) -> str:
         keys = [str(key) for key in payload.keys()]
         return ",".join(keys[:10]) if keys else "<empty>"
     return type(payload).__name__
-
-
-def _extract_record_list(
-    payload: Any, *, depth: int = 0
-) -> list[dict[str, Any]] | None:
-    if depth > 4:
-        return None
-    if isinstance(payload, list):
-        records = [item for item in payload if isinstance(item, dict)]
-        return records or None
-    if not isinstance(payload, dict):
-        return None
-    for key in _PAYLOAD_RECORD_KEYS:
-        if key not in payload:
-            continue
-        records = _extract_record_list(payload.get(key), depth=depth + 1)
-        if records is not None:
-            return records
-    return None
 
 
 def _extract_records(payload: Any) -> list[dict[str, Any]]:
@@ -85,29 +66,6 @@ def _extract_records(payload: Any) -> list[dict[str, Any]]:
     )
 
 
-def _first_value(item: dict[str, Any], *keys: str) -> str | None:
-    for key in keys:
-        value = item.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return None
-
-
-def _parse_listing_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    normalized = value.strip().replace("/", "-")
-    if len(normalized) == 8 and normalized.isdigit():
-        normalized = f"{normalized[:4]}-{normalized[4:6]}-{normalized[6:]}"
-    try:
-        return date.fromisoformat(normalized)
-    except ValueError:
-        return None
-
-
 def _request_company_feed_with_tls_fallback(
     *, url: str, timeout_seconds: int
 ) -> requests.Response:
@@ -117,18 +75,20 @@ def _request_company_feed_with_tls_fallback(
         timeout_seconds=timeout_seconds,
         logger=logger,
         context_label="company feed fetch",
+        allow_redirects=False,
     )
 
 
 def _fetch_company_feed(
     *,
-    url_env: str,
-    default_url: str,
-    source_name: str,
+    source: CompanyProfileSource,
 ) -> tuple[int, list[dict[str, Any]]]:
-    url = os.getenv(url_env, default_url)
-    if not url:
-        raise UnsupportedConfigurationError(f"{url_env} is required.")
+    if not any(source is trusted for trusted in _TRUSTED_COMPANY_SOURCES):
+        raise UnsupportedConfigurationError(
+            "TW company feed source descriptor is not trusted."
+        )
+    url = source.url
+    source_name = source.source_name
     payload_body = ""
     fetch_timestamp = utc_now()
     expected_context = f"source={source_name};market=TW"
@@ -137,6 +97,14 @@ def _fetch_company_feed(
             url=url,
             timeout_seconds=30,
         )
+        if response.url != source.url:
+            raise UnsupportedConfigurationError(
+                "TW company feed final URL does not match its trusted source."
+            )
+        if 300 <= response.status_code < 400:
+            raise requests.exceptions.TooManyRedirects(
+                "TW company feed redirect is not allowed."
+            )
         response.raise_for_status()
         payload_body = response.text
     except requests.exceptions.RequestException as exc:
@@ -198,79 +166,6 @@ def _fetch_company_feed(
     return raw_payload_id, records
 
 
-def _build_profile_payload(
-    *,
-    item: dict[str, Any],
-    exchange: str,
-    board: str,
-    source_name: str,
-    raw_payload_id: int,
-    archive_reference: str,
-) -> dict[str, Any]:
-    symbol = _first_value(
-        item,
-        "CompanyCode",
-        "SecuritiesCompanyCode",
-        "公司代碼",
-        "公司代號",
-        "股票代號",
-        "代號",
-        "Code",
-    )
-    company_name = _first_value(
-        item,
-        "CompanyName",
-        "公司名稱",
-        "股票名稱",
-        "簡稱",
-        "名稱",
-        "公司簡稱",
-        "Name",
-    )
-    if symbol is None or company_name is None:
-        raise ValueError("Company profile is missing symbol or company_name.")
-
-    listing_date = _parse_listing_date(
-        _first_value(
-            item,
-            "ListingDate",
-            "上市日期",
-            "上櫃日期",
-            "掛牌日期",
-        )
-    )
-    trading_status = (
-        _first_value(
-            item,
-            "TradingStatus",
-            "交易狀態",
-            "狀態",
-            "Status",
-        )
-        or "active"
-    )
-    notes = _first_value(item, "MarketCategory", "市場別", "備註", "Note")
-    return {
-        "symbol": symbol,
-        "market": "TW",
-        "exchange": exchange,
-        "board": board,
-        "company_name": company_name,
-        "isin_code": _first_value(item, "ISINCode", "ISIN", "國際證券辨識號碼"),
-        "industry_category": _first_value(
-            item, "Industry", "IndustryCategory", "產業別", "產業類別"
-        ),
-        "listing_date": listing_date,
-        "trading_status": "active"
-        if trading_status.lower() in {"active", "listed", "trading", "正常"}
-        else trading_status.lower(),
-        "source_name": source_name,
-        "raw_payload_id": raw_payload_id,
-        "archive_object_reference": archive_reference,
-        "notes": notes,
-    }
-
-
 def _profile_identity(payload: dict[str, Any]) -> tuple[str, str]:
     return payload["exchange"], payload["symbol"]
 
@@ -327,18 +222,13 @@ def _dedupe_profile_payloads(
 
 def _crawl_single_source(
     *,
-    url_env: str,
-    default_url: str,
-    source_name: str,
-    exchange: str,
-    board: str,
+    source: CompanyProfileSource,
     reconcile: bool = True,
 ) -> dict[str, Any]:
-    raw_payload_id, records = _fetch_company_feed(
-        url_env=url_env,
-        default_url=default_url,
-        source_name=source_name,
-    )
+    source_name = source.source_name
+    exchange = source.exchange
+    board = source.board
+    raw_payload_id, records = _fetch_company_feed(source=source)
     archive_reference = f"raw_ingest_audit:{raw_payload_id}"
     built_profiles: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -356,7 +246,13 @@ def _crawl_single_source(
             )
         except Exception as exc:
             symbol = (
-                _first_value(item, "公司代號", "股票代號", "公司代碼", "CompanyCode")
+                _first_value(
+                    item,
+                    "公司代號",
+                    "股票代號",
+                    "公司代碼",
+                    "CompanyCode",
+                )
                 or "unknown"
             )
             errors.append(f"exchange={exchange} symbol={symbol}: {exc}")
@@ -371,9 +267,27 @@ def _crawl_single_source(
     updated_count = 0
     noop_count = 0
     active_symbols: set[str] = set()
-    for payload in deduped_profiles:
+    save_outcomes = []
+    if deduped_profiles:
         try:
-            saved = save_tw_company_profile(payload)
+            save_outcomes = save_tw_company_profiles(deduped_profiles)
+        except Exception as exc:
+            error_type = type(exc).__name__
+            logger.warning(
+                "TW company profile batch save rejected exchange=%s "
+                "raw_payload_id=%s error_type=%s",
+                exchange,
+                raw_payload_id,
+                error_type,
+            )
+            errors.append(
+                f"exchange={exchange} raw_payload_id={raw_payload_id} "
+                f"batch_save_error_type={error_type}"
+            )
+    for outcome in save_outcomes:
+        payload = outcome.payload
+        if outcome.error is None and outcome.saved is not None:
+            saved = outcome.saved
             active_symbols.add(saved["symbol"])
             upserted_count += 1
             write_action = saved.get("write_action")
@@ -383,9 +297,11 @@ def _crawl_single_source(
                 updated_count += 1
             else:
                 noop_count += 1
-        except Exception as exc:
+        else:
+            error_type = type(outcome.error).__name__
             errors.append(
-                f"exchange={payload['exchange']} symbol={payload['symbol']}: {exc}"
+                f"exchange={payload['exchange']} symbol={payload['symbol']} "
+                f"save_error_type={error_type}"
             )
     inactivated_count = 0
     reconciliation_skipped = False
@@ -462,22 +378,14 @@ def crawl_tw_company_profiles(
 ) -> dict[str, Any]:
     summaries = [
         _crawl_single_source(
-            url_env=TWSE_COMPANY_SOURCE_URL_ENV,
-            default_url=TWSE_COMPANY_SOURCE_URL_DEFAULT,
-            source_name=TWSE_COMPANY_SOURCE_NAME,
-            exchange="TWSE",
-            board="listed",
+            source=TWSE_COMPANY_SOURCE,
             reconcile=reconcile,
         )
     ]
     if include_tpex:
         summaries.append(
             _crawl_single_source(
-                url_env=TPEX_COMPANY_SOURCE_URL_ENV,
-                default_url=TPEX_COMPANY_SOURCE_URL_DEFAULT,
-                source_name=TPEX_COMPANY_SOURCE_NAME,
-                exchange="TPEX",
-                board="otc",
+                source=TPEX_COMPANY_SOURCE,
                 reconcile=reconcile,
             )
         )

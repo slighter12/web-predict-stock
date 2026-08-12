@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import bisect
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import func, select
 
@@ -37,16 +37,6 @@ def _stale_trading_days(
         return 0
     idx = bisect.bisect_right(all_market_days, latest_symbol_date)
     return max(len(all_market_days) - idx, 0)
-
-
-def _weekday_dates(start: date, end: date) -> list[date]:
-    current = start
-    days: list[date] = []
-    while current <= end:
-        if current.weekday() < 5:
-            days.append(current)
-        current += timedelta(days=1)
-    return days
 
 
 def _coerce_date(value: date | str | None) -> date | None:
@@ -111,9 +101,11 @@ def summarize_tw_daily_readiness(request: TwDailyReadinessRequest) -> dict:
             requested_trading_days: list[date] | None = None
             coverage_by_symbol: dict[str, int] = {}
             if date_range is not None:
-                requested_trading_days = _weekday_dates(
-                    date_range.start, date_range.end
-                )
+                requested_trading_days = [
+                    market_date
+                    for market_date in all_market_days
+                    if date_range.start <= market_date <= date_range.end
+                ]
                 coverage_rows = session.execute(
                     select(DailyOHLCV.symbol, func.count(func.distinct(DailyOHLCV.date)))
                     .where(DailyOHLCV.market == "TW")
@@ -158,16 +150,18 @@ def summarize_tw_daily_readiness(request: TwDailyReadinessRequest) -> dict:
             warnings.append("No TW daily rows found for the requested symbol.")
         if requested_count is not None:
             if requested_count == 0:
-                warnings.append("No TW trading days found in the requested date range.")
+                warnings.append(
+                    "No known TW market dates found in the requested date range."
+                )
             elif (covered_trading_days or 0) == 0:
                 warnings.append("No TW daily rows cover the requested date range.")
             elif (missing_trading_days or 0) > 0:
                 warnings.append(
-                    f"Missing {missing_trading_days} of {requested_count} requested trading days."
+                    f"Missing {missing_trading_days} of {requested_count} known TW market dates."
                 )
         if stale_trading_days > 0 and latest_market_date is not None:
             warnings.append(
-                f"Latest daily row is {stale_trading_days} trading day(s) behind {latest_market_date.isoformat()}."
+                f"Latest daily row is {stale_trading_days} known TW market date(s) behind {latest_market_date.isoformat()}."
             )
 
         if latest_daily_date is None or (

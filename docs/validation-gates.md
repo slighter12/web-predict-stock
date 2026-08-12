@@ -21,21 +21,26 @@ and identify advanced gates that are excluded from v1 pass/fail.
 ## Decision Rule
 
 Use this document when deciding whether the v1 workbench is ready for a
-researcher to create, inspect, reload, and compare TW daily ML experiments.
+researcher to create, inspect, reload, and compare TW daily ML research runs.
 
 ## V1 Gate and KPI Index
 
 - `KPI-DATA-*`: TW daily data readiness and recoverability
 - `KPI-ML-*`: prediction-task and model-diagnostic completeness
-- `KPI-RESEARCH-*`: persisted experiment completeness
-- `KPI-COMP-*`: experiment comparison clarity
+- `KPI-RESEARCH-*`: persisted research-run completeness
+- `KPI-COMP-*`: research-run comparison clarity
 - `KPI-COST-*`: offline backtest cost and price-assumption completeness
 - `KPI-OPINION-*`: Phase 2 opinion artifact usefulness and safety
 - `GATE-V1-*`: v1 acceptance gates
 - `GATE-P2-*`: Phase 2 opinion-layer acceptance gates
 
-The following families are not v1 pass/fail gates:
+## Advanced KPI Index
 
+The following families are hidden advanced diagnostics and are not v1
+pass/fail gates:
+
+- `KPI-OPS-*`
+- `KPI-PEER-*`
 - `KPI-TICK-*`
 - `KPI-SIM-*`
 - `KPI-LIVE-*`
@@ -49,10 +54,10 @@ drive the default workbench workflow.
 
 ## Metric Definition Rules
 
-- Trading-day basis: use the active TW exchange trading calendar unless a
-  metric states otherwise. The v1 readiness surface is an exception: it reports
-  requested-symbol coverage over currently known TW daily market dates until a
-  calendar-authoritative readiness service is promoted.
+- Market Date basis: v1 readiness reports requested-symbol coverage over
+  distinct TW daily dates observed anywhere in the market-data store. Other
+  metrics must name their date basis rather than treating weekdays as a trading
+  calendar.
 - Missing-sample rule: symbols blocked by lifecycle state, unresolved corporate
   events, missing OHLCV, or missing target availability are excluded from
   model-ready denominators and recorded in warnings when relevant.
@@ -73,7 +78,7 @@ drive the default workbench workflow.
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
 | `KPI-DATA-001` | daily data availability | requested TW symbols have daily OHLCV rows in the requested range after exclusions | report |
-| `KPI-DATA-002` | model-ready row count | rows remaining after feature generation, shifting, target alignment, and null filtering | `> 0` per trained symbol |
+| `KPI-DATA-002` | model-ready row count | training rows remaining after feature generation, shifting, target alignment, and complete-case exclusion of rows with non-finite model inputs or target values | `> 0` per trained symbol |
 | `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics, including symbol-level warning reasons on Start or Data Support surfaces | required |
 
 ### Model Diagnostics
@@ -82,21 +87,21 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-ML-001` | regression diagnostic completeness | successful regression run includes RMSE, MAE, rank IC, linear IC, sample count, actual-vs-predicted, residuals, and feature importance | required |
 | `KPI-ML-002` | diagnostic persistence | persisted reload includes the same model diagnostics as the in-session response | required for new runs |
-| `KPI-ML-003` | classification spec readiness | classification target and diagnostic requirements are documented | required; implementation deferred |
+| `KPI-ML-003` | direction admission readiness | the hybrid workflow persists its direction classifier configuration and diagnostics; standalone classification Research Runs remain specified but deferred | required for the hybrid workflow |
 
 ### Research Artifacts
 
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
 | `KPI-RESEARCH-001` | request persistence | persisted record includes the original request config | required |
-| `KPI-RESEARCH-002` | strategy artifact persistence | persisted record includes metrics, equity curve, signals, baselines, warnings, and runtime metadata | required for new runs |
+| `KPI-RESEARCH-002` | research-run artifact persistence | persisted record includes every artifact required by `SPEC-RUN-001` | required for new runs |
 | `KPI-RESEARCH-003` | old-run fallback clarity | historical records lacking artifacts expose artifact completeness and explicit fallback copy | required |
 
 ### Comparison
 
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
-| `KPI-COMP-001` | comparison dimension coverage | comparison displays dataset/date range, target, features, model config, diagnostics, strategy metrics, baseline delta, and eligibility | required |
+| `KPI-COMP-001` | comparison dimension coverage | comparison displays every dimension required by `SPEC-COMP-001` | required |
 | `KPI-COMP-002` | comparability reason clarity | non-comparable or metadata-only runs show the reason or missing fields | required |
 | `KPI-COMP-003` | model-first comparison | comparison does not treat strategy metrics as the only ranking surface | required |
 
@@ -134,7 +139,7 @@ Passes when:
 Passes when:
 
 - homepage exposes `Start Baseline Study`
-- one click starts the experiment builder
+- one click starts the research-run builder
 - baseline workflow does not require P7-P11, operations, or execution concepts
 - data readiness is visible as support context, not the primary hero
 
@@ -150,18 +155,25 @@ Passes when:
 
 Passes when:
 
-- persisted successful run reload includes request config, diagnostics, signals,
-  equity curve, baselines, metrics, warnings, and runtime metadata
+- persisted successful run reload includes every artifact required by
+  `SPEC-RUN-001`
 - old runs without artifacts show the fallback required by `KPI-RESEARCH-003`
+- TW results display the `SPEC-DATA-004` point-in-time membership caveat before
+  result interpretation, including legacy runs projected from saved market data
+- legacy projections derive market from the saved request when the top-level
+  market is absent
+- the membership caveat alone does not change comparison eligibility or opinion
+  viability
+- the caveat discloses that historical membership coverage is not established;
+  it does not represent complete historical coverage
 
-### GATE-V1-005: Experiments and Comparison
+### GATE-V1-005: Research Runs and Comparison
 
 Passes when:
 
-- experiments can be searched, filtered, sorted, selected, and loaded
+- research runs can be searched, filtered, sorted, selected, and loaded
 - two or more runs can be compared
-- comparison shows model diagnostics, strategy metrics, baseline delta, and
-  comparability caveats
+- comparison shows every `SPEC-COMP-001` dimension, plus comparability caveats
 
 ## Phase 2 Acceptance Gates
 
@@ -206,6 +218,9 @@ Passes when:
   automatic rebalancing, account control, or personalized investment advice
 - live trading and guarded execution concepts remain deferred references until
   their own promotion criteria are met
+- a persisted run carrying `execution_ready` or other non-research execution
+  metadata reconstructs to an Opinion Artifact with a failed manual-adoption
+  check and no actionable rows
 
 ### GATE-P2-005: Backend-First Slice
 

@@ -89,7 +89,7 @@ def _iter_month_dates(start_date: date, end_date: date) -> list[tuple[int, int]]
     return items
 
 
-def _calculate_kpi_data_001_and_002(reference_date: date) -> tuple[dict, dict]:
+def _calculate_kpi_ops_001_and_002(reference_date: date) -> tuple[dict, dict]:
     trading_days = list_market_trading_days(
         "TW",
         end_date=reference_date,
@@ -144,7 +144,7 @@ def _calculate_kpi_data_001_and_002(reference_date: date) -> tuple[dict, dict]:
                 else []
             )
     except Exception as exc:
-        logger.exception("Failed to calculate KPI-DATA-001 and KPI-DATA-002")
+        logger.exception("Failed to calculate KPI-OPS-001 and KPI-OPS-002")
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
 
     runs_by_slot = {
@@ -258,7 +258,7 @@ def _resolve_symbol_active_window(
     return active_start, active_end
 
 
-def _calculate_kpi_data_003(reference_date: date) -> dict:
+def _calculate_kpi_ops_003(reference_date: date) -> dict:
     latest_market_date = _latest_market_date("TW", reference_date)
     month_start = latest_market_date.replace(day=1)
     if latest_market_date.month == 12:
@@ -311,7 +311,7 @@ def _calculate_kpi_data_003(reference_date: date) -> dict:
                 else []
             )
     except Exception as exc:
-        logger.exception("Failed to load data for KPI-DATA-003")
+        logger.exception("Failed to load data for KPI-OPS-003")
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
 
     lifecycle_by_symbol: dict[str, list[SymbolLifecycleRecord]] = {}
@@ -370,7 +370,7 @@ def _calculate_kpi_data_003(reference_date: date) -> dict:
     )
 
 
-def _calculate_kpi_data_004(reference_date: date) -> dict:
+def _calculate_kpi_ops_004(reference_date: date) -> dict:
     start_date = reference_date - timedelta(days=89)
     try:
         with SessionLocal() as session:
@@ -387,7 +387,7 @@ def _calculate_kpi_data_004(reference_date: date) -> dict:
                 .all()
             )
     except Exception as exc:
-        logger.exception("Failed to load recovery drills for KPI-DATA-004")
+        logger.exception("Failed to load recovery drills for KPI-OPS-004")
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
     deltas = [
         int(row.completed_trading_day_delta)
@@ -407,7 +407,7 @@ def _calculate_kpi_data_004(reference_date: date) -> dict:
     )
 
 
-def _calculate_kpi_data_005(reference_date: date) -> dict:
+def _calculate_kpi_ops_005(reference_date: date) -> dict:
     start_date = reference_date - timedelta(days=89)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     durations_hours: list[float] = []
@@ -437,7 +437,7 @@ def _calculate_kpi_data_005(reference_date: date) -> dict:
             )
     except Exception as exc:
         logger.exception(
-            "Failed to load replay and recovery telemetry for KPI-DATA-005"
+            "Failed to load replay and recovery telemetry for KPI-OPS-005"
         )
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
 
@@ -459,7 +459,7 @@ def _calculate_kpi_data_005(reference_date: date) -> dict:
     )
 
 
-def _calculate_kpi_data_006_and_008(reference_date: date) -> tuple[dict, dict]:
+def _calculate_kpi_ops_006_and_008(reference_date: date) -> tuple[dict, dict]:
     start_date = reference_date - timedelta(days=89)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     try:
@@ -478,7 +478,7 @@ def _calculate_kpi_data_006_and_008(reference_date: date) -> tuple[dict, dict]:
             )
     except Exception as exc:
         logger.exception(
-            "Failed to load important events for KPI-DATA-006 and KPI-DATA-008"
+            "Failed to load important events for KPI-OPS-006 and KPI-OPS-008"
         )
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
 
@@ -520,7 +520,7 @@ def _calculate_kpi_data_006_and_008(reference_date: date) -> tuple[dict, dict]:
     return metric_006, metric_008
 
 
-def _calculate_kpi_data_007(reference_date: date) -> dict:
+def _calculate_kpi_ops_007(reference_date: date) -> dict:
     start_date = reference_date - timedelta(days=89)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
     due_slots: set[tuple[int, date]] = set()
@@ -552,7 +552,7 @@ def _calculate_kpi_data_007(reference_date: date) -> dict:
                 .all()
             )
     except Exception as exc:
-        logger.exception("Failed to load recovery schedules for KPI-DATA-007")
+        logger.exception("Failed to load recovery schedules for KPI-OPS-007")
         raise DataAccessError("Failed to calculate operational KPIs.") from exc
 
     for schedule in schedules:
@@ -588,32 +588,32 @@ def _calculate_kpi_data_007(reference_date: date) -> dict:
 def get_ops_kpi_summary(reference_time: datetime | None = None) -> dict:
     current_time = reference_time or utc_now()
     reference_date = current_time.date()
-    metric_001, metric_002 = _calculate_kpi_data_001_and_002(reference_date)
-    metric_003 = _calculate_kpi_data_003(reference_date)
-    metric_004 = _calculate_kpi_data_004(reference_date)
-    metric_005 = _calculate_kpi_data_005(reference_date)
-    metric_006, metric_008 = _calculate_kpi_data_006_and_008(reference_date)
-    metric_007 = _calculate_kpi_data_007(reference_date)
+    metric_001, metric_002 = _calculate_kpi_ops_001_and_002(reference_date)
+    metric_003 = _calculate_kpi_ops_003(reference_date)
+    metric_004 = _calculate_kpi_ops_004(reference_date)
+    metric_005 = _calculate_kpi_ops_005(reference_date)
+    metric_006, metric_008 = _calculate_kpi_ops_006_and_008(reference_date)
+    metric_007 = _calculate_kpi_ops_007(reference_date)
 
     metrics = {
-        "KPI-DATA-001": metric_001,
-        "KPI-DATA-002": metric_002,
-        "KPI-DATA-003": metric_003,
-        "KPI-DATA-004": metric_004,
-        "KPI-DATA-005": metric_005,
-        "KPI-DATA-006": metric_006,
-        "KPI-DATA-007": metric_007,
-        "KPI-DATA-008": metric_008,
+        "KPI-OPS-001": metric_001,
+        "KPI-OPS-002": metric_002,
+        "KPI-OPS-003": metric_003,
+        "KPI-OPS-004": metric_004,
+        "KPI-OPS-005": metric_005,
+        "KPI-OPS-006": metric_006,
+        "KPI-OPS-007": metric_007,
+        "KPI-OPS-008": metric_008,
     }
     gate_ready = all(
         metrics[key]["status"] == "pass"
         for key in (
-            "KPI-DATA-001",
-            "KPI-DATA-002",
-            "KPI-DATA-003",
-            "KPI-DATA-004",
-            "KPI-DATA-005",
-            "KPI-DATA-007",
+            "KPI-OPS-001",
+            "KPI-OPS-002",
+            "KPI-OPS-003",
+            "KPI-OPS-004",
+            "KPI-OPS-005",
+            "KPI-OPS-007",
         )
     ) and (
         metric_006["status"] == "pass"

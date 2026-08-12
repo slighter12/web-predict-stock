@@ -195,20 +195,30 @@ def test_get_ops_kpi_summary_returns_gate_pass(monkeypatch):
     summary = ops_kpi_service.get_ops_kpi_summary(reference_time=reference_time)
 
     assert summary["overall_status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-001"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-002"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-003"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-004"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-005"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-006"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-007"]["status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-008"]["value"] == 5.0
+    assert set(summary["metrics"]) == {
+        "KPI-OPS-001",
+        "KPI-OPS-002",
+        "KPI-OPS-003",
+        "KPI-OPS-004",
+        "KPI-OPS-005",
+        "KPI-OPS-006",
+        "KPI-OPS-007",
+        "KPI-OPS-008",
+    }
+    assert summary["metrics"]["KPI-OPS-001"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-002"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-003"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-004"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-005"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-006"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-007"]["status"] == "pass"
+    assert summary["metrics"]["KPI-OPS-008"]["value"] == 5.0
 
 
 def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_001_and_002",
+        "_calculate_kpi_ops_001_and_002",
         lambda reference_date: (
             ops_kpi_service._metric(value=100, status="pass", window="window"),
             ops_kpi_service._metric(value=100, status="pass", window="window"),
@@ -216,7 +226,7 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_003",
+        "_calculate_kpi_ops_003",
         lambda reference_date: ops_kpi_service._metric(
             value=100,
             status="pass",
@@ -225,7 +235,7 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_004",
+        "_calculate_kpi_ops_004",
         lambda reference_date: ops_kpi_service._metric(
             value=1,
             status="pass",
@@ -234,7 +244,7 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_005",
+        "_calculate_kpi_ops_005",
         lambda reference_date: ops_kpi_service._metric(
             value=1,
             status="pass",
@@ -243,7 +253,7 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_006_and_008",
+        "_calculate_kpi_ops_006_and_008",
         lambda reference_date: (
             ops_kpi_service._metric(
                 value=None,
@@ -259,7 +269,7 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_007",
+        "_calculate_kpi_ops_007",
         lambda reference_date: ops_kpi_service._metric(
             value=100,
             status="pass",
@@ -272,13 +282,13 @@ def test_get_ops_kpi_summary_allows_insufficient_sample_gate(monkeypatch):
     )
 
     assert summary["overall_status"] == "pass"
-    assert summary["metrics"]["KPI-DATA-006"]["status"] == "insufficient_sample"
+    assert summary["metrics"]["KPI-OPS-006"]["status"] == "insufficient_sample"
 
 
 def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_001_and_002",
+        "_calculate_kpi_ops_001_and_002",
         lambda reference_date: (
             ops_kpi_service._metric(value=100, status="pass", window="window"),
             ops_kpi_service._metric(value=100, status="pass", window="window"),
@@ -286,7 +296,7 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_003",
+        "_calculate_kpi_ops_003",
         lambda reference_date: ops_kpi_service._metric(
             value=100,
             status="pass",
@@ -295,7 +305,7 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_004",
+        "_calculate_kpi_ops_004",
         lambda reference_date: ops_kpi_service._metric(
             value=2,
             status="fail",
@@ -304,7 +314,7 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_005",
+        "_calculate_kpi_ops_005",
         lambda reference_date: ops_kpi_service._metric(
             value=1,
             status="pass",
@@ -313,7 +323,7 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_006_and_008",
+        "_calculate_kpi_ops_006_and_008",
         lambda reference_date: (
             ops_kpi_service._metric(
                 value=12,
@@ -329,7 +339,7 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
     monkeypatch.setattr(
         ops_kpi_service,
-        "_calculate_kpi_data_007",
+        "_calculate_kpi_ops_007",
         lambda reference_date: ops_kpi_service._metric(
             value=100,
             status="pass",
@@ -342,4 +352,4 @@ def test_get_ops_kpi_summary_fails_when_recovery_gate_metric_fails(monkeypatch):
     )
 
     assert summary["overall_status"] == "fail"
-    assert summary["metrics"]["KPI-DATA-004"]["status"] == "fail"
+    assert summary["metrics"]["KPI-OPS-004"]["status"] == "fail"

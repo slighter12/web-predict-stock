@@ -316,10 +316,11 @@ def test_p8_gate_requires_run_level_alignment_and_reporting(monkeypatch):
 
     result = foundation_gate_service.get_p8_phase_gate_summary()
 
+    assert set(result["metrics"]) == {"KPI-PEER-001", "KPI-PEER-002"}
     assert result["artifacts"]["point_in_time_cluster_snapshots"]["status"] == "pass"
     assert result["artifacts"]["peer_features"]["status"] == "pass"
-    assert result["metrics"]["KPI-RESEARCH-002"]["status"] == "pass"
-    assert result["metrics"]["KPI-RESEARCH-003"]["status"] == "fail"
+    assert result["metrics"]["KPI-PEER-001"]["status"] == "pass"
+    assert result["metrics"]["KPI-PEER-002"]["status"] == "fail"
     assert result["overall_status"] == "fail"
 
 
@@ -373,8 +374,8 @@ def test_p8_gate_passes_with_turnover_and_concentration_reporting(monkeypatch):
 
     result = foundation_gate_service.get_p8_phase_gate_summary()
 
-    assert result["metrics"]["KPI-RESEARCH-002"]["status"] == "pass"
-    assert result["metrics"]["KPI-RESEARCH-003"]["status"] == "pass"
+    assert result["metrics"]["KPI-PEER-001"]["status"] == "pass"
+    assert result["metrics"]["KPI-PEER-002"]["status"] == "pass"
     assert result["overall_status"] == "pass"
 
 
