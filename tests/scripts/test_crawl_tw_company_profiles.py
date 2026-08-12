@@ -813,7 +813,10 @@ def test_crawl_tw_company_profiles_can_disable_reconciliation(monkeypatch):
     assert summary["errors"] == []
 
 
-def test_crawl_single_source_does_not_reconcile_after_write_error(monkeypatch):
+def test_crawl_single_source_does_not_reconcile_after_write_error(
+    monkeypatch, caplog
+):
+    secret = "token=secret"
     monkeypatch.setattr(
         company_crawlers,
         "_fetch_company_feed",
@@ -827,7 +830,9 @@ def test_crawl_single_source_does_not_reconcile_after_write_error(monkeypatch):
         "save_tw_company_profiles",
         lambda payloads: _save_outcomes(
             payloads,
-            lambda payload: (_ for _ in ()).throw(RuntimeError("write failed")),
+            lambda payload: (_ for _ in ()).throw(
+                RuntimeError(f"write failed {secret}")
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -847,7 +852,11 @@ def test_crawl_single_source_does_not_reconcile_after_write_error(monkeypatch):
 
     assert summary["inactivated_count"] == 0
     assert summary["reconciliation_skipped"] is True
-    assert summary["errors"] == ["exchange=TWSE symbol=2330: write failed"]
+    assert summary["errors"] == [
+        "exchange=TWSE symbol=2330 save_error_type=RuntimeError"
+    ]
+    assert secret not in str(summary)
+    assert secret not in caplog.text
 
 
 def test_crawl_single_source_reports_failed_reconciliation(monkeypatch, caplog):

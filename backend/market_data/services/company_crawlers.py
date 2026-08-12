@@ -298,9 +298,10 @@ def _crawl_single_source(
             else:
                 noop_count += 1
         else:
+            error_type = type(outcome.error).__name__
             errors.append(
-                f"exchange={payload['exchange']} symbol={payload['symbol']}: "
-                f"{outcome.error}"
+                f"exchange={payload['exchange']} symbol={payload['symbol']} "
+                f"save_error_type={error_type}"
             )
     inactivated_count = 0
     reconciliation_skipped = False
