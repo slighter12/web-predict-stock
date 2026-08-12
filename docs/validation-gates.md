@@ -34,8 +34,13 @@ researcher to create, inspect, reload, and compare TW daily ML research runs.
 - `GATE-V1-*`: v1 acceptance gates
 - `GATE-P2-*`: Phase 2 opinion-layer acceptance gates
 
-The following families are not v1 pass/fail gates:
+## Advanced KPI Index
 
+The following families are hidden advanced diagnostics and are not v1
+pass/fail gates:
+
+- `KPI-OPS-*`
+- `KPI-PEER-*`
 - `KPI-TICK-*`
 - `KPI-SIM-*`
 - `KPI-LIVE-*`
@@ -73,7 +78,7 @@ drive the default workbench workflow.
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
 | `KPI-DATA-001` | daily data availability | requested TW symbols have daily OHLCV rows in the requested range after exclusions | report |
-| `KPI-DATA-002` | model-ready row count | rows remaining after feature generation, shifting, target alignment, and null filtering | `> 0` per trained symbol |
+| `KPI-DATA-002` | model-ready row count | training rows remaining after feature generation, shifting, target alignment, and complete-case exclusion of rows with non-finite model inputs or target values | `> 0` per trained symbol |
 | `KPI-DATA-003` | data warning clarity | missing-data, stale-data, or event exclusions are represented in warnings or diagnostics, including symbol-level warning reasons on Start or Data Support surfaces | required |
 
 ### Model Diagnostics
@@ -89,7 +94,7 @@ drive the default workbench workflow.
 | ID | Metric | Definition | Gate |
 | --- | --- | --- | --- |
 | `KPI-RESEARCH-001` | request persistence | persisted record includes the original request config | required |
-| `KPI-RESEARCH-002` | strategy artifact persistence | persisted record includes every artifact required by `SPEC-RUN-001` | required for new runs |
+| `KPI-RESEARCH-002` | research-run artifact persistence | persisted record includes every artifact required by `SPEC-RUN-001` | required for new runs |
 | `KPI-RESEARCH-003` | old-run fallback clarity | historical records lacking artifacts expose artifact completeness and explicit fallback copy | required |
 
 ### Comparison

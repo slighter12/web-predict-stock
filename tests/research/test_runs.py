@@ -1050,6 +1050,62 @@ def test_opinion_builder_matches_each_row_against_all_symbol_warnings():
     assert check["result"]["missing_risk_row_count"] == 0
 
 
+def test_opinion_builder_prioritizes_symbol_warning_before_tw_caveat():
+    payload = make_opinion_payload()
+    payload["warnings"] = [
+        "Data source degraded for 2330.",
+        TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+    ]
+    payload["comparison_caveats"] = [
+        {
+            "code": TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+            "label": TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+            "severity": "note",
+        }
+    ]
+
+    artifact = build_opinion_artifact(payload)
+    validated = OpinionArtifact.model_validate(artifact).model_dump(mode="json")
+    rows = {
+        row["symbol"]: row
+        for row in [
+            *validated["buy_candidates"],
+            *validated["sell_or_avoid"],
+        ]
+    }
+    check = next(
+        item for item in validated["review_checks"] if item["check"] == "risk_present"
+    )
+
+    assert rows["2330"]["risk_or_warning"] == (
+        "Persisted symbol-scoped warning for 2330: Data source degraded for 2330."
+    )
+    assert rows["2330"]["source_artifact_references"][-1] == {
+        "artifact": "warnings",
+        "field": "warnings",
+        "symbol": None,
+        "date": None,
+    }
+    assert rows["2317"]["risk_or_warning"] == TW_POINT_IN_TIME_MEMBERSHIP_WARNING
+    assert rows["2317"]["source_artifact_references"][-1] == {
+        "artifact": "warnings",
+        "field": "warnings",
+        "symbol": None,
+        "date": None,
+    }
+    assert check["status"] == "pass"
+    assert check["risk_or_warning"] == TW_POINT_IN_TIME_MEMBERSHIP_WARNING
+    assert check["source_artifact_references"] == [
+        {
+            "artifact": "warnings",
+            "field": "warnings",
+            "symbol": None,
+            "date": None,
+        }
+    ]
+    assert payload["comparison_caveats"][0]["severity"] == "note"
+
+
 def test_opinion_builder_stale_evidence_blocks_forced_rows():
     payload = make_opinion_payload()
     payload["stale_risk_share"] = 0.25

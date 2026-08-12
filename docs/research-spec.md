@@ -83,6 +83,20 @@ can be recovered from their saved request. The caveat does not establish that
 historical price coverage is complete and does not change comparison eligibility
 or opinion viability by itself.
 
+### SPEC-DATA-005: Current-active profile source trust
+
+- company profiles may enter the TW current-active universe only from the fixed
+  TWSE and TPEX current-listing feeds
+- the configured request URL, response URL, source name, exchange, and board
+  must match the approved source definition; redirects are rejected
+- membership in an approved current-listing feed is the evidence for
+  `trading_status="active"` because those feeds do not publish a record-level
+  trading-status field
+- an explicit inactive or unknown status, invalid source metadata, or a record
+  missing its symbol or company name must be rejected rather than upserted
+- the unauthenticated HTTP crawl boundary must continue to use
+  `reconcile=False`
+
 ## Feature Contract
 
 ### SPEC-FEATURE-001: Feature specification
@@ -107,8 +121,9 @@ them.
 
 ### SPEC-FEATURE-003: Missing-feature policy
 
-Extra Trees, XGBoost, and Random Forest use the same complete-case policy: any
-row with a non-finite model input is excluded before training or prediction.
+Extra Trees, XGBoost, and Random Forest use the same complete-case policy:
+training excludes any row with a non-finite model input or target, and
+prediction excludes any row with a non-finite model input.
 Each run persists `missing_feature_policy_version="complete_case_model_inputs_v1"`
 and `missing_feature_policy_state="complete_case_applied"`. Legacy metadata
 values remain readable but do not define current model behavior.

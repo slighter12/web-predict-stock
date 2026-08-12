@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 import backend.market_data.api as data_plane_api
 import backend.market_data.repositories.company_profiles as company_profile_repository
 import backend.market_data.services.company_crawlers as company_crawlers
+import backend.market_data.services.company_profiles as company_profile_service
 import backend.market_data.services.readiness as readiness_service
 from backend.app import app
 from backend.database import (
@@ -126,16 +127,13 @@ def test_tw_company_crawl_does_not_expose_request_url(
     monkeypatch,
 ):
     feed_url_with_token = "https://feed.test/company?token=secret"  # noqa: S105
-    monkeypatch.setenv(
-        company_crawlers.TWSE_COMPANY_SOURCE_URL_ENV,
-        feed_url_with_token,
-    )
+    monkeypatch.setenv("TWSE_COMPANY_SOURCE_URL", feed_url_with_token)
+    requested_urls = []
     monkeypatch.setattr(
         company_crawlers,
         "_request_company_feed_with_tls_fallback",
-        lambda **kwargs: (_ for _ in ()).throw(
-            requests.HTTPError(f"Forbidden for url: {kwargs['url']}")
-        ),
+        lambda **kwargs: requested_urls.append(kwargs["url"])
+        or (_ for _ in ()).throw(requests.HTTPError("Forbidden")),
     )
     monkeypatch.setattr(
         company_crawlers,
@@ -151,6 +149,7 @@ def test_tw_company_crawl_does_not_expose_request_url(
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "EXTERNAL_FETCH_FAILED"
     assert response.json()["error"]["message"] == "Failed to fetch TW company feed."
+    assert requested_urls == [company_crawlers.TWSE_COMPANY_SOURCE.url]
     assert "HTTPError" in caplog.text
     assert "token=secret" not in response.text
     assert "token=secret" not in caplog.text
@@ -178,6 +177,27 @@ def test_tw_company_crawl_endpoint_does_not_reconcile_profiles(
             99,
             [{"CompanyCode": "2330", "CompanyName": "TSMC"}],
         ),
+    )
+    monkeypatch.setattr(
+        company_profile_service,
+        "get_raw_ingest_record",
+        lambda raw_payload_id: type(
+            "RawRecord",
+            (),
+            {
+                "source_name": "twse_company_profile",
+                "market": "TW",
+                "symbol": "TW_COMPANY_UNIVERSE",
+                "parser_version": "tw_company_profile_v1",
+                "fetch_status": "success",
+                "expected_symbol_context": (
+                    "source=twse_company_profile;market=TW"
+                ),
+                "payload_body": (
+                    '[{"CompanyCode":"2330","CompanyName":"TSMC"}]'
+                ),
+            },
+        )(),
     )
     with testing_session_local() as session:
         session.add_all(
@@ -634,7 +654,7 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
         "gate_id": "GATE-P1-OPS-001",
         "overall_status": "pass",
         "metrics": {
-            "KPI-DATA-001": {
+            "KPI-OPS-001": {
                 "value": 100.0,
                 "status": "pass",
                 "numerator": 20,
@@ -643,7 +663,7 @@ def test_ops_watchlist_benchmark_and_crawler_endpoints(monkeypatch):
                 "window": "rolling 20 trading days",
                 "details": {},
             },
-            "KPI-DATA-008": {
+            "KPI-OPS-008": {
                 "value": 5,
                 "status": "pass",
                 "numerator": 5,

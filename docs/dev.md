@@ -208,7 +208,8 @@ INGEST_SYMBOL=2330 INGEST_MARKET=TW INGEST_YEARS=3 \
 The Start readiness panel may report `warning` when some known TW market dates
 in the requested range are missing. That does not automatically block v1
 research runs; the blocker is insufficient model-ready rows after feature
-generation, shifting, target alignment, and null filtering.
+generation, shifting, target alignment, and complete-case exclusion of training
+rows with non-finite model inputs or target values.
 
 After DB, migrations, backend, frontend, and data are ready, verify:
 

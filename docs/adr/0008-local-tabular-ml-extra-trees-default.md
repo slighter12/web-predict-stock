@@ -23,8 +23,9 @@ architecture-tuning surface without a corresponding evidence gain, and the
 project's priority order puts data readiness and reproducibility above model
 novelty.
 
-All supported model families use the same accepted complete-case input policy:
-rows with any non-finite model input are removed before training or prediction.
+All supported model families use the same accepted complete-case policy:
+training removes rows with any non-finite model input or target, and prediction
+removes rows with any non-finite model input.
 New runs record `missing_feature_policy_version="complete_case_model_inputs_v1"`
 and `missing_feature_policy_state="complete_case_applied"` so this behavior is
 comparable after reload. Legacy runs retain their recorded XGBoost-named version

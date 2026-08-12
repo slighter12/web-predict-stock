@@ -37,3 +37,29 @@ def test_tls_fallback_logs_do_not_expose_request_url(caplog, monkeypatch):
 
     assert "HTTPError" in caplog.text
     assert "token=secret" not in caplog.text
+
+
+def test_tls_fallback_preserves_redirect_policy_across_retries(monkeypatch):
+    calls = []
+
+    def fake_request(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise requests.exceptions.SSLError("TLS failed")
+        return object()
+
+    monkeypatch.setattr(tls_helpers, "resolve_tls_verify", lambda: "default.pem")
+    monkeypatch.setattr(tls_helpers, "perform_tls_request", fake_request)
+    monkeypatch.setattr(tls_helpers, "ca_auto_download_enabled", lambda: True)
+    monkeypatch.setattr(tls_helpers, "download_ca_bundle", lambda: "downloaded.pem")
+
+    tls_helpers.request_with_tls_fallback(
+        method="GET",
+        url="https://feed.test/data",
+        timeout_seconds=30,
+        logger=logging.getLogger("test_tls_fallback"),
+        context_label="company feed fetch",
+        allow_redirects=False,
+    )
+
+    assert [call["allow_redirects"] for call in calls] == [False, False]

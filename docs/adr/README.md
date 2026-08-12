@@ -37,7 +37,7 @@ market lane. Its absence means the decision applies repository-wide.
 | [0020](0020-value-fundamental-research-track.md) | Fundamental Research Track complements the Technical Research Track | proposed |
 | [0021](0021-us-daily-expansion.md) | US daily is the second market lane | proposed |
 | [0022](0022-portfolio-ledger-manual-adoption.md) | A portfolio ledger closes the loop through manual adoption, not automation | proposed |
-| [0023](0023-company-profile-reconciliation-trust-boundary.md) | The unauthenticated crawl endpoint may add profiles but never deactivate them | accepted |
+| [0023](0023-company-profile-reconciliation-trust-boundary.md) | Unauthenticated company crawls may add only trusted current listings and never deactivate profiles | accepted |
 
 ## Writing a new one
 

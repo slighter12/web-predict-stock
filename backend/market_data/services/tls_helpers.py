@@ -112,8 +112,12 @@ def perform_tls_request(
     headers: dict[str, str] | None = None,
     params: dict[str, str] | None = None,
     data: dict[str, str] | None = None,
+    allow_redirects: bool = True,
 ) -> requests.Response:
-    request_kwargs = {"timeout": timeout_seconds}
+    request_kwargs = {
+        "timeout": timeout_seconds,
+        "allow_redirects": allow_redirects,
+    }
     if headers is not None:
         request_kwargs["headers"] = headers
     if params is not None:
@@ -138,6 +142,7 @@ def request_with_tls_fallback(
     headers: dict[str, str] | None = None,
     params: dict[str, str] | None = None,
     data: dict[str, str] | None = None,
+    allow_redirects: bool = True,
 ) -> requests.Response:
     verify = resolve_tls_verify()
     try:
@@ -149,6 +154,7 @@ def request_with_tls_fallback(
             data=data,
             timeout_seconds=timeout_seconds,
             verify=verify,
+            allow_redirects=allow_redirects,
         )
     except requests.exceptions.SSLError:
         response = None
@@ -163,6 +169,7 @@ def request_with_tls_fallback(
                     data=data,
                     timeout_seconds=timeout_seconds,
                     verify=downloaded_verify,
+                    allow_redirects=allow_redirects,
                 )
             except requests.RequestException as exc:
                 logger.error(
@@ -190,6 +197,7 @@ def request_with_tls_fallback(
                 data=data,
                 timeout_seconds=timeout_seconds,
                 verify=False,
+                allow_redirects=allow_redirects,
             )
 
         if response is None:
