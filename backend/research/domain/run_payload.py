@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.research.domain.result_caveats import warnings_with_result_caveats
 from backend.research.domain.version_pack import build_version_pack_payload
 
 
@@ -117,7 +118,12 @@ def build_research_run_payload(
         "signals": signals or [],
         "model_diagnostics": model_diagnostics,
         "baselines": baselines or {},
-        "warnings": warnings or [],
+        "warnings": warnings_with_result_caveats(
+            warnings,
+            status=status,
+            market=market,
+            request_payload=request_payload,
+        ),
         "tradability_state": tradability_state,
         "tradability_contract_version": tradability_contract_version,
         "capacity_screening_active": capacity_screening_active,

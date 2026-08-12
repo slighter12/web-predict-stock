@@ -21,14 +21,16 @@ them.)
 
 We split decision information by whether a decision exists:
 
-- `docs/adr/` — a decision **was made**. One file per decision, recording why.
+- `docs/adr/` — an accepted decision or proposed direction exists. One file per
+  decision, recording why.
 - `docs/open-decisions.md` — a decision is **still missing** and has no
   direction yet. A flat list with owner area and acceptance trigger.
 - `CONTEXT.md` — what a **term means**. Glossary only, no rules, no rationale.
 
-A future decision with a known direction but no evidence to close it is an ADR
-with `status: proposed`, not an open decision. An open decision is a policy gap
-where even the direction is undecided.
+A future decision with a known direction but insufficient evidence to put it in
+force is an ADR with `status: proposed`, not an open decision. A proposed ADR
+does not authorize implementation. An open decision is a policy gap where even
+the direction is undecided.
 
 ## Consequences
 

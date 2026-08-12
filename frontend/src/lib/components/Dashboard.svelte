@@ -293,8 +293,9 @@
                     </button>
                 </div>
                 <p class="muted readiness-message">
-                    Warnings mean some requested trading days are missing. A run
-                    may still work if enough model-ready rows remain.
+                    Warnings mean some known TW market dates in the requested
+                    range are missing. A run may still work if enough model-ready
+                    rows remain.
                 </p>
                 {#if attentionSyncProgress}
                     <p class="muted readiness-message">

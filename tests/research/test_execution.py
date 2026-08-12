@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import pandas as pd
 import pytest
 from pydantic import ValidationError
@@ -461,6 +462,50 @@ def test_strict_prospective_features_reject_missing_model_columns():
         )
 
 
+def test_prospective_prediction_features_apply_complete_case_policy():
+    index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    unshifted = pd.DataFrame(
+        {
+            "MA_5": [1.0, None, np.inf],
+            "peer_feature_value_p8": [1.5, -np.inf, 3.5],
+        },
+        index=index,
+    )
+
+    result = backtest_engine_service._build_prospective_prediction_features(
+        unshifted,
+        ["MA_5", "peer_feature_value_p8"],
+        symbol="2330",
+        strict=False,
+    )
+
+    assert list(result.index) == [index[0]]
+    assert np.isfinite(result.to_numpy()).all()
+
+
+def test_prediction_features_apply_complete_case_policy():
+    index = pd.to_datetime(
+        ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
+    )
+    features = pd.DataFrame(
+        {
+            "MA_5": [1.0, np.inf, 3.0, 4.0],
+            "peer_feature_value_p8": [1.5, 2.5, -np.inf, None],
+            "unused_metadata": [None, None, None, None],
+        },
+        index=index,
+    )
+
+    result = backtest_engine_service._build_prediction_features(
+        features,
+        ["MA_5", "peer_feature_value_p8"],
+    )
+
+    assert list(result.index) == [index[0]]
+    assert list(result.columns) == ["MA_5", "peer_feature_value_p8"]
+    assert np.isfinite(result.to_numpy()).all()
+
+
 def test_direction_model_config_defaults_and_probability_bounds():
     payload = _make_request().model_dump()
     payload["direction_model"] = {"type": "extra_trees", "params": {}}
@@ -887,6 +932,11 @@ def test_execute_research_run_accepts_foundation_version_pack_fields(monkeypatch
     assert artifacts.response.adaptive_mode == "shadow"
     assert artifacts.response.reward_definition_version == "reward_v1"
     assert artifacts.response.comparison_eligibility == "research_only_comparable"
+    assert (
+        artifacts.response.missing_feature_policy_version
+        == "complete_case_model_inputs_v1"
+    )
+    assert artifacts.response.missing_feature_policy_state == "complete_case_applied"
     assert artifacts.response.baselines == {"naive_momentum": {"sharpe": 0.5}}
     assert artifacts.response.warnings == [
         "prospective snapshot is unavailable",

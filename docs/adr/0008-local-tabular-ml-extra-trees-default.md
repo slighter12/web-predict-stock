@@ -1,7 +1,7 @@
 ---
 status: accepted
 date: 2026-08-10
-legacy_id: DEC-V1-010
+legacy_id: DEC-V1-010, TBD-004
 ---
 
 # Models are local tabular tree ensembles, defaulting to Extra Trees
@@ -23,9 +23,19 @@ architecture-tuning surface without a corresponding evidence gain, and the
 project's priority order puts data readiness and reproducibility above model
 novelty.
 
+All supported model families use the same accepted complete-case input policy:
+rows with any non-finite model input are removed before training or prediction.
+Runs record `missing_feature_policy_version="complete_case_model_inputs_v1"`
+and `missing_feature_policy_state="complete_case_applied"` so this behavior is
+comparable after reload. The previous XGBoost-named metadata remains readable
+on legacy payloads and is migrated without changing their recorded model family.
+Migration 0009 normalizes that metadata one way: after the old value is replaced,
+the database cannot infer which rows originally carried it, so downgrade refuses
+to fabricate legacy provenance.
+
 ## Consequences
 
 - Feature engineering carries the modeling burden, not architecture search.
 - Feature importance is available cheaply and is a required diagnostic.
-- A cross-model policy for missing features does not exist yet and stays an open
-  decision; it only becomes urgent if model families widen.
+- Missing-feature handling is shared across Extra Trees, XGBoost, and Random
+  Forest rather than varying silently by model implementation.

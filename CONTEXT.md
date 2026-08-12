@@ -5,7 +5,7 @@ It does not answer *what a term must satisfy* — that is `docs/research-spec.md
 — and it does not answer *why something was decided* — that is `docs/adr/`.
 When a term appears in all three, each says a different kind of thing about it.
 
-### Market and Data
+## Market and Data
 
 **Market Lane**:
 One market plus one bar frequency, ingested and researched as a unit. It is the
@@ -14,7 +14,7 @@ Feature Family.
 _Avoid_: market, region, exchange scope
 
 **Symbol**:
-One listed instrument, identified by its exchange ticker within a market lane.
+The market-lane identifier for one listed security.
 _Avoid_: ticker, stock, instrument, asset
 
 **Market Date**:
@@ -43,7 +43,7 @@ against known market dates. A statement about what was asked for, not about
 whether history is complete.
 _Avoid_: data quality, coverage, completeness
 
-### Research Dimensions
+## Research Dimensions
 
 Market Lane, Research Track, Prediction Task, and Feature Family are orthogonal
 axes: they identify market and frequency, research framing, model question, and
@@ -70,7 +70,7 @@ A Feature Family for sentiment-derived inputs. It distinguishes the
 independent Opinion source.
 _Avoid_: sentiment lane
 
-### Research Loop
+## Research Loop
 
 **Research Run**:
 One execution of the research loop, covering a dataset, features, prediction
@@ -117,7 +117,7 @@ Runs whose dataset, target, and assumption choices permit reading their results
 side by side. Comparability is a property of the pair, not of either run.
 _Avoid_: similar runs, matching runs
 
-### Prediction Semantics
+## Prediction Semantics
 
 **Return Target**:
 The numeric forward return a regression task predicts, defined by its return
@@ -153,7 +153,7 @@ The explicit state a run returns when evidence is insufficient to say anything.
 A valid and expected outcome, not a failure.
 _Avoid_: empty result, null opinion, no signal
 
-### Opinion Output
+## Opinion Output
 
 **Opinion Artifact**:
 The structured serialization of an opinion for a Research Run, distinct from an

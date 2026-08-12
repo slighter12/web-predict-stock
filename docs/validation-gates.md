@@ -49,10 +49,10 @@ drive the default workbench workflow.
 
 ## Metric Definition Rules
 
-- Trading-day basis: use the active TW exchange trading calendar unless a
-  metric states otherwise. The v1 readiness surface is an exception: it reports
-  requested-symbol coverage over currently known TW daily market dates until a
-  calendar-authoritative readiness service is promoted.
+- Market Date basis: v1 readiness reports requested-symbol coverage over
+  distinct TW daily dates observed anywhere in the market-data store. Other
+  metrics must name their date basis rather than treating weekdays as a trading
+  calendar.
 - Missing-sample rule: symbols blocked by lifecycle state, unresolved corporate
   events, missing OHLCV, or missing target availability are excluded from
   model-ready denominators and recorded in warnings when relevant.
@@ -82,7 +82,7 @@ drive the default workbench workflow.
 | --- | --- | --- | --- |
 | `KPI-ML-001` | regression diagnostic completeness | successful regression run includes RMSE, MAE, rank IC, linear IC, sample count, actual-vs-predicted, residuals, and feature importance | required |
 | `KPI-ML-002` | diagnostic persistence | persisted reload includes the same model diagnostics as the in-session response | required for new runs |
-| `KPI-ML-003` | classification spec readiness | classification target and diagnostic requirements are documented | required; implementation deferred |
+| `KPI-ML-003` | direction admission readiness | the hybrid workflow persists its direction classifier configuration and diagnostics; standalone classification Research Runs remain specified but deferred | required for the hybrid workflow |
 
 ### Research Artifacts
 
@@ -153,6 +153,8 @@ Passes when:
 - persisted successful run reload includes every artifact required by
   `SPEC-RUN-001`
 - old runs without artifacts show the fallback required by `KPI-RESEARCH-003`
+- TW results display the `SPEC-DATA-004` point-in-time membership caveat before
+  result interpretation, including legacy runs projected from saved market data
 
 ### GATE-V1-005: Research Runs and Comparison
 
@@ -205,6 +207,9 @@ Passes when:
   automatic rebalancing, account control, or personalized investment advice
 - live trading and guarded execution concepts remain deferred references until
   their own promotion criteria are met
+- a persisted run carrying `execution_ready` or other non-research execution
+  metadata reconstructs to an Opinion Artifact with a failed manual-adoption
+  check and no actionable rows
 
 ### GATE-P2-005: Backend-First Slice
 

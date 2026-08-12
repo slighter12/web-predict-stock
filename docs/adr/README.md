@@ -1,11 +1,12 @@
 # Architecture Decision Records
 
-One file per decision that was **made**. Decisions still missing live in
-[`../open-decisions.md`](../open-decisions.md); term definitions live in
-[`../../CONTEXT.md`](../../CONTEXT.md). The split is explained in ADR-0001.
+One file per accepted decision or proposed direction. Decisions still missing
+live in [`../open-decisions.md`](../open-decisions.md); term definitions live
+in [`../../CONTEXT.md`](../../CONTEXT.md). The split is explained in ADR-0001.
 
 `status: proposed` means the direction is known but the evidence to close it is
-not. `status: accepted` means the decision is in force.
+not; it does not authorize implementation. `status: accepted` means the
+decision is in force.
 
 Numbering is sequential and never reused. New ADRs continue at 0024.
 

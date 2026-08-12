@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -7,6 +8,7 @@ from backend.shared.analytics.models import (
     build_classifier,
     compute_return_target,
     fit_calibrated_direction_classifier,
+    fit_regressor,
     prepare_training_data,
     target_lookahead,
     time_series_split,
@@ -212,3 +214,103 @@ def test_prepare_training_data_ignores_nullable_metadata_columns():
     assert len(df_model) == 2
     assert list(X.columns) == ["MA_2"]
     assert not y.isna().any()
+
+
+def test_prepare_training_data_excludes_non_finite_features_and_targets():
+    df = pd.DataFrame(
+        {
+            "open": [10.0, 11.0, 12.0, 0.0, 14.0, 15.0],
+            "high": [11.0, 12.0, 13.0, 1.0, 15.0, 16.0],
+            "low": [9.0, 10.0, 11.0, 0.0, 13.0, 14.0],
+            "close": [10.0, 11.0, 12.0, 13.0, 14.0, 15.0],
+            "volume": [100] * 6,
+            "feature_a": [1.0, np.inf, 3.0, 4.0, -np.inf, 6.0],
+        }
+    )
+
+    df_model, X, y = prepare_training_data(df, return_target="open_to_open")
+
+    assert list(df_model.index) == [0, 2]
+    assert np.isfinite(X.to_numpy()).all()
+    assert np.isfinite(y.to_numpy()).all()
+
+
+@pytest.mark.parametrize("model_type", ["xgboost", "random_forest", "extra_trees"])
+def test_model_families_share_complete_case_inputs(monkeypatch, model_type):
+    class _Regressor:
+        def __init__(self, **params):
+            self.params = params
+
+        def fit(self, X, y):
+            assert np.isfinite(X.to_numpy()).all()
+            assert np.isfinite(y.to_numpy()).all()
+            return self
+
+        def predict(self, X):
+            return [0.0] * len(X)
+
+    monkeypatch.setattr(model_service, "_load_xgboost_regressor", lambda: _Regressor)
+    rows = 30
+    df = pd.DataFrame(
+        {
+            "open": [float(value) for value in range(100, 100 + rows)],
+            "high": [float(value) for value in range(101, 101 + rows)],
+            "low": [float(value) for value in range(99, 99 + rows)],
+            "close": [float(value) for value in range(100, 100 + rows)],
+            "volume": [1_000] * rows,
+            "feature_a": [None, *[float(value) for value in range(1, rows)]],
+            "feature_b": [
+                *[float(value) for value in range(rows - 2)],
+                None,
+                float(rows - 1),
+            ],
+        }
+    )
+
+    _, X, y = prepare_training_data(df)
+    model = fit_regressor(
+        model_type=model_type,
+        X_train=X,
+        y_train=y,
+        model_params={"n_estimators": 5},
+    )
+
+    assert np.isfinite(X.to_numpy()).all()
+    assert np.isfinite(y.to_numpy()).all()
+    assert len(model.predict(X.tail(2))) == 2
+
+
+def test_direction_classifier_receives_complete_case_inputs():
+    rows = 120
+    df = pd.DataFrame(
+        {
+            "open": [float(value) for value in range(100, 100 + rows)],
+            "high": [float(value) for value in range(101, 101 + rows)],
+            "low": [float(value) for value in range(99, 99 + rows)],
+            "close": [float(value) for value in range(100, 100 + rows)],
+            "volume": [1_000] * rows,
+            "feature_a": [None, *[float(value) for value in range(1, rows)]],
+            "feature_b": [
+                *[float(value) for value in range(rows - 2)],
+                None,
+                float(rows - 1),
+            ],
+        }
+    )
+
+    _, X, _ = prepare_training_data(df)
+    direction_target = pd.Series(
+        [index % 2 for index in range(len(X))],
+        index=X.index,
+    )
+    classifier, reason, _ = fit_calibrated_direction_classifier(
+        model_type="extra_trees",
+        X_train=X,
+        y_train=direction_target,
+        model_params={"n_estimators": 5},
+    )
+
+    assert reason is None
+    assert classifier is not None
+    assert np.isfinite(X.to_numpy()).all()
+    assert classifier.predict_proba(X.tail(2)).shape == (2, 2)

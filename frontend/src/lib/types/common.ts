@@ -56,7 +56,8 @@ export type TradabilityState =
 export type MissingFeaturePolicyState =
   | "feature_complete"
   | "core_data_gaps_filtered"
-  | "native_missing_supported";
+  | "native_missing_supported"
+  | "complete_case_applied";
 export type CorporateEventState = "clear" | "unresolved_corporate_event";
 export type MonitorObservationStatus =
   | "not_requested"

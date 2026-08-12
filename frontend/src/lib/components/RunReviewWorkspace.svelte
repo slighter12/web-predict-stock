@@ -949,6 +949,16 @@
                         {/if}
                     </div>
                     {#if activeRun}
+                        {#if activeRun.comparison_caveats.length}
+                            <div class="result-caveats" role="note">
+                                <strong>Result caveats</strong>
+                                <ul>
+                                    {#each uniqueCaveats(activeRun.comparison_caveats) as caveat}
+                                        <li>{caveat.label}</li>
+                                    {/each}
+                                </ul>
+                            </div>
+                        {/if}
                         <div
                             class="artifact-status"
                             class:artifact-status--limited={activeRun.artifact_completeness !==
@@ -1358,6 +1368,23 @@
         border-radius: var(--radius-md);
         border: 1px solid rgba(45, 212, 191, 0.18);
         background: rgba(15, 35, 54, 0.72);
+    }
+
+    .result-caveats {
+        display: grid;
+        gap: 0.45rem;
+        margin-bottom: var(--space-4);
+        padding: 0.85rem 0.95rem;
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(251, 191, 36, 0.22);
+        background: rgba(113, 63, 18, 0.14);
+    }
+
+    .result-caveats ul {
+        margin: 0;
+        padding-left: 1.2rem;
+        color: var(--muted);
+        line-height: 1.45;
     }
 
     .artifact-status--limited {

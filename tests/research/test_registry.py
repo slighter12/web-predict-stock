@@ -4,6 +4,10 @@ import pytest
 
 import backend.research.services.registry as registry_service
 from backend.research.domain.version_pack import build_version_pack_payload
+from backend.research.domain.result_caveats import (
+    TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+    warnings_with_result_caveats,
+)
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import (
     ConfigSources,
@@ -117,8 +121,35 @@ def test_record_success_builds_registry_payload(monkeypatch):
     assert captured["strategy_type"] == "research_v1"
     assert captured["symbols"] == ["2330"]
     assert captured["metrics"]["total_return"] == pytest.approx(0.12)
-    assert captured["warnings"] == ["warn"]
+    assert captured["warnings"] == [
+        "warn",
+        TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+    ]
     assert captured["tradability_contract_version"] is None
+
+
+def test_tw_result_warning_is_deduplicated_and_success_scoped():
+    assert warnings_with_result_caveats(
+        [
+            TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+            TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+        ],
+        status="succeeded",
+        market="TW",
+        request_payload=None,
+    ) == [TW_POINT_IN_TIME_MEMBERSHIP_WARNING]
+    assert warnings_with_result_caveats(
+        [],
+        status="running",
+        market="TW",
+        request_payload=None,
+    ) == []
+    assert warnings_with_result_caveats(
+        [],
+        status="succeeded",
+        market="US",
+        request_payload=None,
+    ) == []
 
 
 def test_record_started_builds_running_payload(monkeypatch):
@@ -209,6 +240,8 @@ def test_record_validation_failure_uses_raw_request_payload(monkeypatch):
 
     assert captured["status"] == "validation_failed"
     assert captured["strategy_type"] == "research_v1"
+    # A raw legacy payload without model.type keeps the historical registry fallback.
+    assert captured["model_family"] == "gradient_boosted_trees"
     assert captured["validation_outcome"]["error_code"] == "VALIDATION_FAILED"
 
 

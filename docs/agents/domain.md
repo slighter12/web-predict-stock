@@ -51,7 +51,8 @@ Normative behavior lives in `docs/research-spec.md` and
   for a real domain gap.
 - After editing documentation, run
   `.venv/bin/python -m pytest -q tests/docs/test_glossary_consistency.py`. It
-  guards canonical terms and the framing ADR-0005 superseded.
+  guards canonical terms and prevents documentation from reasserting wording
+  that an ADR declares superseded.
 - Surface conflicts with existing ADRs instead of silently overriding them. If
   an ADR is wrong, propose changing the ADR.
 - A `proposed` ADR is a direction, not a commitment. Do not treat it as

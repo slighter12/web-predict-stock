@@ -183,7 +183,11 @@ def test_build_p3_summary_marks_core_gaps_and_stale_risk(monkeypatch):
         volume_df=volume_df,
     )
 
-    assert result["missing_feature_policy_state"] == "core_data_gaps_filtered"
+    assert result["missing_feature_policy_state"] == "complete_case_applied"
+    assert (
+        result["missing_feature_policy_version"]
+        == "complete_case_model_inputs_v1"
+    )
     assert result["tradability_state"] == "stale_risk"
     assert result["stale_mark_days_with_open_positions"] == 1
     assert result["stale_risk_share"] == pytest.approx(1 / 3)

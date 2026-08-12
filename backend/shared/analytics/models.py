@@ -19,6 +19,8 @@ MODEL_FAMILY_BY_TYPE = {
     "extra_trees": "bagging_trees",
 }
 TRAINING_OUTPUT_CONTRACT_VERSION = "tabular_regression_scores_v1"
+MISSING_FEATURE_POLICY_VERSION = "complete_case_model_inputs_v1"
+MISSING_FEATURE_POLICY_STATE = "complete_case_applied"
 DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION = (
     "chronological_tail_20pct_min20_class5_v1"
 )
@@ -102,6 +104,16 @@ def target_lookahead(return_target: str, horizon_days: int) -> int:
     raise ValueError(f"Unsupported return_target: {return_target}")
 
 
+def filter_complete_case_rows(
+    frame: pd.DataFrame,
+    *,
+    columns: list[str] | None = None,
+) -> pd.DataFrame:
+    """Keep rows whose selected model inputs are present and finite."""
+    selected_columns = columns if columns is not None else list(frame.columns)
+    return frame.replace([np.inf, -np.inf], np.nan).dropna(subset=selected_columns)
+
+
 def prepare_training_data(
     df: pd.DataFrame,
     return_target: str = "open_to_open",
@@ -132,8 +144,8 @@ def prepare_training_data(
             "No features available for training. Ensure the feature engine added columns."
         )
 
-    # Ignore nullable metadata columns when preparing the training frame.
-    df = df.dropna(subset=[*features, "target"])
+    # Nullable metadata columns are not model inputs and do not remove a row.
+    df = filter_complete_case_rows(df, columns=[*features, "target"])
 
     X = df[features]
     y = df["target"]

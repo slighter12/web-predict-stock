@@ -10,9 +10,10 @@ from sqlalchemy import distinct, select
 
 from backend.database import DailyOHLCV, ImportantEvent, SessionLocal, SymbolLifecycleRecord
 from backend.platform.errors import DataAccessError
-from backend.shared.contracts.common import ACTIVE_TRADABILITY_CONTRACT_VERSION
 from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.shared.analytics import models as model_service
 from backend.shared.analytics.strategy import ResearchStrategyConfig
+from backend.shared.contracts.common import ACTIVE_TRADABILITY_CONTRACT_VERSION
 
 MIN_EXECUTION_HISTORY_DAYS = 120
 RECENT_COMPLETENESS_WINDOW = 20
@@ -22,7 +23,6 @@ MONITOR_PROFILE_ID = "p3_monitor_default_v1"
 LIQUIDITY_BUCKET_SCHEMA_VERSION = "liquidity_adv20_twd_bands_v1"
 ADV_BASIS_VERSION = "raw_close_x_volume_active_session_v1"
 CAPACITY_SCREENING_VERSION = "adv_ex_ante_buy_notional_0p5pct_v1"
-MISSING_FEATURE_POLICY_VERSION = "xgboost_native_missing_v1"
 EXECUTION_COST_MODEL_VERSION = "fees_slippage_only_v1"
 
 _BLOCKING_UNRESOLVED_EVENT_TYPES = {"merger", "tender_offer"}
@@ -447,7 +447,9 @@ def build_p3_summary(
             "tradability_state": "research_only",
             "tradability_contract_version": ACTIVE_TRADABILITY_CONTRACT_VERSION,
             "capacity_screening_active": request.portfolio_aum is not None,
-            "missing_feature_policy_state": "native_missing_supported",
+            "missing_feature_policy_state": (
+                model_service.MISSING_FEATURE_POLICY_STATE
+            ),
             "corporate_event_state": "clear",
             "full_universe_count": len(request.symbols),
             "execution_universe_count": 0,
@@ -466,7 +468,9 @@ def build_p3_summary(
             "adv_basis_version": ADV_BASIS_VERSION,
             # The contract version remains declared even when screening is inactive.
             "capacity_screening_version": CAPACITY_SCREENING_VERSION,
-            "missing_feature_policy_version": MISSING_FEATURE_POLICY_VERSION,
+            "missing_feature_policy_version": (
+                model_service.MISSING_FEATURE_POLICY_VERSION
+            ),
             "execution_cost_model_version": EXECUTION_COST_MODEL_VERSION,
             # P3 intentionally does not make investability claims until TBD-001 closes.
             "investability_screening_active": False,
@@ -505,7 +509,6 @@ def build_p3_summary(
     )
 
     daily_observations: list[dict[str, Any]] = []
-    latest_missing_core_gap = False
     latest_corporate_event_clear = True
     latest_execution_universe_count = 0
     latest_bucket_coverages: list[dict[str, Any]] = []
@@ -588,7 +591,6 @@ def build_p3_summary(
                 "corporate_event_clear": not any_unresolved_event,
             }
         )
-        latest_missing_core_gap = any_missing_core_gap
         latest_corporate_event_clear = not any_unresolved_event
         latest_execution_universe_count = execution_universe_count
         latest_bucket_coverages = bucket_coverages
@@ -633,12 +635,6 @@ def build_p3_summary(
         tradability_state = "execution_ready"
     else:
         tradability_state = "research_only"
-
-    missing_feature_policy_state = (
-        "core_data_gaps_filtered"
-        if latest_missing_core_gap
-        else "native_missing_supported"
-    )
 
     microstructure_observations = []
     if request.monitor_profile_id == MONITOR_PROFILE_ID:
@@ -692,7 +688,7 @@ def build_p3_summary(
         "tradability_state": tradability_state,
         "tradability_contract_version": ACTIVE_TRADABILITY_CONTRACT_VERSION,
         "capacity_screening_active": capacity_screening_active,
-        "missing_feature_policy_state": missing_feature_policy_state,
+        "missing_feature_policy_state": model_service.MISSING_FEATURE_POLICY_STATE,
         "corporate_event_state": corporate_event_state,
         "full_universe_count": full_universe_count,
         "execution_universe_count": latest_execution_universe_count,
@@ -712,7 +708,7 @@ def build_p3_summary(
         # The declared contract stays stable even when `capacity_screening_active`
         # is false for a particular run.
         "capacity_screening_version": CAPACITY_SCREENING_VERSION,
-        "missing_feature_policy_version": MISSING_FEATURE_POLICY_VERSION,
+        "missing_feature_policy_version": model_service.MISSING_FEATURE_POLICY_VERSION,
         "execution_cost_model_version": EXECUTION_COST_MODEL_VERSION,
         # P3 intentionally stays research-only on investability until TBD-001 closes.
         "investability_screening_active": False,

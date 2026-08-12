@@ -116,7 +116,7 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
   workflows exist
 - raw payload preservation exists through raw ingest audit records
 - data repair and operational panels exist under secondary data surfaces
-- migration `0008` is current; the reconciled current-active profile universe
+- repository migration head is `0009`; the reconciled current-active profile universe
   contains `1,983` symbols (`TWSE 1,092`, `TPEX 891`)
 - verified TW daily range `2023-07-24..2026-07-24` contains `1,349,401` rows
   across `1,983` symbols; raw traceability, duplicate groups, and invalid or
@@ -180,7 +180,8 @@ These foundations are implementation inventory, not v1 product scope.
 ## Latest Local Verification
 
 - authoritative data-readiness verification (`2026-07-27`):
-  - migration `0008` is current
+  - the verified environment was at migration `0008`; migration `0009` has not
+    been applied to that environment as part of this verification
   - current-active profiles: `1,983` (`TWSE 1,092`, `TPEX 891`)
   - TW daily range `2023-07-24..2026-07-24`: `1,349,401` rows across `1,983`
     symbols

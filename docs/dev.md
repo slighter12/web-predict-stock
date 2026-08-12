@@ -205,10 +205,10 @@ INGEST_SYMBOL=2330 INGEST_MARKET=TW INGEST_YEARS=3 \
   .venv/bin/python -m scripts.market_data_ingestion
 ```
 
-The Start readiness panel may report `warning` when some requested trading days
-are missing. That does not automatically block v1 research runs; the blocker is
-insufficient model-ready rows after feature generation, shifting, target
-alignment, and null filtering.
+The Start readiness panel may report `warning` when some known TW market dates
+in the requested range are missing. That does not automatically block v1
+research runs; the blocker is insufficient model-ready rows after feature
+generation, shifting, target alignment, and null filtering.
 
 After DB, migrations, backend, frontend, and data are ready, verify:
 

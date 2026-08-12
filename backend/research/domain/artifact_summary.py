@@ -7,6 +7,9 @@ from backend.research.contracts.artifacts import (
     ComparisonCaveatSeverity,
     ReviewArtifactName,
 )
+from backend.research.domain.result_caveats import (
+    tw_point_in_time_membership_caveat,
+)
 
 CORE_REVIEW_ARTIFACTS: tuple[ReviewArtifactName, ...] = (
     "metrics",
@@ -90,6 +93,7 @@ def build_review_artifact_summary(
     request_payload: dict[str, Any] | None,
     artifact_presence: dict[ReviewArtifactName, bool],
     comparison_eligibility: str | None,
+    market: Any = None,
 ) -> dict[str, Any]:
     required_artifacts = _required_artifacts(request_payload)
     not_required_artifacts = list(_not_required_artifacts(request_payload))
@@ -167,6 +171,18 @@ def build_review_artifact_summary(
                 "Comparison eligibility is unavailable.",
             )
         )
+
+    universe_caveat = (
+        tw_point_in_time_membership_caveat(
+            market=market,
+            request_payload=request_payload,
+        )
+        if status == SUCCESS_STATUS
+        else None
+    )
+    existing_codes = {item["code"] for item in caveats}
+    if universe_caveat and universe_caveat["code"] not in existing_codes:
+        caveats.append(universe_caveat)
 
     return {
         "artifact_completeness": completeness,

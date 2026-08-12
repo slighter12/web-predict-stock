@@ -12,10 +12,12 @@ instance, accessed through SQLAlchemy with Alembic migrations.
 The obvious alternative for a quant workload is splitting storage by shape: a
 timeseries store for bars, a relational store for metadata, object storage for
 run artifacts. We rejected that for a single-researcher system. Research runs
-need to join price history against persisted artifacts and reconstruct old runs
-exactly; keeping that in one transactional store makes reproducibility a
-property of the database rather than a cross-store coordination problem.
-TimescaleDB gives the timeseries ergonomics without adding a second system.
+need to join price history against persisted artifacts. Keeping that in one
+transactional store removes a cross-store consistency boundary; it does not by
+itself guarantee exact reruns. Reproducibility also depends on preserved raw
+payloads and complete, reconstructable run artifacts under ADR-0011, ADR-0015,
+and ADR-0016. TimescaleDB gives the timeseries ergonomics without adding a
+second system.
 
 ## Consequences
 

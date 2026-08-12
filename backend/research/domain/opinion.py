@@ -14,6 +14,10 @@ from backend.research.domain.signal_snapshot import (
     signal_date_key as _signal_date_key,
     valid_latest_signals as _valid_latest_signals,
 )
+from backend.research.domain.result_caveats import (
+    TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+    TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+)
 
 OPINION_ARTIFACT_VERSION = "phase2_opinion_artifact_v1"
 OMITTED_DETAIL_LIMITATION = (
@@ -103,6 +107,12 @@ def _risk_context(
 ) -> tuple[str, list[dict[str, str]], str]:
     warnings = [str(item) for item in _as_list(payload.get("warnings"))]
     if warnings:
+        if TW_POINT_IN_TIME_MEMBERSHIP_WARNING in warnings:
+            return (
+                TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+                _refs(("warnings", "warnings")),
+                "warning",
+            )
         if symbol is None:
             return (
                 "Persisted warnings were evaluated per symbol; unmatched warnings remain "
@@ -136,11 +146,25 @@ def _risk_context(
 
     caveats = [_as_mapping(item) for item in _as_list(payload.get("comparison_caveats"))]
     if caveats:
+        universe_caveat = next(
+            (
+                item
+                for item in caveats
+                if item.get("code") == TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE
+            ),
+            None,
+        )
+        if universe_caveat is not None:
+            return (
+                str(universe_caveat.get("label") or TW_POINT_IN_TIME_MEMBERSHIP_WARNING),
+                _refs(("comparison_caveats", "comparison_caveats")),
+                "caveat",
+            )
         caveat = caveats[0]
         code = str(caveat.get("code", "COMPARISON_CAVEAT"))
         severity = str(caveat.get("severity", "blocker"))
         return (
-            f"Persisted run-level caveat {code} with severity {severity} "
+            f"Run-level caveat {code} with severity {severity} "
             "applies to all symbols.",
             _refs(("comparison_caveats", "comparison_caveats")),
             "caveat",
@@ -165,7 +189,12 @@ def _invalidation_context(payload: Mapping[str, Any]) -> tuple[str, list[dict[st
             ),
             "stale_freshness",
         )
-    if _as_list(payload.get("comparison_caveats")):
+    blocker_caveats = [
+        _as_mapping(item)
+        for item in _as_list(payload.get("comparison_caveats"))
+        if _as_mapping(item).get("severity") == "blocker"
+    ]
+    if blocker_caveats:
         return (
             "Do not adopt if persisted comparison caveats still apply.",
             _refs(("comparison_caveats", "comparison_caveats")),

@@ -6,10 +6,12 @@ legacy_id: DEC-PHASE-004, DEC-PHASE-005
 
 # No broker execution, no live orders, no portfolio auto-control
 
-The system does not connect to a broker, does not place or simulate live orders,
-and does not act on real holdings. A run using `execution_route="research_only"`
-stays `tradability_state="research_only"`; `execution_ready` requires an
-explicitly non-research route that nothing currently sets.
+The public v1 product does not connect to a broker, place live orders, expose an
+execution route, or act on real holdings. A run using
+`execution_route="research_only"` stays `tradability_state="research_only"`.
+Internal simulation and live-stub foundations may set non-research execution
+metadata, including `execution_ready`, but remain hidden under ADR-0017 and do
+not constitute broker or live product capability.
 
 This is the load-bearing constraint behind ADR-0002. Execution creep is the most
 likely way this project stops being what it is: each individual step toward it
@@ -25,6 +27,9 @@ position sizing against real holdings come no earlier than that.
 
 - Backtest output is an offline research artifact and must not imply live-order
   readiness anywhere it is displayed.
+- Opinion reconstruction fails the manual-adoption boundary for persisted runs
+  carrying `execution_ready` or other non-research execution metadata, so no
+  actionable Opinion rows survive reload.
 - The promotion criteria that would have to be satisfied before broker work could
   even enter planning — safety model, audit, reconciliation, idempotency, manual
   confirmation, kill switches — are undecided and tracked in

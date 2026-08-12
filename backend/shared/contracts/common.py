@@ -38,6 +38,7 @@ MissingFeaturePolicyState = Literal[
     "feature_complete",
     "core_data_gaps_filtered",
     "native_missing_supported",
+    "complete_case_applied",
 ]
 CorporateEventState = Literal["clear", "unresolved_corporate_event"]
 MonitorObservationStatus = Literal["not_requested", "persisted", "skipped"]

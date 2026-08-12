@@ -55,7 +55,7 @@ breadth, and any execution-path expansion.
 | --- | --- | --- | --- |
 | `G1` | Durable TW daily market-data foundation | Research quality collapses when the raw daily data layer is fragile or hindsight-cleaned | `KPI-DATA-*` |
 | `G2` | Reproducible and recoverable research outputs | A persisted research run must be fully reviewable after reload, carrying every artifact required by `SPEC-RUN-001` | `KPI-RESEARCH-*` |
-| `G3` | Clear prediction-task semantics | Regression and classification must be explicit task families; first code delivery implements regression diagnostics while classification remains specified | `KPI-ML-*`, `KPI-RESEARCH-*` |
+| `G3` | Clear prediction-task semantics | Regression and classification are explicit task families; the hybrid workflow implements a direction admission classifier while a standalone classification Research Run remains deferred | `KPI-ML-*`, `KPI-RESEARCH-*` |
 | `G4` | Model diagnostics before strategy claims | RMSE, MAE, residuals, actual-vs-predicted, rank/IC quality, and feature importance should be visible before backtest interpretation | `KPI-ML-*` |
 | `G5` | Defensible offline backtests | Strategy metrics should use declared target, price, cost, and portfolio assumptions | `KPI-COMP-*`, `KPI-COST-*` |
 | `G6` | Research-run comparison with caveats | The UI must explain which runs are comparable, why, and what changed across every `SPEC-COMP-001` dimension | `KPI-COMP-*` |
@@ -89,7 +89,8 @@ If a lower-priority feature weakens a higher-priority layer, defer it.
 - daily TW market-data readiness and rebuildability signals
 - versioned research-run requests and persisted result artifacts
 - regression prediction diagnostics
-- classification task specification without first-pass implementation
+- direction admission classification in the hybrid workflow, with standalone
+  classification Research Runs deferred
 - deterministic offline backtest semantics
 - research-run registry, search, load, and comparison
 - explicit fallback for old runs that lack complete artifacts

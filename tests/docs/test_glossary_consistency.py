@@ -206,8 +206,8 @@ def test_docs_use_canonical_terms_from_the_glossary():
     for path in SCANNED:
         rel = _relative(path)
         for number, line in _lines(path):
-            # CONTEXT.md is the glossary: its definitions legitimately name the
-            # synonyms they displace ("identified by its exchange ticker").
+            # CONTEXT.md is the glossary: each `_Avoid_` declaration must name
+            # the synonyms it displaces so consumers can avoid them.
             if rel == "CONTEXT.md":
                 continue
             if _is_declaration(line) or _is_exempt(rel, line, SYNONYM_EXEMPTIONS):

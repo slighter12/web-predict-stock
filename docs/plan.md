@@ -61,7 +61,7 @@ inference, broad factor expansion, or tick archive operations.
 | `V1-Diagnostics` | `G3`, `G4` | regression run response and persisted record include model diagnostics | `persisted-reviewable` |
 | `V1-Artifacts` | `G2`, `G5` | persisted run stores every artifact required by `SPEC-RUN-001` | `persisted-reviewable` |
 | `V1-Run-Comparison` | `G6` | research runs can be searched, filtered, sorted, loaded, and compared with caveats | `implemented` |
-| `V1-Classification-Spec` | `G3` | classification task fields and diagnostics are specified but not required in first code delivery | `contract-defined as part of V1-Docs` |
+| `V1-Classification-Spec` | `G3` | direction admission classification is implemented in the hybrid workflow; standalone classification Research Runs remain specified and deferred | `implemented for hybrid; standalone contract-defined` |
 
 `V1-Run-Comparison` was formerly named `V1-Experiments`; it was renamed when
 `CONTEXT.md` made `Research run` the canonical term.
@@ -75,9 +75,9 @@ inference, broad factor expansion, or tick archive operations.
 5. `V1-Artifacts`
 6. `V1-Run-Comparison`
 
-`V1-Classification-Spec` is listed separately for visibility, but it is part of
-the documentation contract and should be completed with `V1-Docs`, not after
-the implementation milestones.
+`V1-Classification-Spec` is listed separately for visibility. Its standalone
+Research Run contract is completed with `V1-Docs`; the hybrid direction gate is
+already implemented and does not imply standalone classification delivery.
 
 `V1-Diagnostics` and `V1-Artifacts` should be implemented together when the
 database contract changes, because model diagnostics are not useful if they only

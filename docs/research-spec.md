@@ -73,6 +73,16 @@ opinion layer is not a broker, live-order, or portfolio-control contract.
 - tradability and liquidity fields are diagnostic for v1, not investability
   claims
 
+### SPEC-DATA-004: TW universe caveat
+
+Successful TW runs must make the lack of point-in-time membership visible where
+results are read. New runs persist the warning; reloaded TW runs expose the
+non-blocking comparison caveat
+`TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE`, including legacy records whose market
+can be recovered from their saved request. The caveat does not establish that
+historical price coverage is complete and does not change comparison eligibility
+or opinion viability by itself.
+
 ## Feature Contract
 
 ### SPEC-FEATURE-001: Feature specification
@@ -94,6 +104,14 @@ before rerun.
 Advanced factor, peer, and external-signal fields may exist on the request, but
 they are hidden advanced modules in v1. A baseline research run must not require
 them.
+
+### SPEC-FEATURE-003: Missing-feature policy
+
+Extra Trees, XGBoost, and Random Forest use the same complete-case policy: any
+row with a non-finite model input is excluded before training or prediction.
+Each run persists `missing_feature_policy_version="complete_case_model_inputs_v1"`
+and `missing_feature_policy_state="complete_case_applied"`. Legacy metadata
+values remain readable but do not define current model behavior.
 
 ## Prediction Task Contract
 
@@ -145,12 +163,15 @@ Classification diagnostics should include at least:
 - ROC AUC or PR AUC when sample size supports it
 - calibration summary when probabilities are shown
 
-The current chronological sigmoid calibration gate is provisional and versioned
-as `chronological_tail_20pct_min20_class5_v1`: the calibration tail uses at
-least 20 samples, and both the base-training and calibration windows require at
-least five samples from each class. These are minimum support checks, not proof
-of calibrated performance; the positive-return and confirmation thresholds
-remain separately identifiable in persisted run configuration and diagnostics.
+The direction admission classifier is implemented as part of the hybrid
+regression-ranking workflow; a standalone classification Research Run remains
+deferred. The current chronological sigmoid calibration gate is provisional and
+versioned as `chronological_tail_20pct_min20_class5_v1`: the calibration tail
+uses at least 20 samples, and both the base-training and calibration windows
+require at least five samples from each class. These are minimum support checks,
+not proof of calibrated performance; the positive-return and confirmation
+thresholds remain separately identifiable in persisted run configuration and
+diagnostics.
 
 Holdout predictions are evaluation artifacts. A prospective opinion requires
 one finite regression score and calibrated up probability for every requested
@@ -213,7 +234,8 @@ empty list and a warning instead of inventing values.
 The strategy backtest is an offline research artifact. It is not broker
 execution and must not imply live-order readiness. A run using
 `execution_route="research_only"` remains `tradability_state="research_only"`;
-`execution_ready` requires an explicitly non-research execution route.
+`execution_ready` requires an explicitly non-research execution route and is an
+internal-foundation state under ADR-0017, not public v1 capability.
 
 ### SPEC-BACKTEST-002: Strategy defaults
 
@@ -421,9 +443,13 @@ must not imply:
 
 Direct action-language labels are allowed only when the artifact preserves the
 manual-adoption boundary and can also output `no-opinion` or `do-not-adopt`.
+An artifact reconstructed from a persisted run with `execution_ready` or other
+non-research execution metadata must fail the manual-adoption review check,
+return no actionable rows, and remain `no-opinion` or `do-not-adopt`.
 
 ## Hidden Advanced Modules
 
 Execution, adaptive, peer, factor, external-signal, and tick archive modules
-are hidden advanced or future modules for v1. They may remain in code, but they
-must not be required for the default research loop.
+are hidden advanced or future modules for v1. Internal simulation and live-stub
+foundations may remain under ADR-0017, but no execution route is a public v1
+product capability and none may be required for the default research loop.

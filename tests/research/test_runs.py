@@ -11,9 +11,11 @@ import backend.research.services.runs as research_run_service
 from backend.platform.errors import DataAccessError
 from backend.research.contracts.runs import (
     ConfigSources,
+    DirectionModelConfig,
     EffectiveStrategyConfig,
     FallbackAudit,
     Metrics,
+    ModelConfig,
     OpinionArtifact,
     OpinionReviewCheck,
     OpinionRow,
@@ -21,6 +23,10 @@ from backend.research.contracts.runs import (
     ResearchRunResponse,
 )
 from backend.research.domain.opinion import build_opinion_artifact
+from backend.research.domain.result_caveats import (
+    TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+    TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+)
 from backend.research.domain.version_pack import build_version_pack_payload
 
 
@@ -52,6 +58,28 @@ def test_new_research_request_rejects_unshifted_features():
 
     with pytest.raises(ValidationError):
         ResearchRunCreateRequest.model_validate(payload)
+
+
+def test_new_research_request_model_defaults_and_explicit_overrides():
+    assert ModelConfig().type == "extra_trees"
+    assert DirectionModelConfig().type == "extra_trees"
+
+    payload = make_request().model_dump(mode="json")
+    payload.pop("model")
+    payload.pop("direction_model")
+
+    request = ResearchRunCreateRequest.model_validate(payload)
+
+    assert request.model.type == "extra_trees"
+    assert request.direction_model is None
+
+    payload["model"] = {"type": "xgboost", "params": {}}
+    payload["direction_model"] = {}
+    request = ResearchRunCreateRequest.model_validate(payload)
+
+    assert request.model.type == "xgboost"
+    assert request.direction_model is not None
+    assert request.direction_model.type == "extra_trees"
 
 
 def make_response(run_id: str = "run_123") -> ResearchRunResponse:
@@ -130,6 +158,52 @@ def test_requested_missing_baseline_marks_response_partial():
     assert response.artifact_completeness == "partial"
     assert "baselines" in response.missing_artifacts
     assert "baselines" not in response.present_artifacts
+
+
+def test_tw_live_response_exposes_nonblocking_universe_caveat_and_warning():
+    result = research_run_projection.project_live_response(
+        make_response(),
+        make_request(),
+    )
+
+    assert result.warnings == [TW_POINT_IN_TIME_MEMBERSHIP_WARNING]
+    assert result.model_dump(mode="json")["comparison_caveats"] == [
+        {
+            "code": TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+            "label": TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+            "severity": "note",
+        }
+    ]
+    assert result.opinion_artifact.state == "viable"
+    row = result.opinion_artifact.buy_candidates[0]
+    assert TW_POINT_IN_TIME_MEMBERSHIP_WARNING in row.risk_or_warning
+    assert any(
+        ref.artifact == "warnings" for ref in row.source_artifact_references
+    )
+
+
+def test_legacy_tw_structured_note_is_visible_without_blocking_opinion():
+    payload = make_opinion_payload()
+    payload["comparison_caveats"] = [
+        {
+            "code": TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
+            "label": TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
+            "severity": "note",
+        }
+    ]
+
+    artifact = build_opinion_artifact(payload)
+
+    assert artifact["state"] == "viable"
+    row = artifact["buy_candidates"][0]
+    assert row["risk_or_warning"] == TW_POINT_IN_TIME_MEMBERSHIP_WARNING
+    assert "Do not adopt if persisted comparison caveats" not in row[
+        "invalidation_note"
+    ]
+    assert any(
+        ref["artifact"] == "comparison_caveats"
+        for ref in row["source_artifact_references"]
+    )
 
 
 def make_opinion_payload() -> dict:
@@ -1155,7 +1229,7 @@ def test_create_research_run_records_started_before_execute(monkeypatch):
     } <= set(checks)
     assert checks["strategy_lifecycle"].status == "pass"
     assert checks["signal_to_position"].status == "pass"
-    assert checks["backtest_report_discipline"].status == "pass"
+    assert checks["backtest_report_discipline"].status == "warning"
     assert checks["manual_adoption_boundary"].status == "pass"
     assert checks["strategy_lifecycle"].result["metrics_present"]
     assert checks["signal_to_position"].result["checked_symbol_count"] == 1
@@ -1165,5 +1239,5 @@ def test_create_research_run_records_started_before_execute(monkeypatch):
         "2330"
     ]
     assert checks["source_artifact_audit"].status == "warning"
-    assert checks["text_evidence_summary"].status == "not_evaluated"
+    assert checks["text_evidence_summary"].status == "warning"
     assert call_order == ["started", "executed", "success"]
