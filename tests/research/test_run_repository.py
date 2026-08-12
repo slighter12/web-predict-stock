@@ -455,20 +455,30 @@ def test_project_persisted_snapshot_parses_model_diagnostics_once(monkeypatch):
     assert projected["model_diagnostics"]["actual_vs_predicted"] == []
 
 
-def test_run_row_snapshot_preserves_legacy_missing_feature_metadata():
+@pytest.mark.parametrize(
+    "legacy_state",
+    ["native_missing_supported", "core_data_gaps_filtered"],
+)
+def test_run_projection_preserves_legacy_missing_feature_metadata(legacy_state):
     row = ResearchRun(
         run_id="legacy-missing-feature-policy",
         status="succeeded",
-        missing_feature_policy_state="native_missing_supported",
+        missing_feature_policy_state=legacy_state,
         missing_feature_policy_version="xgboost_native_missing_v1",
     )
 
     snapshot = research_run_repository._run_row_to_snapshot(row)
+    projected = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=False,
+    )
 
-    assert snapshot["missing_feature_policy_state"] == "native_missing_supported"
+    assert snapshot["missing_feature_policy_state"] == legacy_state
     assert snapshot["_version_pack_values"]["missing_feature_policy_version"] == (
         "xgboost_native_missing_v1"
     )
+    assert projected["missing_feature_policy_state"] == legacy_state
+    assert projected["missing_feature_policy_version"] == "xgboost_native_missing_v1"
 
 
 def test_run_row_to_snapshot_parses_reused_json_fields_once(monkeypatch):

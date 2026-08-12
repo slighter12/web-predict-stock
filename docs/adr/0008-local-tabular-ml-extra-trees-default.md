@@ -25,13 +25,11 @@ novelty.
 
 All supported model families use the same accepted complete-case input policy:
 rows with any non-finite model input are removed before training or prediction.
-Runs record `missing_feature_policy_version="complete_case_model_inputs_v1"`
+New runs record `missing_feature_policy_version="complete_case_model_inputs_v1"`
 and `missing_feature_policy_state="complete_case_applied"` so this behavior is
-comparable after reload. The previous XGBoost-named metadata remains readable
-on legacy payloads and is migrated without changing their recorded model family.
-Migration 0009 normalizes that metadata one way: after the old value is replaced,
-the database cannot infer which rows originally carried it, so downgrade refuses
-to fabricate legacy provenance.
+comparable after reload. Legacy runs retain their recorded XGBoost-named version
+and state unchanged. Read paths preserve those historical labels rather than
+rewriting them to claim a policy the run did not record.
 
 ## Consequences
 
