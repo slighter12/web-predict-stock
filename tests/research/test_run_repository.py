@@ -632,7 +632,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "run_id": "run_123",
         "request_id": "req_123",
         "status": "succeeded",
-        "market": "TW",
+        "market": None,
         "symbols": ["2330", "2317", "2454", "9999"],
         "strategy_type": "research_v1",
         "runtime_mode": "runtime_compatibility_mode",
@@ -651,6 +651,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "validation_outcome": {"ok": True},
         "rejection_reason": None,
         "request_payload": {
+            "market": "TW",
             "symbols": ["2330", "2317", "2454", "9999"],
             "direction_model": {"confirmation_probability_threshold": 0.5},
             "features": [
@@ -771,6 +772,8 @@ def test_research_run_repository_roundtrip(monkeypatch):
     loaded = research_run_projection.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
+    assert loaded["market"] is None
+    assert loaded["request_payload"]["market"] == "TW"
     assert loaded["request_payload"]["features"][0]["shift"] == 0
     assert loaded["effective_strategy"] == {"threshold": 0.003, "top_n": 3}
     assert loaded["comparison_eligibility"] == "research_only_comparable"

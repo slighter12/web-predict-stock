@@ -160,6 +160,12 @@ Passes when:
 - old runs without artifacts show the fallback required by `KPI-RESEARCH-003`
 - TW results display the `SPEC-DATA-004` point-in-time membership caveat before
   result interpretation, including legacy runs projected from saved market data
+- legacy projections derive market from the saved request when the top-level
+  market is absent
+- the membership caveat alone does not change comparison eligibility or opinion
+  viability
+- the caveat discloses that historical membership coverage is not established;
+  it does not represent complete historical coverage
 
 ### GATE-V1-005: Research Runs and Comparison
 

@@ -298,13 +298,7 @@ def _verify_tw_company_profile_batch(
 def save_tw_company_profiles(
     payloads: list[dict],
 ) -> list[CompanyProfileSaveOutcome]:
-    try:
-        normalized_profiles = _verify_tw_company_profile_batch(payloads)
-    except Exception as exc:
-        return [
-            CompanyProfileSaveOutcome(payload=payload, saved=None, error=exc)
-            for payload in payloads
-        ]
+    normalized_profiles = _verify_tw_company_profile_batch(payloads)
 
     outcomes = []
     for payload in normalized_profiles:

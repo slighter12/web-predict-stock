@@ -267,9 +267,23 @@ def _crawl_single_source(
     updated_count = 0
     noop_count = 0
     active_symbols: set[str] = set()
-    save_outcomes = (
-        save_tw_company_profiles(deduped_profiles) if deduped_profiles else []
-    )
+    save_outcomes = []
+    if deduped_profiles:
+        try:
+            save_outcomes = save_tw_company_profiles(deduped_profiles)
+        except Exception as exc:
+            error_type = type(exc).__name__
+            logger.warning(
+                "TW company profile batch save rejected exchange=%s "
+                "raw_payload_id=%s error_type=%s",
+                exchange,
+                raw_payload_id,
+                error_type,
+            )
+            errors.append(
+                f"exchange={exchange} raw_payload_id={raw_payload_id} "
+                f"batch_save_error_type={error_type}"
+            )
     for outcome in save_outcomes:
         payload = outcome.payload
         if outcome.error is None and outcome.saved is not None:

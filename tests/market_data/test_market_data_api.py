@@ -127,13 +127,14 @@ def test_tw_company_crawl_does_not_expose_request_url(
     monkeypatch,
 ):
     feed_url_with_token = "https://feed.test/company?token=secret"  # noqa: S105
-    monkeypatch.setenv("TWSE_COMPANY_SOURCE_URL", feed_url_with_token)
     requested_urls = []
     monkeypatch.setattr(
         company_crawlers,
         "_request_company_feed_with_tls_fallback",
         lambda **kwargs: requested_urls.append(kwargs["url"])
-        or (_ for _ in ()).throw(requests.HTTPError("Forbidden")),
+        or (_ for _ in ()).throw(
+            requests.HTTPError(f"Forbidden for url: {feed_url_with_token}")
+        ),
     )
     monkeypatch.setattr(
         company_crawlers,

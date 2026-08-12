@@ -160,6 +160,35 @@ def test_company_feed_rejects_200_response_from_different_final_url(monkeypatch)
         )
 
 
+def test_company_feed_rejects_redirect_and_persists_only_failed_audit(monkeypatch):
+    persisted = []
+    response = SimpleNamespace(
+        url=company_crawlers.TWSE_COMPANY_SOURCE.url,
+        status_code=302,
+        text="",
+        raise_for_status=lambda: None,
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "_request_company_feed_with_tls_fallback",
+        lambda **kwargs: response,
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "persist_raw_ingest_record",
+        lambda **kwargs: persisted.append(kwargs) or 1,
+    )
+
+    with pytest.raises(company_crawlers.ExternalFetchError):
+        company_crawlers._fetch_company_feed(
+            source=company_crawlers.TWSE_COMPANY_SOURCE
+        )
+
+    assert [item["fetch_status"] for item in persisted] == [
+        company_crawlers.FETCH_STATUS_FAILED
+    ]
+
+
 @pytest.mark.parametrize(
     (
         "source",
@@ -381,6 +410,38 @@ def test_save_company_profile_rejects_mismatched_raw_ingest_provenance(
         company_profiles.save_tw_company_profile(_company_profile_payload())
 
 
+def test_batch_save_raises_once_when_verification_fails(monkeypatch):
+    raw_lookups = []
+    monkeypatch.setattr(
+        company_profiles,
+        "get_raw_ingest_record",
+        lambda raw_payload_id: raw_lookups.append(raw_payload_id)
+        or SimpleNamespace(
+            source_name="tpex_company_profile",
+            market="TW",
+            symbol="TW_COMPANY_UNIVERSE",
+            parser_version="tw_company_profile_v1",
+            fetch_status="success",
+            expected_symbol_context="source=tpex_company_profile;market=TW",
+        ),
+    )
+    monkeypatch.setattr(
+        company_profiles,
+        "upsert_tw_company_profile",
+        lambda payload: pytest.fail("unverified batch must not be persisted"),
+    )
+
+    with pytest.raises(ValueError, match="raw ingest provenance is invalid"):
+        company_profiles.save_tw_company_profiles(
+            [
+                _company_profile_payload(),
+                _company_profile_payload(symbol="2317", company_name="Hon Hai"),
+            ]
+        )
+
+    assert raw_lookups == [1]
+
+
 def test_save_company_profile_rejects_forged_symbol_with_valid_raw_audit(
     monkeypatch,
 ):
@@ -557,6 +618,47 @@ def test_crawl_tw_company_profiles_reconciles_each_exchange(monkeypatch):
     ] == ["TWSE", "TPEX"]
     assert summary["active_symbol_count"] == 2
     assert summary["errors"] == []
+
+
+def test_crawl_reports_one_sanitized_batch_verification_error(monkeypatch):
+    secret = "raw payload token=secret"
+    monkeypatch.setattr(
+        company_crawlers,
+        "_fetch_company_feed",
+        lambda **kwargs: (
+            7,
+            [
+                {"CompanyCode": "2330", "CompanyName": "TSMC"},
+                {"CompanyCode": "2317", "CompanyName": "Hon Hai"},
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "save_tw_company_profiles",
+        lambda payloads: (_ for _ in ()).throw(ValueError(secret)),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "mark_missing_active_tw_company_profiles_inactive",
+        lambda **kwargs: pytest.fail("invalid batch must not reconcile"),
+    )
+    monkeypatch.setattr(
+        company_crawlers,
+        "list_active_tw_company_profiles",
+        lambda **kwargs: [],
+    )
+
+    summary = company_crawlers._crawl_single_source(
+        source=company_crawlers.TWSE_COMPANY_SOURCE,
+    )
+
+    assert summary["upserted_count"] == 0
+    assert summary["reconciliation_skipped"] is True
+    assert summary["errors"] == [
+        "exchange=TWSE raw_payload_id=7 batch_save_error_type=ValueError"
+    ]
+    assert secret not in str(summary)
 
 
 def test_crawl_single_source_skips_reconciliation_when_feed_coverage_is_low(
