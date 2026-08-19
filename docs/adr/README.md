@@ -38,6 +38,9 @@ market lane. Its absence means the decision applies repository-wide.
 | [0021](0021-us-daily-expansion.md) | US daily is the second market lane | proposed |
 | [0022](0022-portfolio-ledger-manual-adoption.md) | A portfolio ledger closes the loop through manual adoption, not automation | proposed |
 | [0023](0023-company-profile-reconciliation-trust-boundary.md) | Unauthenticated company crawls may add only trusted current listings and never deactivate profiles | accepted |
+| [0024](0024-volatility-scaled-positive-return-threshold.md) | Direction Gate labels use a volatility-scaled Positive Return Threshold | accepted |
+| [0025](0025-pooled-cross-sectional-model-before-clusters.md) | Technical research trains a pooled cross-sectional model before Cluster-specific models | accepted |
+| [0026](0026-method-selection-matrix-summary-boundary.md) | Method Selection Matrices retain candidate summaries; shortlisted results are complete Research Runs | accepted |
 
 ## Writing a new one
 

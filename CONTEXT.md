@@ -77,6 +77,37 @@ One execution of the research loop, covering a dataset, features, prediction
 task, model, validation, and backtest.
 _Avoid_: experiment, study, job, backtest run
 
+**Method Candidate**:
+One fixed combination of Prediction Task, Return Target, Horizon, Features,
+model configuration, Direction Gate, and strategy policy evaluated as a single
+research choice.
+_Avoid_: approach, setup
+
+**Pooled Cross-Sectional Model**:
+A model trained on rows from all Model-Ready Universe Symbols, with Folds that
+keep every row from the same Market Date on the same side of the time boundary.
+_Avoid_: market-wide model, one model per stock
+
+**Method Selection Matrix**:
+A persisted comparison of Method Candidates and Fold summaries that records
+selection evidence without representing every inner candidate as a Research Run.
+_Avoid_: experiment log, grid search output
+
+**Calibration Matrix**:
+A limited Method Selection Matrix that verifies evaluation execution and
+artifact capture without selecting a Method Candidate.
+_Avoid_: smoke test
+
+**Walk-Forward Evaluation**:
+A chronological evaluation of Method Candidates in which each Fold trains only
+on Market Dates earlier than its Holdout Market Dates.
+_Avoid_: time-series test, rolling backtest
+
+**Feature Ablation**:
+A Walk-Forward Evaluation that compares otherwise identical Method Candidates
+after adding or removing a Feature or Feature Family.
+_Avoid_: feature analysis, feature filtering
+
 **Dataset**:
 The symbol, date, and price slice a research run trains and evaluates on.
 _Avoid_: data, training data, sample
@@ -123,6 +154,16 @@ _Avoid_: similar runs, matching runs
 The numeric forward return a regression task predicts, defined by its return
 definition, horizon, and price basis.
 _Avoid_: label, y, outcome, prediction
+
+**Positive Return Threshold**:
+The Horizon-scoped Return Target value at or above which a realized return is a
+positive class for the Direction Gate.
+_Avoid_: gain target, success rate
+
+**Volatility-Scaled Positive Return Threshold**:
+A Positive Return Threshold derived from the Symbol's pre-signal return
+volatility and scaled to the Horizon, rather than a universal percentage.
+_Avoid_: dynamic 3% threshold, volatility target
 
 **Horizon**:
 The number of forward market dates a target looks ahead.
