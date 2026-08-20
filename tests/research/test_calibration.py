@@ -19,7 +19,11 @@ from backend.platform.errors import (
     CalibrationEvaluationError,
 )
 from backend.shared.analytics.models import ModelUnavailableError
-from backend.shared.analytics.pooled import MarketDateFold, build_market_date_folds
+from backend.shared.analytics.pooled import (
+    FeatureConfigurationError,
+    MarketDateFold,
+    build_market_date_folds,
+)
 from backend.research.contracts.calibration import (
     CalibrationArtifactEvidence,
     CalibrationDatasetSummary,
@@ -611,6 +615,54 @@ def test_calibration_data_shape_error_fails_without_persisting(monkeypatch):
     assert persisted == []
 
 
+def test_calibration_feature_configuration_error_fails_without_persisting(
+    monkeypatch,
+):
+    persisted: list[dict] = []
+
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "get_data",
+        lambda **_: _market_frame(),
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_official_no_data_dates",
+        lambda **_: set(),
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_tw_market_dates",
+        lambda **_: _market_dates(),
+    )
+
+    def _raise_feature_configuration_error(**kwargs):
+        raise FeatureConfigurationError("feature configuration is invalid")
+
+    monkeypatch.setattr(
+        calibration_service,
+        "build_pooled_model_ready_dataset",
+        _raise_feature_configuration_error,
+    )
+    monkeypatch.setattr(
+        calibration_service,
+        "persist_calibration_matrix",
+        lambda payload: persisted.append(payload),
+    )
+
+    with pytest.raises(
+        CalibrationEvaluationError,
+        match="Calibration dataset could not be prepared",
+    ):
+        calibration_service.create_calibration_matrix(
+            _request().model_copy(update={"model_families": ["extra_trees"]}),
+            request_id="req_feature_configuration_bug",
+            matrix_id="calibration_feature_configuration_bug",
+        )
+
+    assert persisted == []
+
+
 def test_public_calibration_api_returns_not_found_for_empty_market_data(monkeypatch):
     monkeypatch.setattr(
         calibration_service.data_service,
@@ -679,11 +731,13 @@ def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch, request
         "fit_regressor",
         lambda **_: _Regressor(),
     )
-    request = _request().model_copy(update={"model_families": ["extra_trees"]})
+    calibration_request = _request().model_copy(
+        update={"model_families": ["extra_trees"]}
+    )
 
     created = client.post(
         "/api/v1/research/calibration-matrices",
-        json=request.model_dump(mode="json"),
+        json=calibration_request.model_dump(mode="json"),
     )
     matrix_id = created.json()["matrix_id"]
     loaded = client.get(f"/api/v1/research/calibration-matrices/{matrix_id}")

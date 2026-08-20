@@ -234,7 +234,7 @@ These foundations are implementation inventory, not v1 product scope.
   - pooled, calibration, and migration regression tests cover invalid-date
     boundaries, request bounds, busy responses, contract validation, and
     evidence-preserving downgrade behavior
-  - `.venv/bin/python -m pytest -q` result: `634 passed` with three existing
+  - `.venv/bin/python -m pytest -q` result: `638 passed` with three existing
     warnings
   - `bun x tsc -p frontend/tsconfig.json --noEmit` result: passed
   - the Calibration Matrix response includes the TW point-in-time membership

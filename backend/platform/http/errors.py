@@ -41,9 +41,12 @@ def build_error_response(
     run_id: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    response_headers = {"X-Request-Id": request_id}
-    if headers:
-        response_headers.update(headers)
+    response_headers = {
+        key: value
+        for key, value in (headers or {}).items()
+        if key.lower() != "x-request-id"
+    }
+    response_headers["X-Request-Id"] = request_id
     return JSONResponse(
         status_code=status_code,
         content=build_error_payload(

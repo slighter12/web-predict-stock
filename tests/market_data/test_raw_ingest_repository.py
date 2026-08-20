@@ -85,6 +85,17 @@ def test_list_market_trading_days_can_restrict_sources(monkeypatch):
                     volume=1,
                 ),
                 DailyOHLCV(
+                    date=date(2024, 1, 1),
+                    symbol="OFFICIAL-MI",
+                    source="twse_mi_index",
+                    market="TW",
+                    open=1,
+                    high=1,
+                    low=1,
+                    close=1,
+                    volume=1,
+                ),
+                DailyOHLCV(
                     date=date(2024, 1, 2),
                     symbol="GHOST",
                     source="yfinance",

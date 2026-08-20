@@ -5,6 +5,7 @@ import pytest
 
 from backend.shared.analytics import features as feature_engine
 from backend.shared.analytics.pooled import (
+    FeatureConfigurationError,
     build_market_date_folds,
     build_pooled_model_ready_dataset,
 )
@@ -107,6 +108,38 @@ def test_pooled_dataset_rejects_missing_core_columns():
             shift_map={"MA_20": 1},
             return_target="open_to_open",
             horizon_days=20,
+            requested_symbols=["AAA", "BBB"],
+            market_dates=tuple(timestamp.date() for timestamp in dates),
+            source_priority=SOURCE_PRIORITY,
+        )
+
+
+def test_pooled_dataset_rejects_feature_configuration_mismatch():
+    frame, dates = _coverage_frame(set())
+
+    with pytest.raises(FeatureConfigurationError, match="feature configuration"):
+        build_pooled_model_ready_dataset(
+            frame,
+            feature_config={"ma": [{"window": 20, "source": "close"}]},
+            shift_map={"MA_21": 1},
+            return_target="open_to_open",
+            horizon_days=20,
+            requested_symbols=["AAA", "BBB"],
+            market_dates=tuple(timestamp.date() for timestamp in dates),
+            source_priority=SOURCE_PRIORITY,
+        )
+
+
+def test_pooled_dataset_propagates_missing_feature_output():
+    frame, dates = _coverage_frame(set())
+
+    with pytest.raises(FeatureConfigurationError, match="did not produce columns"):
+        build_pooled_model_ready_dataset(
+            frame,
+            feature_config={"unsupported": [{"window": 1, "source": "close"}]},
+            shift_map={"UNSUPPORTED_1": 1},
+            return_target="open_to_open",
+            horizon_days=1,
             requested_symbols=["AAA", "BBB"],
             market_dates=tuple(timestamp.date() for timestamp in dates),
             source_priority=SOURCE_PRIORITY,

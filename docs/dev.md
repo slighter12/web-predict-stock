@@ -207,9 +207,11 @@ The Calibration Matrix endpoint is intentionally bounded by the versioned
 
 Requests outside these limits return `422 VALIDATION_FAILED`. Only one
 Calibration Matrix may run at a time in a backend process. A concurrent request
-returns `429 CALIBRATION_BUSY` with `Retry-After: 1`. Multi-process or public
-deployments still need an external rate limit or queue because this cap is
-process-local.
+returns `429 CALIBRATION_BUSY` with `Retry-After: 1`. This process-local
+semaphore does not provide a global guarantee across multiple workers; a
+deployment that requires one active Calibration Matrix globally must use a
+single worker or a database-level mutex, and still needs an external rate limit
+or queue for public traffic.
 
 Calibration responses expose the current-active TW membership caveat through
 `comparison_caveats`; this is not point-in-time membership evidence. The
@@ -217,7 +219,8 @@ versioned `tw_official_preferred_yfinance_fallback_v1` policy resolves duplicate
 `(Symbol, Market Date)` rows before target calculation and fold construction use
 one pooled Market-Date axis under the
 `tw_official_market_lane_excluding_confirmed_no_data_v2` policy: distinct TW
-dates with at least one official source row in the market-data store,
+dates with at least one official source row in the market-data store for the
+requested date range,
 independent of requested Symbols and excluding confirmed official no-data dates.
 Rolling features continue over
 canonical observed rows when a Symbol is missing an axis date; an invalid OHLCV

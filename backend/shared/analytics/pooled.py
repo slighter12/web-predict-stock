@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -57,6 +56,10 @@ class PooledModelReadyDataset:
 
 
 _REQUIRED_CORE_COLUMNS = ("open", "high", "low", "close", "volume")
+
+
+class FeatureConfigurationError(ValueError):
+    """Raised when feature configuration cannot produce requested columns."""
 
 
 def _as_date(value: date | datetime | str) -> date:
@@ -209,6 +212,59 @@ def _normalize_core_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     return numeric, valid
 
 
+def _feature_names_from_config(feature_config: Mapping[str, object]) -> set[str]:
+    names: set[str] = set()
+    for feature_name, config_value in feature_config.items():
+        if isinstance(config_value, int):
+            entries: Iterable[object] = (config_value,)
+        elif isinstance(config_value, Iterable) and not isinstance(
+            config_value, (str, bytes)
+        ):
+            entries = config_value
+        else:
+            raise FeatureConfigurationError(
+                "feature configuration entries must be iterable or integer."
+            )
+
+        for entry in entries:
+            if isinstance(entry, dict):
+                window = entry.get("window")
+                source = entry.get("source", "close")
+            else:
+                window = entry
+                source = "close"
+            try:
+                normalized_window = int(window)
+            except (TypeError, ValueError) as exc:
+                raise FeatureConfigurationError(
+                    f"feature configuration has an invalid window for '{feature_name}'."
+                ) from exc
+            if normalized_window <= 0 or source not in _REQUIRED_CORE_COLUMNS:
+                raise FeatureConfigurationError(
+                    f"feature configuration is invalid for '{feature_name}'."
+                )
+            names.add(
+                feature_engine.feature_col_name(
+                    str(feature_name), normalized_window, str(source)
+                )
+            )
+    return names
+
+
+def _validate_feature_configuration(
+    feature_config: Mapping[str, object], feature_names: tuple[str, ...]
+) -> None:
+    configured_names = set(feature_names)
+    expected_names = _feature_names_from_config(feature_config)
+    missing_names = sorted(configured_names - expected_names)
+    extra_names = sorted(expected_names - configured_names)
+    if missing_names or extra_names:
+        raise FeatureConfigurationError(
+            "feature configuration does not match shift_map: "
+            f"missing={missing_names}, extra={extra_names}"
+        )
+
+
 def _contiguous_valid_segments(valid: pd.Series) -> tuple[tuple[int, int], ...]:
     positions = np.flatnonzero(valid.to_numpy(dtype=bool))
     if len(positions) == 0:
@@ -274,7 +330,7 @@ def _compute_observed_features(
             set(feature_names) - set(segment_generated.columns)
         )
         if missing_features:
-            raise ValueError(
+            raise FeatureConfigurationError(
                 f"feature engine did not produce columns: {missing_features}"
             )
         for column, shift in shift_map.items():
@@ -312,6 +368,7 @@ def build_pooled_model_ready_dataset(
     if not normalized.empty:
         _assert_core_columns(normalized)
     feature_names = tuple(shift_map)
+    _validate_feature_configuration(feature_config, feature_names)
     ready_frames: list[pd.DataFrame] = []
     exclusions: list[PooledDatasetExclusion] = []
     symbol_coverage: list[PooledSymbolCoverage] = []
@@ -432,6 +489,8 @@ def build_pooled_model_ready_dataset(
                     )
                 )
             ready_frames.append(ready.reset_index(drop=True))
+        except FeatureConfigurationError:
+            raise
         except (KeyError, TypeError, ValueError):
             symbol_coverage.append(
                 PooledSymbolCoverage(
