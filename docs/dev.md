@@ -236,12 +236,29 @@ request with no market rows returns `404 RESOURCE_NOT_FOUND`.
 For a local Calibration Matrix verification after data and migrations are
 ready, issue one bounded POST and reload the returned matrix:
 
+Create `calibration-request.json` with a request within
+`calibration_request_bounds_v1`, for example:
+
+```json
+{
+  "symbols": ["2330"],
+  "date_range": {"start": "2024-01-01", "end": "2024-03-31"},
+  "features": [
+    {"name": "ma", "window": 20, "source": "close", "shift": 1}
+  ],
+  "model_families": ["extra_trees"],
+  "horizon_days": 5
+}
+```
+
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/research/calibration-matrices \
   -H 'Content-Type: application/json' \
   -d @calibration-request.json
 curl http://127.0.0.1:8000/api/v1/research/calibration-matrices/MATRIX_ID
 ```
+
+Replace `MATRIX_ID` with the `matrix_id` returned by the POST response.
 
 ## V1 Usable-Loop Verification
 

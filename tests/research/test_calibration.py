@@ -19,7 +19,7 @@ from backend.platform.errors import (
     CalibrationEvaluationError,
 )
 from backend.shared.analytics.models import ModelUnavailableError
-from backend.shared.analytics.pooled import build_market_date_folds
+from backend.shared.analytics.pooled import MarketDateFold, build_market_date_folds
 from backend.research.contracts.calibration import (
     CalibrationArtifactEvidence,
     CalibrationDatasetSummary,
@@ -192,6 +192,89 @@ def test_calibration_service_runs_each_configured_family_without_xgboost_fallbac
     assert len(persisted) == 1
     assert persisted[0]["matrix_id"] == "calibration_123"
     assert "model_availability" not in persisted[0]["evaluation"]
+
+
+def test_calibration_skips_empty_folds_but_evaluates_later_folds(monkeypatch):
+    frame = _market_frame()
+    frame = frame.loc[frame["date"] >= pd.Timestamp("2024-01-31")].copy()
+
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "get_data",
+        lambda **_: frame,
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_official_no_data_dates",
+        lambda **_: set(),
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_tw_market_dates",
+        lambda **_: _market_dates(),
+    )
+
+    class _Regressor:
+        def predict(self, features: pd.DataFrame) -> np.ndarray:
+            return np.linspace(0.001, 0.01, len(features))
+
+    monkeypatch.setattr(
+        calibration_service.model_service,
+        "fit_regressor",
+        lambda **_: _Regressor(),
+    )
+    monkeypatch.setattr(
+        calibration_service,
+        "persist_calibration_matrix",
+        lambda payload: None,
+    )
+
+    result = calibration_service.create_calibration_matrix(
+        _request().model_copy(update={"model_families": ["extra_trees"]}),
+        request_id="req_empty_fold_continuation",
+        matrix_id="calibration_empty_fold_continuation",
+    )
+
+    model_result = result.evaluation.model_results[0]
+    assert model_result.availability.available is True
+    assert model_result.availability.evaluated_fold_count == 1
+    assert [fold.evaluation_status for fold in model_result.folds] == [
+        "not_evaluated",
+        "not_evaluated",
+        "evaluated",
+    ]
+
+
+def test_model_family_is_unavailable_when_all_folds_are_empty():
+    folds = [
+        MarketDateFold(
+            number=index,
+            train_dates=(date(2024, 1, index),),
+            purge_dates=(),
+            holdout_dates=(date(2024, 2, index),),
+        )
+        for index in range(1, 4)
+    ]
+    empty_rows = calibration_service._PreparedFoldRows(
+        raw_train=pd.DataFrame(),
+        train=pd.DataFrame(),
+        holdout=pd.DataFrame(),
+    )
+
+    result, fit_count = calibration_service._evaluate_model_family(
+        "extra_trees",
+        frame=pd.DataFrame(),
+        feature_names=("MA_1",),
+        folds=folds,
+        prepared_rows=[empty_rows, empty_rows, empty_rows],
+    )
+
+    assert fit_count == 0
+    assert result.availability.available is False
+    assert result.availability.evaluated_fold_count == 0
+    assert result.availability.reason == (
+        "Pooled train or holdout rows are unavailable."
+    )
 
 
 def _response(request: CalibrationMatrixCreateRequest) -> CalibrationMatrixResponse:
@@ -413,6 +496,38 @@ def test_calibration_active_slot_is_released_after_failure(monkeypatch):
     calibration_service._CALIBRATION_ACTIVE.release()
 
 
+def test_calibration_releases_active_slot_if_start_log_fails(monkeypatch):
+    class _Semaphore:
+        def __init__(self):
+            self.acquired = False
+
+        def acquire(self, blocking=False):
+            if self.acquired:
+                return False
+            self.acquired = True
+            return True
+
+        def release(self):
+            self.acquired = False
+
+    semaphore = _Semaphore()
+    monkeypatch.setattr(calibration_service, "_CALIBRATION_ACTIVE", semaphore)
+
+    def _raise_log_error(*args, **kwargs):
+        raise RuntimeError("controlled log failure")
+
+    monkeypatch.setattr(calibration_service.logger, "info", _raise_log_error)
+
+    with pytest.raises(RuntimeError, match="controlled log failure"):
+        calibration_service.create_calibration_matrix(
+            _request(),
+            request_id="req_log_failure",
+            matrix_id="calibration_log_failure",
+        )
+
+    assert semaphore.acquired is False
+
+
 def test_calibration_unexpected_model_error_fails_without_persisting(monkeypatch):
     persisted: list[dict] = []
 
@@ -459,6 +574,43 @@ def test_calibration_unexpected_model_error_fails_without_persisting(monkeypatch
     assert persisted == []
 
 
+def test_calibration_data_shape_error_fails_without_persisting(monkeypatch):
+    persisted: list[dict] = []
+
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "get_data",
+        lambda **_: _market_frame().drop(columns=["volume"]),
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_official_no_data_dates",
+        lambda **_: set(),
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_tw_market_dates",
+        lambda **_: _market_dates(),
+    )
+    monkeypatch.setattr(
+        calibration_service,
+        "persist_calibration_matrix",
+        lambda payload: persisted.append(payload),
+    )
+
+    with pytest.raises(
+        CalibrationEvaluationError,
+        match="Calibration dataset could not be prepared",
+    ):
+        calibration_service.create_calibration_matrix(
+            _request().model_copy(update={"model_families": ["extra_trees"]}),
+            request_id="req_data_shape_bug",
+            matrix_id="calibration_data_shape_bug",
+        )
+
+    assert persisted == []
+
+
 def test_public_calibration_api_returns_not_found_for_empty_market_data(monkeypatch):
     monkeypatch.setattr(
         calibration_service.data_service,
@@ -489,12 +641,13 @@ def test_calibration_rejects_when_active_slot_is_occupied():
         calibration_service._CALIBRATION_ACTIVE.release()
 
 
-def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch):
+def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch, request):
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    request.addfinalizer(engine.dispose)
     Base.metadata.tables["calibration_matrices"].create(engine)
     monkeypatch.setattr(
         calibration_repository,

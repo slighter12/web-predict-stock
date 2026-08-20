@@ -233,17 +233,19 @@ def _evaluate_model_family(
     fold_metrics: list[CalibrationFoldMetrics] = []
     evaluated_fold_count = 0
     fit_attempt_count = 0
-    failure_reason: str | None = None
+    model_unavailable_reason: str | None = None
+    empty_fold_count = 0
 
     prepared_rows = prepared_rows or [
         _prepare_fold_rows(fold, frame) for fold in folds
     ]
-    for fold, fold_rows in zip(folds, prepared_rows):
-        if failure_reason is not None:
+    for fold, fold_rows in zip(folds, prepared_rows, strict=True):
+        if model_unavailable_reason is not None:
             fold_metrics.append(
                 _not_evaluated_fold(
                     fold.number,
-                    f"Model family unavailable after an earlier fold: {failure_reason}",
+                    "Model family unavailable after an earlier fold: "
+                    f"{model_unavailable_reason}",
                 )
             )
             continue
@@ -251,11 +253,11 @@ def _evaluate_model_family(
         train = fold_rows.train
         holdout = fold_rows.holdout
         if train.empty or holdout.empty:
-            failure_reason = "Pooled train or holdout rows are unavailable."
+            empty_fold_count += 1
             fold_metrics.append(
                 _not_evaluated_fold(
                     fold.number,
-                    failure_reason,
+                    "Pooled train or holdout rows are unavailable.",
                 )
             )
             continue
@@ -282,8 +284,10 @@ def _evaluate_model_family(
                 "linear_ic": _finite_correlation(actual, predicted, "pearson"),
             }
         except ModelUnavailableError as exc:
-            failure_reason = _failure_reason(exc)
-            fold_metrics.append(_not_evaluated_fold(fold.number, failure_reason))
+            model_unavailable_reason = _failure_reason(exc)
+            fold_metrics.append(
+                _not_evaluated_fold(fold.number, model_unavailable_reason)
+            )
             continue
         except Exception as exc:
             logger.exception(
@@ -304,10 +308,17 @@ def _evaluate_model_family(
         )
         evaluated_fold_count += 1
 
+    availability_reason = model_unavailable_reason
+    if (
+        availability_reason is None
+        and evaluated_fold_count == 0
+        and empty_fold_count == len(folds)
+    ):
+        availability_reason = "Pooled train or holdout rows are unavailable."
     availability = CalibrationModelAvailability(
         model_type=model_type,
-        available=failure_reason is None and evaluated_fold_count > 0,
-        reason=failure_reason,
+        available=availability_reason is None and evaluated_fold_count > 0,
+        reason=availability_reason,
         evaluated_fold_count=evaluated_fold_count,
     )
     return (
@@ -381,16 +392,21 @@ def _build_response(
             "No market data found for the requested symbols and date range."
         )
     feature_config, shift_map = _feature_config(request)
-    dataset = build_pooled_model_ready_dataset(
-        frame,
-        feature_config=feature_config,
-        shift_map=shift_map,
-        return_target=request.return_target,
-        horizon_days=request.horizon_days,
-        requested_symbols=request.symbols,
-        market_dates=market_dates,
-        source_priority=CALIBRATION_SOURCE_PRIORITY,
-    )
+    try:
+        dataset = build_pooled_model_ready_dataset(
+            frame,
+            feature_config=feature_config,
+            shift_map=shift_map,
+            return_target=request.return_target,
+            horizon_days=request.horizon_days,
+            requested_symbols=request.symbols,
+            market_dates=market_dates,
+            source_priority=CALIBRATION_SOURCE_PRIORITY,
+        )
+    except (TypeError, ValueError) as exc:
+        raise CalibrationEvaluationError(
+            "Calibration dataset could not be prepared."
+        ) from exc
     if dataset.frame.empty:
         raise InsufficientDataError(
             "Calibration Matrix has no pooled Model-Ready Universe rows."
@@ -411,7 +427,7 @@ def _build_response(
     ]
     fold_summaries = [
         _fold_summary(fold, dataset.frame, prepared_rows=prepared)
-        for fold, prepared in zip(folds, prepared_fold_rows)
+        for fold, prepared in zip(folds, prepared_fold_rows, strict=True)
     ]
     model_manifests = [
         CalibrationModelManifest(
@@ -513,17 +529,17 @@ def create_calibration_matrix(
             "Another Calibration Matrix is already running; retry later."
         )
 
-    logger.info(
-        "Calibration Matrix started request_id=%s matrix_id=%s symbol_count=%s "
-        "feature_count=%s date_start=%s date_end=%s",
-        request_id,
-        matrix_id,
-        len(request.symbols),
-        len(request.features),
-        request.date_range.start,
-        request.date_range.end,
-    )
     try:
+        logger.info(
+            "Calibration Matrix started request_id=%s matrix_id=%s symbol_count=%s "
+            "feature_count=%s date_start=%s date_end=%s",
+            request_id,
+            matrix_id,
+            len(request.symbols),
+            len(request.features),
+            request.date_range.start,
+            request.date_range.end,
+        )
         response = _build_response(
             request,
             request_id=request_id,

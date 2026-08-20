@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
+from backend.shared.analytics import features as feature_engine
 from backend.shared.analytics.pooled import (
     build_market_date_folds,
     build_pooled_model_ready_dataset,
@@ -83,6 +84,7 @@ def test_pooled_dataset_builds_features_per_symbol_and_records_exclusions():
         "BBB": 5,
     }
     assert result.frame["target"].notna().all()
+    assert "index" not in result.frame.columns
     assert [item.symbol for item in result.exclusions] == ["AAA", "BBB"]
     assert result.exclusions[0].excluded_row_count == 5
     aaa_coverage = result.symbol_coverage[0]
@@ -92,6 +94,23 @@ def test_pooled_dataset_builds_features_per_symbol_and_records_exclusions():
     assert aaa_coverage.invalid_ohlcv_row_count == 1
     assert aaa_coverage.model_ready_row_count == 3
     assert aaa_coverage.excluded_canonical_row_count == 5
+
+
+def test_pooled_dataset_rejects_missing_core_columns():
+    frame, dates = _coverage_frame(set())
+    frame = frame.drop(columns=["volume"])
+
+    with pytest.raises(ValueError, match="missing core columns"):
+        build_pooled_model_ready_dataset(
+            frame,
+            feature_config={"ma": [{"window": 20, "source": "close"}]},
+            shift_map={"MA_20": 1},
+            return_target="open_to_open",
+            horizon_days=20,
+            requested_symbols=["AAA", "BBB"],
+            market_dates=tuple(timestamp.date() for timestamp in dates),
+            source_priority=SOURCE_PRIORITY,
+        )
 
 
 def test_pooled_dataset_keeps_invalid_dates_as_target_boundaries():
@@ -355,7 +374,7 @@ def test_missing_dates_do_not_restart_feature_warmup_but_invalid_rows_do():
     assert one_missing_bbb.market_date_axis_row_count == 300
     assert one_missing_bbb.missing_market_date_row_count == 1
     assert one_missing_bbb.invalid_ohlcv_row_count == 0
-    assert one_missing_bbb.model_ready_row_count >= 235
+    assert one_missing_bbb.model_ready_row_count == 239
     assert one_missing_bbb.model_ready_row_count < complete_bbb.model_ready_row_count
     assert one_missing_bbb.excluded_canonical_row_count == (
         one_missing_bbb.canonical_row_count - one_missing_bbb.model_ready_row_count
@@ -370,7 +389,7 @@ def test_missing_dates_do_not_restart_feature_warmup_but_invalid_rows_do():
     assert four_missing_bbb.canonical_row_count == 296
     assert four_missing_bbb.missing_market_date_row_count == 4
     assert four_missing_bbb.invalid_ohlcv_row_count == 0
-    assert four_missing_bbb.model_ready_row_count >= 150
+    assert four_missing_bbb.model_ready_row_count == 176
 
     assert invalid_bbb.canonical_row_count == 300
     assert invalid_bbb.missing_market_date_row_count == 0
@@ -384,6 +403,26 @@ def test_missing_dates_do_not_restart_feature_warmup_but_invalid_rows_do():
         & (invalid.frame["date"] > dates[100].date())
     ]
     assert invalid_post_rows["date"].min() >= dates[121].date()
+
+
+def test_feature_generation_fallback_preserves_invalid_ohlcv_count(monkeypatch):
+    frame, _ = _coverage_frame(set())
+    frame.loc[
+        (frame["symbol"] == "BBB")
+        & (frame["date"] == pd.Timestamp("2024-02-10")),
+        "open",
+    ] = 0.0
+
+    def _raise_feature_error(*args, **kwargs):
+        raise ValueError("feature generation failed")
+
+    monkeypatch.setattr(feature_engine, "add_features", _raise_feature_error)
+
+    result = _coverage_result(frame)
+
+    bbb = next(item for item in result.symbol_coverage if item.symbol == "BBB")
+    assert bbb.invalid_ohlcv_row_count == 1
+    assert bbb.model_ready_row_count == 0
 
 
 def test_pooled_dataset_prefers_official_source_for_duplicate_market_dates():

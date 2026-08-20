@@ -132,8 +132,6 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
 - simulation and live-stub execution foundations exist
 - adaptive profile and adaptive training-run lifecycle surfaces exist
 
-These foundations are implementation inventory, not v1 product scope.
-
 ### Calibration Matrix
 
 - pooled chronological calibration supports bounded TW requests, explicit
@@ -154,6 +152,8 @@ These foundations are implementation inventory, not v1 product scope.
   model results
 - migration `0009` is additive and preserves calibration evidence during an
   application rollback
+
+These foundations are implementation inventory, not v1 product scope.
 
 ## Remaining V1 Gaps
 
@@ -234,7 +234,7 @@ These foundations are implementation inventory, not v1 product scope.
   - pooled, calibration, and migration regression tests cover invalid-date
     boundaries, request bounds, busy responses, contract validation, and
     evidence-preserving downgrade behavior
-  - `.venv/bin/python -m pytest -q` result: `628 passed` with three existing
+  - `.venv/bin/python -m pytest -q` result: `634 passed` with three existing
     warnings
   - `bun x tsc -p frontend/tsconfig.json --noEmit` result: passed
   - the Calibration Matrix response includes the TW point-in-time membership

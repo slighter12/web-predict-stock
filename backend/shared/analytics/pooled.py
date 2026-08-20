@@ -56,6 +56,9 @@ class PooledModelReadyDataset:
     symbol_coverage: tuple[PooledSymbolCoverage, ...] = ()
 
 
+_REQUIRED_CORE_COLUMNS = ("open", "high", "low", "close", "volume")
+
+
 def _as_date(value: date | datetime | str) -> date:
     if isinstance(value, datetime):
         return value.date()
@@ -126,7 +129,7 @@ def _normalize_input_frame(
     if frame.empty:
         return pd.DataFrame(columns=["date", "symbol"]), 0
 
-    normalized = frame.reset_index()
+    normalized = frame.copy() if "date" in frame.columns else frame.reset_index()
     if "date" not in normalized.columns:
         raise ValueError("pooled input must include a date column or date index")
     if "symbol" not in normalized.columns:
@@ -186,11 +189,15 @@ def _normalize_input_frame(
     return normalized, before_count - len(normalized)
 
 
-def _normalize_core_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-    required = ["open", "high", "low", "close", "volume"]
-    missing = sorted(set(required) - set(frame.columns))
+def _assert_core_columns(frame: pd.DataFrame) -> None:
+    missing = sorted(set(_REQUIRED_CORE_COLUMNS) - set(frame.columns))
     if missing:
         raise ValueError(f"pooled input is missing core columns: {missing}")
+
+
+def _normalize_core_rows(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    _assert_core_columns(frame)
+    required = list(_REQUIRED_CORE_COLUMNS)
     numeric = frame.copy()
     for column in required:
         numeric[column] = pd.to_numeric(numeric[column], errors="coerce")
@@ -302,6 +309,8 @@ def build_pooled_model_ready_dataset(
         requested_symbols=symbols,
         source_priority=source_priority,
     )
+    if not normalized.empty:
+        _assert_core_columns(normalized)
     feature_names = tuple(shift_map)
     ready_frames: list[pd.DataFrame] = []
     exclusions: list[PooledDatasetExclusion] = []
@@ -332,11 +341,11 @@ def build_pooled_model_ready_dataset(
         axis_count = len(axis_dates)
         symbol_dates = set(source_symbol_frame["date"])
         missing_market_date_count = len(axis_date_set - symbol_dates)
+        observed_core, observed_valid_mask = _normalize_core_rows(
+            source_symbol_frame
+        )
+        invalid_ohlcv_count = raw_count - int(observed_valid_mask.sum())
         try:
-            observed_core, observed_valid_mask = _normalize_core_rows(
-                source_symbol_frame
-            )
-            invalid_ohlcv_count = raw_count - int(observed_valid_mask.sum())
             if not observed_valid_mask.any():
                 symbol_coverage.append(
                     PooledSymbolCoverage(
@@ -430,7 +439,7 @@ def build_pooled_model_ready_dataset(
                     canonical_row_count=raw_count,
                     market_date_axis_row_count=axis_count,
                     missing_market_date_row_count=missing_market_date_count,
-                    invalid_ohlcv_row_count=0,
+                    invalid_ohlcv_row_count=invalid_ohlcv_count,
                     model_ready_row_count=0,
                     excluded_canonical_row_count=raw_count,
                 )
