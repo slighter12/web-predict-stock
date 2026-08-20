@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class ModelUnavailableError(RuntimeError):
+    """Raised only when a model family dependency/runtime is unavailable."""
+
+
 MODEL_FAMILY_BY_TYPE = {
     "xgboost": "gradient_boosted_trees",
     "random_forest": "bagging_trees",
@@ -32,7 +37,7 @@ def _load_xgboost_regressor():
     try:
         from xgboost import XGBRegressor
     except Exception as exc:
-        raise RuntimeError(
+        raise ModelUnavailableError(
             "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
         ) from exc
     return XGBRegressor
@@ -42,7 +47,7 @@ def _load_xgboost_classifier():
     try:
         from xgboost import XGBClassifier
     except Exception as exc:
-        raise RuntimeError(
+        raise ModelUnavailableError(
             "xgboost failed to import. On macOS, install OpenMP with `brew install libomp`."
         ) from exc
     return XGBClassifier
@@ -52,7 +57,7 @@ def _load_sklearn_regressor(model_type: str):
     try:
         from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
     except Exception as exc:
-        raise RuntimeError(
+        raise ModelUnavailableError(
             "scikit-learn failed to import. Install project dependencies before using sklearn model families."
         ) from exc
     regressor_cls = {
@@ -68,7 +73,7 @@ def _load_sklearn_classifier(model_type: str):
     try:
         from sklearn.ensemble import ExtraTreesClassifier, RandomForestClassifier
     except Exception as exc:
-        raise RuntimeError(
+        raise ModelUnavailableError(
             "scikit-learn failed to import. Install project dependencies before using sklearn model families."
         ) from exc
     classifier_cls = {

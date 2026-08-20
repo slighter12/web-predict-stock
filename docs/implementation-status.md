@@ -116,7 +116,7 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
   workflows exist
 - raw payload preservation exists through raw ingest audit records
 - data repair and operational panels exist under secondary data surfaces
-- repository migration head is `0008`; the reconciled current-active profile universe
+- repository migration head is `0009`; the reconciled current-active profile universe
   contains `1,983` symbols (`TWSE 1,092`, `TPEX 891`)
 - verified TW daily range `2023-07-24..2026-07-24` contains `1,349,401` rows
   across `1,983` symbols; raw traceability, duplicate groups, and invalid or
@@ -133,6 +133,27 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
 - adaptive profile and adaptive training-run lifecycle surfaces exist
 
 These foundations are implementation inventory, not v1 product scope.
+
+### Calibration Matrix
+
+- pooled chronological calibration supports bounded TW requests, explicit
+  model-family availability, resource evidence, and persisted comparison caveats
+- calibration applies the versioned
+  `tw_official_preferred_yfinance_fallback_v1` row policy before building one
+  canonical pooled `(Symbol, Market Date)` row per source-resolved date
+- target calculations use the global TW Market-Date axis from distinct TW dates
+  with at least one official source row (excluding confirmed official no-data
+  dates); missing Symbol dates remain target boundaries, while rolling features
+  continue across missing observations without restarting warmup. Invalid OHLCV
+  rows remain boundaries for both paths, and segment-local targets carry
+  auditable `target_end_date` values that do not cross those boundaries
+- the response records per-Symbol canonical, Market-Date-axis, missing-date,
+  invalid-OHLCV, model-ready, and excluded-row counts
+- fold summaries report rows removed by target-end purging, while unexpected
+  model evaluation errors fail the request instead of becoming unavailable
+  model results
+- migration `0009` is additive and preserves calibration evidence during an
+  application rollback
 
 ## Remaining V1 Gaps
 
@@ -180,7 +201,8 @@ These foundations are implementation inventory, not v1 product scope.
 ## Latest Local Verification
 
 - authoritative data-readiness verification (`2026-07-27`):
-  - the verified environment and repository migration head are both `0008`
+  - the historical data-readiness snapshot was verified against migration head
+    `0008`; the current repository migration head is `0009`
   - current-active profiles: `1,983` (`TWSE 1,092`, `TPEX 891`)
   - TW daily range `2023-07-24..2026-07-24`: `1,349,401` rows across `1,983`
     symbols
@@ -208,6 +230,15 @@ These foundations are implementation inventory, not v1 product scope.
   - result: `86 passed`
   - `bun x tsc -p frontend/tsconfig.json --noEmit`
   - result: passed
+- current Calibration Matrix hardening verification:
+  - pooled, calibration, and migration regression tests cover invalid-date
+    boundaries, request bounds, busy responses, contract validation, and
+    evidence-preserving downgrade behavior
+  - `.venv/bin/python -m pytest -q` result: `628 passed` with three existing
+    warnings
+  - `bun x tsc -p frontend/tsconfig.json --noEmit` result: passed
+  - the Calibration Matrix response includes the TW point-in-time membership
+    caveat, request-bounds policy version, and global Market-Date axis policy
 - persisted artifact reload verification:
   - Docker DB started with the default compose volume
   - migration applied with `.venv/bin/python -m alembic upgrade head`

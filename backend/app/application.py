@@ -10,7 +10,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.market_data.api import router as market_data_router
-from backend.platform.errors import BacktestError, DataAccessError
+from backend.platform.errors import (
+    BacktestError,
+    CalibrationBusyError,
+    DataAccessError,
+)
 from backend.platform.http.errors import (
     build_error_response,
     http_error_code,
@@ -106,6 +110,11 @@ async def handle_research_run_error(request: Request, exc: BacktestError):
         code=research_run_error_code(exc),
         message=str(exc),
         run_id=get_request_run_id(request),
+        headers=(
+            {"Retry-After": str(exc.retry_after_seconds)}
+            if isinstance(exc, CalibrationBusyError)
+            else None
+        ),
     )
 
 

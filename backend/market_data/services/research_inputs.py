@@ -15,6 +15,7 @@ import pandas as pd
 from backend.market_data.domain import official_daily
 from backend.market_data.repositories import daily_bars as daily_bars_repository
 from backend.market_data.repositories import official_audits as official_audits_repository
+from backend.market_data.repositories import raw_ingest as raw_ingest_repository
 from backend.market_data.services.company_profiles import list_active_tw_company_profiles
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,38 @@ def load_official_no_data_dates(*, start_date: date, end_date: date) -> set[date
             exc_info=True,
         )
         return set()
+
+
+def load_tw_market_dates(
+    *,
+    start_date: date,
+    end_date: date,
+    official_no_data_dates: set[date] | None = None,
+) -> tuple[date, ...]:
+    """Return official-source TW Market Dates independently of requested Symbols."""
+    observed_dates = raw_ingest_repository.list_market_trading_days(
+        "TW",
+        start_date=start_date,
+        end_date=end_date,
+        source_names=OFFICIAL_SOURCES,
+    )
+    excluded_dates = (
+        official_no_data_dates
+        if official_no_data_dates is not None
+        else load_official_no_data_dates(
+            start_date=start_date,
+            end_date=end_date,
+        )
+    )
+    return tuple(
+        sorted(
+            {
+                trading_date
+                for trading_date in observed_dates
+                if trading_date not in excluded_dates
+            }
+        )
+    )
 
 
 def exclude_non_official_rows_on_official_no_data(

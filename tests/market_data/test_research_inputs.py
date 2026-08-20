@@ -7,6 +7,44 @@ import pytest
 import backend.market_data.services.research_inputs as research_inputs
 
 
+def test_load_tw_market_dates_uses_official_source_lane_and_excludes_confirmed_no_data(
+    monkeypatch,
+):
+    captured = {}
+    start_date = date(2024, 1, 1)
+    end_date = date(2024, 1, 5)
+    no_data_date = date(2024, 1, 3)
+
+    def _list_market_trading_days(market, **kwargs):
+        captured["market"] = market
+        captured.update(kwargs)
+        return [
+            date(2024, 1, 1),
+            date(2024, 1, 3),
+            date(2024, 1, 5),
+        ]
+
+    monkeypatch.setattr(
+        research_inputs.raw_ingest_repository,
+        "list_market_trading_days",
+        _list_market_trading_days,
+    )
+
+    result = research_inputs.load_tw_market_dates(
+        start_date=start_date,
+        end_date=end_date,
+        official_no_data_dates={no_data_date},
+    )
+
+    assert captured == {
+        "market": "TW",
+        "start_date": start_date,
+        "end_date": end_date,
+        "source_names": research_inputs.OFFICIAL_SOURCES,
+    }
+    assert result == (date(2024, 1, 1), date(2024, 1, 5))
+
+
 def test_load_research_eligible_tw_bars_filters_and_maps_multi_symbol_rows(
     monkeypatch,
 ):

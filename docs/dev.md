@@ -53,6 +53,13 @@ Apply database migrations:
 .venv/bin/python -m alembic upgrade head
 ```
 
+Calibration Matrix releases require the additive `0009` migration before the
+new endpoint is enabled. Back up the database before upgrading. Rolling back
+the application is the normal recovery path; the `0009` downgrade intentionally
+keeps `calibration_matrices` and its research evidence so an older application
+can ignore the extra table without deleting records. Dropping this table is a
+separate retention operation and is not part of an application rollback.
+
 Alternative Makefile path:
 
 ```bash
@@ -188,6 +195,53 @@ Only strict runs whose persisted `signal_frozen_at` and `basis_date` share the
 Taiwan calendar date are counted. Do not change the fixed cohort recipe while
 accumulating its first 120 completed trading days; a changed recipe starts a
 new cohort.
+
+## Calibration Matrix Operations
+
+The Calibration Matrix endpoint is intentionally bounded by the versioned
+`calibration_request_bounds_v1` policy:
+
+- at most 200 symbols
+- at most 12 features
+- at most 1,827 inclusive calendar dates
+
+Requests outside these limits return `422 VALIDATION_FAILED`. Only one
+Calibration Matrix may run at a time in a backend process. A concurrent request
+returns `429 CALIBRATION_BUSY` with `Retry-After: 1`. Multi-process or public
+deployments still need an external rate limit or queue because this cap is
+process-local.
+
+Calibration responses expose the current-active TW membership caveat through
+`comparison_caveats`; this is not point-in-time membership evidence. The
+versioned `tw_official_preferred_yfinance_fallback_v1` policy resolves duplicate
+`(Symbol, Market Date)` rows before target calculation and fold construction use
+one pooled Market-Date axis under the
+`tw_official_market_lane_excluding_confirmed_no_data_v2` policy: distinct TW
+dates with at least one official source row in the market-data store,
+independent of requested Symbols and excluding confirmed official no-data dates.
+Rolling features continue over
+canonical observed rows when a Symbol is missing an axis date; an invalid OHLCV
+row resets both feature and target continuity. The response records the source,
+axis, and feature continuity policy versions, per-Symbol coverage counts, and the
+number of defensively deduplicated rows. `excluded_row_count` counts canonical
+observed rows that did not become model-ready; synthetic missing-axis rows are
+reported separately rather than counted as exclusions.
+
+Known model dependency or runtime-unavailable errors remain recorded as
+model-unavailable results and are not replaced by another model family. Other
+model, data-shape, or prediction errors fail the request with
+`500 CALIBRATION_EVALUATION_FAILED`; no incomplete Matrix is persisted. A
+request with no market rows returns `404 RESOURCE_NOT_FOUND`.
+
+For a local Calibration Matrix verification after data and migrations are
+ready, issue one bounded POST and reload the returned matrix:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/research/calibration-matrices \
+  -H 'Content-Type: application/json' \
+  -d @calibration-request.json
+curl http://127.0.0.1:8000/api/v1/research/calibration-matrices/MATRIX_ID
+```
 
 ## V1 Usable-Loop Verification
 

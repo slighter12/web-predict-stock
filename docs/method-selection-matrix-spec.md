@@ -115,9 +115,19 @@ reconcile outcomes at their Horizons.
   including candidate identity, Feature Catalog version, date boundaries,
   Fold summaries, Action Row metrics, Baseline metrics, resource evidence,
   selection decisions, and rejection reasons.
-- Train the initial model on Pooled Cross-Sectional rows. Build all outer and
-  inner partitions from ordered Market Dates, then assign all available Symbol
-  rows for a date to the same partition.
+- Train the initial model on Pooled Cross-Sectional rows. Resolve one
+  versioned canonical source row for each `(Symbol, Market Date)`, align each
+  Symbol's target calculation to the pooled ordered Market-Date axis, and build
+  all outer and inner partitions from that axis. Assign all available Symbol
+  rows for a date to the same partition. Compute rolling features on each
+  Symbol's canonical observed rows: a missing Market Date is a target boundary
+  but does not reset feature warmup, while an invalid OHLCV row resets both
+  feature and target segments. Persist observed, missing-axis, invalid, and
+  model-ready counts per Symbol so this coverage policy remains auditable. The
+  pooled axis comes from distinct TW Market Dates with at least one official
+  source row in the market-data store for the requested range, excluding
+  confirmed official no-data dates; it does not come from the requested
+  Symbols' date union or non-official fallback rows.
 - Keep Horizon 5 and Horizon 20 manifests, outputs, and shortlists separate.
 - Use the final 252 observed Market Dates as
   `final_holdout_252_market_dates_provisional_v1`; preserve the chosen date
@@ -157,12 +167,15 @@ reconcile outcomes at their Horizons.
   persistence, candidate summaries, ranking, `no-opinion`, final-Holdout
   isolation, and prospective maturity reconciliation.
 - Test Market-Date partitioning rather than implementation details: no date may
-  span both train and Holdout; the Horizon purge prevents labels crossing a
-  boundary.
+  span both train and Holdout; the Horizon purge and each row's
+  `target_end_date` prevent labels crossing a boundary.
 - Test that inner selection never reads outer or final Holdout rows, and that a
   final refit uses only pre-final-Holdout data.
-- Test Pooled Cross-Sectional construction with multiple Symbols and date-based
-  complete-case exclusions.
+- Test Pooled Cross-Sectional construction with multiple Symbols, canonical
+  duplicate-source resolution, global Market-Date alignment, and date-based
+  complete-case exclusions that also block target lookahead across invalid
+  boundaries, including a date absent from every requested Symbol but present
+  on the global TW Market-Date axis.
 - Test each new Feature Family for deterministic values, correct pre-signal
   shifting, required OHLCV inputs, and missing-data behavior.
 - Test Feature Ablation summaries and candidate rejection when a Family fails
@@ -200,4 +213,5 @@ reconcile outcomes at their Horizons.
   Installing it is a separate explicitly approved environment change before
   the formal Matrix includes XGBoost.
 - The current initial universe remains subject to the existing point-in-time
-  membership caveat. Every result must disclose that limitation.
+  membership caveat. Every result must disclose that limitation, including
+  Calibration Matrix responses through `comparison_caveats`.
