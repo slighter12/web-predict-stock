@@ -22,5 +22,14 @@ class ExternalFetchError(BacktestError):
         self.error_type = error_type or type(self).__name__
 
 
+class CalibrationBusyError(BacktestError):
+    status_code = 429
+    retry_after_seconds = 1
+
+
+class CalibrationEvaluationError(BacktestError):
+    status_code = 500
+
+
 class DataAccessError(Exception):
     pass

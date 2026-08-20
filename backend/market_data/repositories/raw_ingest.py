@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import date
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, distinct, func, select
 
 from backend.database import DailyOHLCV, RawIngestAudit, SessionLocal, engine
 from backend.platform.errors import DataAccessError, DataNotFoundError
@@ -146,14 +147,18 @@ def list_market_trading_days(
     *,
     start_date: date | None = None,
     end_date: date | None = None,
+    source_names: Sequence[str] | None = None,
     limit: int | None = None,
     descending: bool = False,
 ) -> list[date]:
+    """List distinct market dates, optionally restricted to source names."""
     try:
         with SessionLocal() as session:
-            stmt = select(func.distinct(DailyOHLCV.date)).where(
+            stmt = select(distinct(DailyOHLCV.date)).where(
                 DailyOHLCV.market == market
             )
+            if source_names is not None:
+                stmt = stmt.where(DailyOHLCV.source.in_(source_names))
             if start_date is not None:
                 stmt = stmt.where(DailyOHLCV.date >= start_date)
             if end_date is not None:

@@ -1,5 +1,6 @@
 from backend.platform.errors import (
     BacktestError,
+    CalibrationEvaluationError,
     DataAccessError,
     DataNotFoundError,
     ExternalFetchError,
@@ -9,6 +10,7 @@ from backend.platform.errors import (
 
 __all__ = [
     "BacktestError",
+    "CalibrationEvaluationError",
     "DataAccessError",
     "DataNotFoundError",
     "ExternalFetchError",

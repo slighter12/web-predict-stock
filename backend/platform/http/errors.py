@@ -5,6 +5,8 @@ from fastapi.responses import JSONResponse
 
 from backend.platform.errors import (
     BacktestError,
+    CalibrationBusyError,
+    CalibrationEvaluationError,
     DataNotFoundError,
     ExternalFetchError,
     InsufficientDataError,
@@ -37,7 +39,14 @@ def build_error_response(
     message: str,
     details: dict | None = None,
     run_id: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
+    response_headers = {
+        key: value
+        for key, value in (headers or {}).items()
+        if key.lower() != "x-request-id"
+    }
+    response_headers["X-Request-Id"] = request_id
     return JSONResponse(
         status_code=status_code,
         content=build_error_payload(
@@ -47,7 +56,7 @@ def build_error_response(
             details=details,
             run_id=run_id,
         ),
-        headers={"X-Request-Id": request_id},
+        headers=response_headers,
     )
 
 
@@ -60,6 +69,10 @@ def research_run_error_code(exc: BacktestError) -> str:
         return "INSUFFICIENT_DATA"
     if isinstance(exc, UnsupportedConfigurationError):
         return "UNSUPPORTED_CONFIGURATION"
+    if isinstance(exc, CalibrationBusyError):
+        return "CALIBRATION_BUSY"
+    if isinstance(exc, CalibrationEvaluationError):
+        return "CALIBRATION_EVALUATION_FAILED"
     return "RESEARCH_RUN_REJECTED"
 
 

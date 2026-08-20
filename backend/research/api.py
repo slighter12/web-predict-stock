@@ -7,6 +7,10 @@ from fastapi import APIRouter, Request
 from pydantic import Field, confloat, conint, conlist, field_validator, model_validator
 
 from backend.platform.http.request_context import get_request_id
+from backend.research.contracts.calibration import (
+    CalibrationMatrixCreateRequest,
+    CalibrationMatrixResponse,
+)
 from backend.research.contracts.governance import (
     ResearchMicroKpiResponse,
     ResearchPhaseGateResponse,
@@ -35,6 +39,10 @@ from backend.shared.contracts.common import (
     RuntimeMode,
 )
 from backend.research.services.governance import get_p3_phase_gate_summary
+from backend.research.services.calibration import (
+    create_calibration_matrix,
+    get_calibration_matrix,
+)
 from backend.research.services.micro_kpis import get_micro_kpi_summary
 from backend.research.services.runs import (
     create_research_run,
@@ -154,6 +162,30 @@ def read_research_run(run_id: str) -> ResearchRunRecordResponse:
 )
 def read_research_runs() -> list[ResearchRunRecordResponse]:
     return list_research_runs()
+
+
+@router.post(
+    "/api/v1/research/calibration-matrices",
+    tags=["Calibration Matrices"],
+    response_model=CalibrationMatrixResponse,
+)
+def create_calibration_matrix_endpoint(
+    http_request: Request,
+    request: CalibrationMatrixCreateRequest,
+) -> CalibrationMatrixResponse:
+    return create_calibration_matrix(
+        request,
+        request_id=get_request_id(http_request),
+    )
+
+
+@router.get(
+    "/api/v1/research/calibration-matrices/{matrix_id}",
+    tags=["Calibration Matrices"],
+    response_model=CalibrationMatrixResponse,
+)
+def read_calibration_matrix(matrix_id: str) -> CalibrationMatrixResponse:
+    return get_calibration_matrix(matrix_id)
 
 
 @router.get(

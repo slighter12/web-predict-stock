@@ -28,6 +28,10 @@ class BenchmarkProfile:
     pass
 
 
+class CalibrationMatrix:
+    pass
+
+
 class ClusterMembership:
     pass
 
@@ -190,6 +194,7 @@ _MODEL_TABLES = {
     "adaptive_surface_exclusions": AdaptiveSurfaceExclusion,
     "adaptive_training_runs": AdaptiveTrainingRun,
     "benchmark_profiles": BenchmarkProfile,
+    "calibration_matrices": CalibrationMatrix,
     "cluster_memberships": ClusterMembership,
     "cluster_snapshots": ClusterSnapshot,
     "daily_ohlcv": DailyOHLCV,
@@ -239,6 +244,7 @@ _MIGRATION_FILES = [
     "0005_execution.py",
     "0006_adaptive.py",
     "0007_minute_ohlcv.py",
+    "0009_calibration_matrices.py",
 ]
 
 
