@@ -28,6 +28,7 @@ _MISSING_OR_INVALID_JSON = object()
 # Compatibility envelope until ResearchRun gains a dedicated field and a
 # backfill migration for the feature registry version.
 _RESULT_METADATA_KEY = "_result_metadata"
+_REQUEST_PAYLOAD_ABSENT_KEY = "request_payload_absent"
 
 
 def _split_persisted_request_payload(
@@ -44,12 +45,17 @@ def _split_persisted_request_payload(
     else:
         result_metadata = dict(result_metadata)
 
+    request_payload_absent = (
+        result_metadata.pop(_REQUEST_PAYLOAD_ABSENT_KEY, False) is True
+    )
     legacy_version = request_payload.pop("feature_registry_version", None)
     if (
         "feature_registry_version" not in result_metadata
         and legacy_version is not None
     ):
         result_metadata["feature_registry_version"] = legacy_version
+    if request_payload_absent and not request_payload:
+        return None, result_metadata
     return request_payload, result_metadata
 
 
@@ -64,6 +70,7 @@ def _build_persisted_request_payload(
             return {
                 _RESULT_METADATA_KEY: {
                     "feature_registry_version": feature_registry_version,
+                    _REQUEST_PAYLOAD_ABSENT_KEY: True,
                 }
             }
         return payload

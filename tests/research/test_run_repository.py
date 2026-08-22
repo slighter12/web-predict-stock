@@ -584,6 +584,84 @@ def test_legacy_top_level_registry_version_migrates_into_metadata() -> None:
     assert snapshot["request_payload"]["market"] == "TW"
 
 
+def test_none_request_payload_round_trips_with_registry_metadata(monkeypatch):
+    feature_registry_version = "technical_feature_registry_v3"
+    persisted_payload = research_run_repository._build_persisted_request_payload(
+        None,
+        feature_registry_version=feature_registry_version,
+    )
+
+    request_payload, result_metadata = (
+        research_run_repository._split_persisted_request_payload(persisted_payload)
+    )
+
+    assert request_payload is None
+    assert result_metadata == {
+        "feature_registry_version": feature_registry_version,
+    }
+    assert persisted_payload["_result_metadata"] == {
+        "feature_registry_version": feature_registry_version,
+        "request_payload_absent": True,
+    }
+
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine,
+    )
+    Base.metadata.create_all(bind=engine, tables=[ResearchRun.__table__])
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        session.add(
+            ResearchRun(
+                run_id="none-request-payload",
+                status="succeeded",
+                symbols_json="[]",
+                request_payload_json=research_run_repository.json_dumps(
+                    persisted_payload
+                ),
+            )
+        )
+        session.commit()
+
+    snapshot = research_run_repository._run_row_to_snapshot(
+        ResearchRun(
+            run_id="none-request-payload-snapshot",
+            status="succeeded",
+            request_payload_json=research_run_repository.json_dumps(
+                persisted_payload
+            ),
+        )
+    )
+
+    assert snapshot["request_payload"] is None
+    assert snapshot["feature_registry_version"] == feature_registry_version
+    assert (
+        research_run_repository.get_research_run_request_payload(
+            "none-request-payload"
+        )
+        is None
+    )
+
+
+def test_empty_request_payload_remains_empty_with_registry_metadata() -> None:
+    persisted_payload = research_run_repository._build_persisted_request_payload(
+        {},
+        feature_registry_version="technical_feature_registry_v3",
+    )
+
+    request_payload, result_metadata = (
+        research_run_repository._split_persisted_request_payload(persisted_payload)
+    )
+
+    assert request_payload == {}
+    assert result_metadata == {
+        "feature_registry_version": "technical_feature_registry_v3",
+    }
+
+
 def test_project_persisted_snapshot_does_not_mutate_reused_snapshot():
     row = ResearchRun(
         run_id="reused-snapshot",
