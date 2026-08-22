@@ -181,7 +181,7 @@ Family level where correlated Features can mask each other.
   tuple. Its window parameters join inner-Fold search only after its Feature
   Family has demonstrated outer-Fold value.
 - The provisional initial tuples are MACD 12/26/9, BBANDS 20, ATR 14, STOCH
-  14, ADX/DMI 14, MFI 14, and CMF 20.
+  14, OBV 1, ADX/DMI 14, MFI 14, and CMF 20.
 - Cost-aware comparison includes a same-Market-Date, same-`top_n`, equal-weight
   cross-sectional Baseline. Existing `buy_and_hold`, `naive_momentum`, and
   `ma_crossover` Baselines remain supplemental context.
@@ -248,12 +248,15 @@ The deterministic local calculations use the following zero-range policy:
 The backend owns the registry version. New Research Runs persist the actual
 version as resolved result metadata and expose it as
 `feature_registry_version`; new Calibration Matrices persist the same metadata
-in their result payload. Research Run storage keeps the metadata in a reserved
-internal envelope within the existing JSON storage, while the user request
-projection remains the original request and does not claim a backend-resolved
-catalog version. Legacy records without this field project it as
-`null`/unavailable rather than being assigned the current catalog version. This
-traceability metadata requires no database migration.
+in their result payload. Research Run storage keeps the metadata in the
+reserved `_result_metadata` object inside the existing request JSON column:
+`{"_result_metadata": {"feature_registry_version": "..."}}`. The user request
+projection removes this envelope and remains the original request, so it does
+not claim a backend-resolved catalog version. Legacy records with a top-level
+`feature_registry_version` are read by moving that value into the metadata
+projection and removing it from the request; records without the field project
+it as `null`/unavailable rather than being assigned the current catalog
+version. This traceability metadata requires no database migration.
 
 Before rollout, operators should verify the registry endpoint version, the
 catalog output count, and a representative request for each required-input

@@ -150,21 +150,9 @@ def test_pooled_new_feature_families_reset_continuity_after_invalid_ohlcv_row():
     )
     frame.loc[30, "open"] = 0.0
     preset_windows = {
-        "macd_line": 26,
-        "macd_signal": 26,
-        "macd_histogram": 26,
-        "bbands_upper": 20,
-        "bbands_middle": 20,
-        "bbands_lower": 20,
-        "atr": 14,
-        "stoch_k": 14,
-        "stoch_d": 14,
-        "obv": 1,
-        "adx": 14,
-        "dmi_plus": 14,
-        "dmi_minus": 14,
-        "mfi": 14,
-        "cmf": 20,
+        str(definition["name"]): int(definition["default_window"])
+        for definition in feature_engine.list_feature_definitions()
+        if definition["window_editable"] is False
     }
     feature_config = {
         name: [{"window": window, "source": "close"}]

@@ -241,6 +241,35 @@ def test_vectorbt_catalog_features_reset_after_invalid_ohlcv_row() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("feature_config", "output_column"),
+    [
+        (
+            {"macd_line": [{"window": 26, "source": "close"}]},
+            "MACD_LINE_26",
+        ),
+        (
+            {"bbands_upper": [{"window": 20, "source": "close"}]},
+            "BBANDS_UPPER_20",
+        ),
+        (
+            {"stoch_k": [{"window": 14, "source": "close"}]},
+            "STOCH_K_14",
+        ),
+    ],
+)
+@pytest.mark.parametrize("rows", [1, 2])
+def test_vectorbt_catalog_features_preserve_short_valid_segments(
+    feature_config: dict,
+    output_column: str,
+    rows: int,
+) -> None:
+    generated = add_features(_ohlcv_frame(rows), feature_config)
+
+    assert len(generated) == rows
+    assert generated[output_column].isna().all()
+
+
 def test_atr_uses_sma_seeded_wilder_smoothing() -> None:
     frame = _ohlcv_frame(40)
     close = pd.Series(
@@ -362,8 +391,8 @@ def test_mfi_warmup_requires_movements_and_resets_after_invalid_row() -> None:
 
     output = generated["MFI_14"]
     assert output.first_valid_index() == frame.index[14]
-    assert output.loc[frame.index[13]] != output.loc[frame.index[13]]
-    assert output.loc[frame.index[34]] != output.loc[frame.index[34]]
+    assert pd.isna(output.loc[frame.index[13]])
+    assert pd.isna(output.loc[frame.index[34]])
     assert output.loc[frame.index[35]] == pytest.approx(100.0)
 
 

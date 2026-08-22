@@ -16,9 +16,13 @@ from backend.platform.errors import (
     UnsupportedConfigurationError,
 )
 from backend.research.contracts.runs import (
+    FeatureSpec,
     ResearchRunCreateRequest,
     ValidationConfig,
     ValidationSummary,
+)
+from backend.research.services.feature_config import (
+    build_feature_config as build_engine_feature_config,
 )
 from backend.shared.analytics.strategy import ResearchStrategyConfig
 
@@ -431,6 +435,31 @@ def test_build_feature_config_rejects_non_preset_feature_window():
 
     with pytest.raises(UnsupportedConfigurationError, match="preset window 26"):
         backtest_engine_service.build_feature_config(request)
+
+
+def test_feature_config_rejects_conflicting_shifts_for_one_output_column():
+    features = [
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+        FeatureSpec(name="ma", window=5, source="close", shift=2),
+    ]
+
+    with pytest.raises(
+        UnsupportedConfigurationError,
+        match="MA_5.*conflicting shift",
+    ):
+        build_engine_feature_config(features)
+
+
+def test_feature_config_deduplicates_same_shift_for_one_output_column():
+    features = [
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+    ]
+
+    config, shift_map = build_engine_feature_config(features)
+
+    assert config == {"ma": [{"window": 5, "source": "close"}]}
+    assert shift_map == {"MA_5": 1}
 
 
 @pytest.mark.parametrize(

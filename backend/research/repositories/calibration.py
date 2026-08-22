@@ -33,7 +33,7 @@ def persist_calibration_matrix(payload: dict[str, Any]) -> dict[str, Any]:
                 row = CalibrationMatrix(matrix_id=record["matrix_id"])
             row.request_id = record["request_id"]
             row.status = record["status"]
-            row.request_payload_json = json_dumps(record.get("request")) or "{}"
+            row.request_payload_json = json_dumps(record["request"]) or "{}"
             row.result_payload_json = json_dumps(record) or "{}"
             row.created_at = normalize_created_at(
                 _coerce_created_at(record.get("created_at"))

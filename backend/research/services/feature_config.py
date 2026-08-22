@@ -38,6 +38,12 @@ def build_feature_config(
             spec.window,
             spec.source,
         )
+        previous_shift = shift_map.get(column_name)
+        if previous_shift is not None and previous_shift != spec.shift:
+            raise UnsupportedConfigurationError(
+                f"Feature '{column_name}' has conflicting shift values: "
+                f"{previous_shift} and {spec.shift}."
+            )
         shift_map[column_name] = spec.shift
 
     for feature_name, items in config.items():

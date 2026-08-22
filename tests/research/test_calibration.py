@@ -17,6 +17,7 @@ import backend.research.repositories.calibration as calibration_repository
 from backend.platform.errors import (
     CalibrationBusyError,
     CalibrationEvaluationError,
+    DataAccessError,
 )
 from backend.shared.analytics.models import ModelUnavailableError
 from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
@@ -764,3 +765,42 @@ def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch, request
         )
     assert "feature_registry_version" not in request_payload
     assert result_payload["feature_registry_version"] == FEATURE_REGISTRY_VERSION
+
+
+def test_persist_calibration_matrix_rejects_missing_request(monkeypatch):
+    class _Session:
+        added = False
+        committed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def get(self, *_args):
+            return None
+
+        def add(self, _row):
+            self.added = True
+
+        def commit(self):
+            self.committed = True
+
+        def refresh(self, _row):
+            return None
+
+    session = _Session()
+    monkeypatch.setattr(calibration_repository, "SessionLocal", lambda: session)
+
+    with pytest.raises(DataAccessError):
+        calibration_repository.persist_calibration_matrix(
+            {
+                "matrix_id": "missing-request",
+                "request_id": "request-missing",
+                "status": "succeeded",
+            }
+        )
+
+    assert session.committed is False
+    assert session.added is False

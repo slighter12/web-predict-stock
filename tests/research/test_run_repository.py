@@ -567,6 +567,23 @@ def test_legacy_run_without_registry_version_projects_unavailable() -> None:
     assert snapshot["feature_registry_version"] is None
 
 
+def test_legacy_top_level_registry_version_migrates_into_metadata() -> None:
+    row = ResearchRun(
+        run_id="legacy-top-level-registry",
+        status="succeeded",
+        request_payload_json=(
+            '{"market":"TW",'
+            '"feature_registry_version":"technical_feature_registry_v2"}'
+        ),
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert snapshot["feature_registry_version"] == "technical_feature_registry_v2"
+    assert "feature_registry_version" not in snapshot["request_payload"]
+    assert snapshot["request_payload"]["market"] == "TW"
+
+
 def test_project_persisted_snapshot_does_not_mutate_reused_snapshot():
     row = ResearchRun(
         run_id="reused-snapshot",
