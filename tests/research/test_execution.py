@@ -422,6 +422,17 @@ def _make_request() -> ResearchRunCreateRequest:
     )
 
 
+def test_build_feature_config_rejects_non_preset_feature_window():
+    payload = _make_request().model_dump()
+    payload["features"] = [
+        {"name": "macd_line", "window": 12, "source": "close", "shift": 1}
+    ]
+    request = ResearchRunCreateRequest.model_validate(payload)
+
+    with pytest.raises(UnsupportedConfigurationError, match="preset window 26"):
+        backtest_engine_service.build_feature_config(request)
+
+
 @pytest.mark.parametrize(
     "metrics",
     [{}, {"sharpe": float("nan")}, {"sharpe": float("inf")}, {"sharpe": None}],

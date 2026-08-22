@@ -97,6 +97,131 @@ def test_pooled_dataset_builds_features_per_symbol_and_records_exclusions():
     assert aaa_coverage.excluded_canonical_row_count == 5
 
 
+def test_pooled_dataset_shifts_new_feature_outputs_without_crossing_invalid_rows():
+    dates = pd.date_range("2024-01-01", periods=65, freq="D")
+    close = 100.0 + pd.Series(range(len(dates)), dtype="float64")
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": "AAA",
+            "open": close.to_numpy(),
+            "high": (close + 2).to_numpy(),
+            "low": (close - 2).to_numpy(),
+            "close": close.to_numpy(),
+            "volume": (1000 + pd.Series(range(len(dates)))).to_numpy(),
+            "source": "official",
+        }
+    )
+    frame.loc[30, "open"] = 0.0
+
+    result = build_pooled_model_ready_dataset(
+        frame,
+        feature_config={"macd_line": [{"window": 26, "source": "close"}]},
+        shift_map={"MACD_LINE_26": 1},
+        return_target="open_to_open",
+        horizon_days=1,
+        requested_symbols=["AAA"],
+        market_dates=tuple(timestamp.date() for timestamp in dates),
+        source_priority=SOURCE_PRIORITY,
+    )
+
+    assert result.feature_names == ("MACD_LINE_26",)
+    assert result.frame.loc[
+        result.frame["date"] == dates[27].date(), "MACD_LINE_26"
+    ].iloc[0] == pytest.approx(5.38143504527612)
+    post_gap = result.frame[result.frame["date"] > dates[30].date()]
+    assert post_gap["date"].min() >= dates[56].date()
+
+
+def test_pooled_new_feature_families_reset_continuity_after_invalid_ohlcv_row():
+    dates = pd.date_range("2024-01-01", periods=100, freq="D")
+    close = 100.0 + pd.Series(range(len(dates)), dtype="float64")
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": "AAA",
+            "open": close.to_numpy(),
+            "high": (close + 2).to_numpy(),
+            "low": (close - 2).to_numpy(),
+            "close": close.to_numpy(),
+            "volume": (1000 + pd.Series(range(len(dates)))).to_numpy(),
+            "source": "official",
+        }
+    )
+    frame.loc[30, "open"] = 0.0
+    preset_windows = {
+        "macd_line": 26,
+        "macd_signal": 26,
+        "macd_histogram": 26,
+        "bbands_upper": 20,
+        "bbands_middle": 20,
+        "bbands_lower": 20,
+        "atr": 14,
+        "stoch_k": 14,
+        "stoch_d": 14,
+        "obv": 1,
+        "adx": 14,
+        "dmi_plus": 14,
+        "dmi_minus": 14,
+        "mfi": 14,
+        "cmf": 20,
+    }
+    feature_config = {
+        name: [{"window": window, "source": "close"}]
+        for name, window in preset_windows.items()
+    }
+    shift_map = {
+        feature_engine.feature_col_name(name, window, "close"): 1
+        for name, window in preset_windows.items()
+    }
+
+    result = build_pooled_model_ready_dataset(
+        frame,
+        feature_config=feature_config,
+        shift_map=shift_map,
+        return_target="open_to_open",
+        horizon_days=1,
+        requested_symbols=["AAA"],
+        market_dates=tuple(timestamp.date() for timestamp in dates),
+        source_priority=SOURCE_PRIORITY,
+    )
+
+    assert dates[30].date() not in set(result.frame["date"])
+    post_gap = result.frame[result.frame["date"] > dates[30].date()]
+    assert post_gap["date"].min() >= dates[56].date()
+    assert post_gap[list(shift_map)].notna().all().all()
+
+
+def test_pooled_dataset_keeps_zero_range_ohlcv_rows_valid():
+    dates = pd.date_range("2024-01-01", periods=30, freq="D")
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": "AAA",
+            "open": 100.0,
+            "high": 100.0,
+            "low": 100.0,
+            "close": 100.0,
+            "volume": 1000.0,
+            "source": "official",
+        }
+    )
+
+    result = build_pooled_model_ready_dataset(
+        frame,
+        feature_config={"cmf": [{"window": 20, "source": "close"}]},
+        shift_map={"CMF_20": 1},
+        return_target="open_to_open",
+        horizon_days=1,
+        requested_symbols=["AAA"],
+        market_dates=tuple(timestamp.date() for timestamp in dates),
+        source_priority=SOURCE_PRIORITY,
+    )
+
+    assert result.symbol_coverage[0].invalid_ohlcv_row_count == 0
+    assert result.frame["CMF_20"].iloc[-1] == pytest.approx(0.0)
+
+
 def test_pooled_dataset_rejects_missing_core_columns():
     frame, dates = _coverage_frame(set())
     frame = frame.drop(columns=["volume"])
@@ -130,10 +255,28 @@ def test_pooled_dataset_rejects_feature_configuration_mismatch():
         )
 
 
-def test_pooled_dataset_propagates_missing_feature_output():
+def test_pooled_dataset_rejects_invalid_catalog_preset_before_symbol_processing():
     frame, dates = _coverage_frame(set())
 
-    with pytest.raises(FeatureConfigurationError, match="did not produce columns"):
+    with pytest.raises(FeatureConfigurationError, match="versioned preset window 26"):
+        build_pooled_model_ready_dataset(
+            frame,
+            feature_config={
+                "macd_line": [{"window": 12, "source": "close"}],
+            },
+            shift_map={"MACD_LINE_12": 1},
+            return_target="open_to_open",
+            horizon_days=1,
+            requested_symbols=["AAA", "BBB"],
+            market_dates=tuple(timestamp.date() for timestamp in dates),
+            source_priority=SOURCE_PRIORITY,
+        )
+
+
+def test_pooled_dataset_rejects_unsupported_feature():
+    frame, dates = _coverage_frame(set())
+
+    with pytest.raises(FeatureConfigurationError, match="Unsupported feature"):
         build_pooled_model_ready_dataset(
             frame,
             feature_config={"unsupported": [{"window": 1, "source": "close"}]},

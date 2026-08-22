@@ -75,7 +75,11 @@ class FeatureDefinition(BaseModel):
     label: str
     description: str
     default_window: conint(ge=1)  # type: ignore[valid-type]
+    window_editable: bool = True
     allowed_sources: List[PriceSource] = Field(default_factory=list)
+    family: str = ""
+    parameter_tuple: Dict[str, object] = Field(default_factory=dict)
+    required_columns: List[str] = Field(default_factory=list)
 
 
 class FeatureRegistryResponse(BaseModel):
@@ -496,6 +500,7 @@ class ResearchRunResponse(
     ReviewArtifactSummaryMixin,
 ):
     run_id: str
+    feature_registry_version: Optional[str] = None
     metrics: Metrics
     equity_curve: List[EquityPoint] = Field(default_factory=list)
     signals: List[SignalPoint] = Field(default_factory=list)
@@ -521,6 +526,7 @@ class ResearchRunRecordResponse(
     ReviewArtifactSummaryMixin,
 ):
     run_id: str
+    feature_registry_version: Optional[str] = None
     request_id: Optional[str] = None
     status: RunStatus
     market: Optional[str] = None

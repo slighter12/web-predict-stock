@@ -17,6 +17,7 @@ from backend.research.contracts.runs import (
     ResearchRunCreateRequest,
     ResearchRunResponse,
 )
+from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
 
 
 def make_request() -> ResearchRunCreateRequest:
@@ -118,6 +119,8 @@ def test_record_success_builds_registry_payload(monkeypatch):
     )
 
     assert captured["status"] == "succeeded"
+    assert captured["feature_registry_version"] == FEATURE_REGISTRY_VERSION
+    assert "feature_registry_version" not in captured["request_payload"]
     assert captured["strategy_type"] == "research_v1"
     assert captured["symbols"] == ["2330"]
     assert captured["metrics"]["total_return"] == pytest.approx(0.12)
@@ -171,6 +174,8 @@ def test_record_started_builds_running_payload(monkeypatch):
     assert captured["strategy_type"] == "research_v1"
     assert captured["symbols"] == ["2330"]
     assert captured["comparison_eligibility"] == "comparison_metadata_only"
+    assert captured["feature_registry_version"] == FEATURE_REGISTRY_VERSION
+    assert "feature_registry_version" not in captured["request_payload"]
 
 
 def test_record_rejection_builds_error_code(monkeypatch):

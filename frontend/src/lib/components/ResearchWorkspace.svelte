@@ -11,7 +11,11 @@
         createFeatureRegistryQueryOptions,
         createIndicatorRow,
         getAllowedSources,
-        getFeatureDefinitions,
+        getFeatureDefinition,
+        getFeatureDefinitionGroups,
+        formatFeatureFamily,
+        formatFeaturePreset,
+        isFeatureWindowEditable,
         updateIndicatorFeatureName,
     } from "../state/featureRegistry";
     import {
@@ -614,6 +618,7 @@
                     </div>
                     <div class="feature-list">
                         {#each draft.signalSources.indicatorRows as feature}
+                            {@const definition = getFeatureDefinition(feature.name, featureRegistry())}
                             <div class="feature-row">
                                 <label>
                                     <span>Name</span>
@@ -629,10 +634,14 @@
                                                     .value as ResearchFeatureRow["name"],
                                             )}
                                     >
-                                        {#each getFeatureDefinitions(featureRegistry()) as definition}
-                                            <option value={definition.name}
-                                                >{definition.name}</option
-                                            >
+                                        {#each getFeatureDefinitionGroups(featureRegistry()) as group}
+                                            <optgroup label={formatFeatureFamily(group.family)}>
+                                                {#each group.features as definition}
+                                                    <option value={definition.name}
+                                                        >{definition.label}</option
+                                                    >
+                                                {/each}
+                                            </optgroup>
                                         {/each}
                                     </select>
                                 </label>
@@ -642,6 +651,7 @@
                                         type="number"
                                         min="1"
                                         value={feature.window}
+                                        disabled={!isFeatureWindowEditable(definition)}
                                         onchange={(event) =>
                                             updateIndicator(
                                                 feature.id,
@@ -653,6 +663,9 @@
                                                 ),
                                             )}
                                     />
+                                    {#if !isFeatureWindowEditable(definition)}
+                                        <small>Preset: {formatFeaturePreset(definition)}</small>
+                                    {/if}
                                 </label>
                                 <label>
                                     <span>Source</span>

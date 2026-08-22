@@ -55,8 +55,9 @@ from backend.research.repositories.calibration import (
     get_calibration_matrix_snapshot,
     persist_calibration_matrix,
 )
-from backend.shared.analytics import features as feature_engine
+from backend.research.services.feature_config import build_feature_config
 from backend.shared.analytics import models as model_service
+from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
 from backend.shared.analytics.models import ModelUnavailableError
 from backend.shared.analytics.pooled import (
     MarketDateFold,
@@ -79,16 +80,7 @@ class _PreparedFoldRows:
 def _feature_config(
     request: CalibrationMatrixCreateRequest,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]]:
-    config: dict[str, list[dict[str, Any]]] = {}
-    shift_map: dict[str, int] = {}
-    for spec in request.features:
-        config.setdefault(spec.name, []).append(
-            {"window": spec.window, "source": spec.source}
-        )
-        shift_map[feature_engine.feature_col_name(spec.name, spec.window, spec.source)] = (
-            spec.shift
-        )
-    return config, shift_map
+    return build_feature_config(request.features)
 
 
 def _load_market_frame(
@@ -499,6 +491,7 @@ def _build_response(
     return CalibrationMatrixResponse(
         matrix_id=matrix_id,
         request_id=request_id,
+        feature_registry_version=FEATURE_REGISTRY_VERSION,
         status="succeeded",
         request=request,
         dataset=_dataset_summary(request, dataset),

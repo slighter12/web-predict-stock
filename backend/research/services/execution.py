@@ -35,6 +35,9 @@ from backend.research.contracts.runtime_metadata import (
 )
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.services.adaptive import record_run_adaptive_exclusion
+from backend.research.services.feature_config import (
+    build_feature_config as build_engine_feature_config,
+)
 from backend.market_data.services import research_inputs as data_service
 from backend.market_data.services.research_inputs import (
     exclude_non_official_rows_on_official_no_data,
@@ -54,6 +57,7 @@ from backend.shared.analytics import baselines as baseline_service
 from backend.shared.analytics import features as feature_engine
 from backend.shared.analytics import models as model_service
 from backend.shared.analytics import validation as validation_service
+from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
 from backend.shared.analytics.strategy import (
     ADOPTION_COMPARISON_POLICY_VERSION,
     BOOTSTRAP_POLICY_VERSION,
@@ -89,40 +93,7 @@ def _metrics_are_finite(metrics: dict) -> bool:
 
 
 def build_feature_config(request: ResearchRunCreateRequest) -> tuple[dict, dict]:
-    config: dict = {}
-    shift_map: dict = {}
-
-    if not request.features:
-        raise UnsupportedConfigurationError(
-            "features must include at least one feature spec."
-        )
-
-    for spec in request.features:
-        config.setdefault(spec.name, []).append(
-            {"window": spec.window, "source": spec.source}
-        )
-        col_name = feature_engine.feature_col_name(spec.name, spec.window, spec.source)
-        shift_map[col_name] = spec.shift
-
-    for key in feature_engine.FEATURE_DEFINITION_BY_NAME:
-        items = config.get(key)
-        if items is None:
-            continue
-        if not isinstance(items, list):
-            raise UnsupportedConfigurationError(
-                f"Feature config for '{key}' must be a list of window/source entries."
-            )
-
-        try:
-            unique = {(item["window"], item["source"]) for item in items}
-        except (KeyError, TypeError) as exc:
-            raise UnsupportedConfigurationError(
-                f"Feature config for '{key}' must contain window/source pairs."
-            ) from exc
-
-        config[key] = [{"window": w, "source": s} for w, s in sorted(unique)]
-
-    return config, shift_map
+    return build_engine_feature_config(request.features, require_nonempty=True)
 
 
 def apply_feature_shifts(df: pd.DataFrame, shift_map: dict, symbol: str) -> None:
@@ -1082,6 +1053,7 @@ def execute_research_run(
 
     response = ResearchRunResponse(
         run_id=run_id,
+        feature_registry_version=FEATURE_REGISTRY_VERSION,
         metrics=Metrics(**metrics),
         equity_curve=equity_curve,
         signals=signals,

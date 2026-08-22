@@ -72,15 +72,24 @@ forward skill?
 
 ## Additional Daily-OHLCV Indicator Review
 
-The current installed vectorbt version directly supports the initial expansion
-(`MACD`, `BBANDS`, `ATR`, `STOCH`, and `OBV`). The next candidates should be
-considered only after that expansion has an outer-Fold evidence record:
+The versioned technical Feature Catalog includes the initial expansion
+(`MACD`, `BBANDS`, `ATR`, `STOCH`, `OBV`, `ADX`/`DMI`, `MFI`, and `CMF`).
+`MACD`, `BBANDS`, `STOCH`, and `OBV` use the installed vectorbt runtime;
+`ATR`, `ADX`/`DMI`, `MFI`, and `CMF` use deterministic local calculations. The
+table records the current availability of these families and the remaining
+deferred candidates; every retained family still requires an outer-Fold
+evidence record:
 
 | Feature Family | Candidate | Input bars | Initial status |
 | --- | --- | --- | --- |
-| trend strength | `ADX` / `DMI` | high, low, close | candidate; requires local implementation |
-| price-volume flow | `MFI` | high, low, close, volume | candidate; requires local implementation |
-| price-volume flow | `CMF` | high, low, close, volume | candidate; requires local implementation |
+| momentum and trend | `MACD` | close | implemented in `technical_feature_registry_v3`; vectorbt runtime |
+| price dispersion | `BBANDS` | close | implemented in `technical_feature_registry_v3`; vectorbt runtime |
+| volatility range | `ATR` | high, low, close | implemented in `technical_feature_registry_v3`; local Wilder calculation |
+| momentum oscillator | `STOCH` | high, low, close | implemented in `technical_feature_registry_v3`; vectorbt runtime |
+| volume direction | `OBV` | close, volume | implemented in `technical_feature_registry_v3`; vectorbt runtime |
+| trend strength | `ADX` / `DMI` | high, low, close | implemented in `technical_feature_registry_v3`; local calculation |
+| price-volume flow | `MFI` | high, low, close, volume | implemented in `technical_feature_registry_v3`; local calculation |
+| price-volume flow | `CMF` | high, low, close, volume | implemented in `technical_feature_registry_v3`; local calculation |
 | range oscillator | `CCI`, Williams %R | high, low, close | defer; overlaps materially with `STOCH`, `RSI`, and `zscore` |
 | volume-weighted price | intraday VWAP | intraday prices and volume | exclude from daily-OHLCV scope; daily bars cannot reconstruct true VWAP |
 
@@ -163,9 +172,10 @@ Family level where correlated Features can mask each other.
   model, threshold, and strategy configuration.
 - The initial catalog expansion adds `MACD`, `BBANDS`, `ATR`, `STOCH`, and
   `OBV`, `ADX`/`DMI`, `MFI`, and `CMF` as new technical Feature Families derived
-  solely from daily OHLCV. The first five use the installed indicator runtime;
-  the latter three require local calculation. Each family is added and removed
-  against the existing six-Feature baseline under the same nested Walk-Forward
+  solely from daily OHLCV. `MACD`, `BBANDS`, `STOCH`, and `OBV` use the
+  installed indicator runtime; `ATR`, `ADX`/`DMI`, `MFI`, and `CMF` use
+  deterministic local calculations. Each family is added and removed against
+  the existing six-Feature baseline under the same nested Walk-Forward
   Evaluation.
 - Each new indicator starts from a versioned provisional conventional parameter
   tuple. Its window parameters join inner-Fold search only after its Feature
@@ -190,3 +200,67 @@ Family level where correlated Features can mask each other.
   pooled-data shape, XGBoost availability, resource use, Fold boundaries, and
   artifact capture with a limited candidate matrix; it cannot select a Method
   Candidate or contribute to a shortlist.
+
+## Technical Feature Catalog Operational Contract
+
+`technical_feature_registry_v3` is the backend Feature Catalog authority. The
+frontend requests `/api/v1/research/feature-registry` and uses its metadata for
+available outputs, Feature Families, required OHLCV columns, and parameter
+tuples. A declarative frontend fallback with the same version and catalog
+contract is used only while that request is unavailable. The standard
+`make feature-registry-check` gate compares the complete backend catalog
+metadata with that fallback, including version, labels, descriptions, editable
+windows, sources, parameter tuples, and required columns.
+
+ATR intentionally uses the local calculation even though vectorbt exposes an
+ATR runtime. The installed runtime offers simple or span-based exponential
+smoothing, while this catalog preset requires the conventional SMA-seeded
+Wilder recurrence; using the local path keeps the implementation aligned with
+the recorded preset rather than silently changing its smoothing semantics.
+
+The fixed compatibility presets are MACD 12/26/9 with both MACD and signal
+EWM enabled, BBANDS 20 with its existing vectorbt parameters, ATR 14 with
+Wilder smoothing, STOCH 14/3, OBV 1, ADX/DMI 14, MFI 14, and CMF 20. These
+fixed outputs are not editable in the workflow. Existing MA, EMA, RSI, ROC,
+volatility, and z-score rows retain editable windows. A fixed output is reset
+to its catalog preset when selected after a custom-window row, so the request
+cannot contain a window rejected by the backend validator.
+
+The deterministic local calculations use the following zero-range policy:
+
+- CMF assigns a zero money-flow multiplier to a `high - low == 0` row.
+- ATR leaves the first true range undefined because it has no prior close,
+  seeds the first value with the SMA of the first 14 defined true ranges, and
+  then applies `(previous * 13 + current) / 14`.
+- DMI compares prior highs and lows before assigning directional movement and
+  uses the same SMA-seeded Wilder recurrence; a zero smoothed true-range
+  denominator or no directional movement produces zero DMI/DX values after
+  warmup.
+- MFI leaves the first price movement undefined and requires 14 valid price
+  movements before its first value. Invalid or non-finite OHLCV rows restart
+  that movement count. MFI returns 50 when both rolling flow totals are zero,
+  100 when only negative flow is zero, and 0 when only positive flow is zero.
+- Normal insufficient-history warmup remains `NaN`. A valid zero-range OHLCV
+  row does not reset pooled Feature continuity; invalid or non-finite core
+  OHLCV rows still form continuity boundaries and are excluded by the existing
+  complete-case policy.
+
+The backend owns the registry version. New Research Runs persist the actual
+version as resolved result metadata and expose it as
+`feature_registry_version`; new Calibration Matrices persist the same metadata
+in their result payload. Research Run storage keeps the metadata in a reserved
+internal envelope within the existing JSON storage, while the user request
+projection remains the original request and does not claim a backend-resolved
+catalog version. Legacy records without this field project it as
+`null`/unavailable rather than being assigned the current catalog version. This
+traceability metadata requires no database migration.
+
+Before rollout, operators should verify the registry endpoint version, the
+catalog output count, and a representative request for each required-input
+group. After rollout, inspect research-run warnings and feature-calculation
+errors, and compare model-ready row counts across the same data window. The
+rollback path is to restore the previous application artifact and registry
+version; this catalog change has no database migration. If a new family is
+temporarily disabled, existing catalog outputs remain available and research
+runs using the disabled output should fail closed with an unsupported-feature
+configuration error.
