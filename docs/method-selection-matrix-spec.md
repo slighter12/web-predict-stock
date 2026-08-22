@@ -143,7 +143,7 @@ reconcile outcomes at their Horizons.
   deterministic calculations. ATR uses the conventional SMA-seeded Wilder
   recurrence rather than the installed runtime's alternate smoothing modes.
 - Start indicator Families from versioned conventional tuples: MACD 12/26/9,
-  BBANDS 20, ATR 14, STOCH 14, OBV 1, ADX/DMI 14, MFI 14, and CMF 20. Search
+  BBANDS 20, ATR 14, STOCH 14/3, OBV 1, ADX/DMI 14, MFI 14, and CMF 20. Search
   a Family's window parameters only after it has outer-Fold value.
 - Compare Extra Trees, Random Forest, and XGBoost through `conservative`,
   `balanced`, and `flexible` capacity presets. Persist the concrete preset

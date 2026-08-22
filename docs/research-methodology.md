@@ -244,10 +244,14 @@ The deterministic local calculations use the following zero-range policy:
   row does not reset Feature continuity; invalid or non-finite core OHLCV rows
   form continuity boundaries for both standalone catalog calculations and
   pooled Feature continuity and are excluded by the existing complete-case
-  policy. When all core OHLCV columns are present, a non-finite value in any
-  one of them resets every catalog family. This is a dataset-level continuity
-  policy shared by standalone and pooled processing; `required_columns` still
-  describes each family's mathematical input contract.
+  policy. A versioned catalog calculation requires all five core OHLCV columns
+  to be present, even when `required_columns` lists fewer mathematical inputs;
+  missing catalog frame columns fail closed as configuration errors. Once the
+  frame contract is satisfied, a non-finite value in any core column resets
+  every catalog family. This is a dataset-level continuity policy shared by
+  standalone and pooled processing; `required_columns` still describes each
+  family's mathematical input contract. Legacy editable features retain their
+  existing source-column behavior.
 
 The backend owns the registry version. New Research Runs persist the actual
 version as resolved result metadata and expose it as

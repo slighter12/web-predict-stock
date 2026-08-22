@@ -251,7 +251,10 @@ def test_vectorbt_catalog_features_reset_after_unrelated_core_gap(
 
     generated = add_features(
         frame.copy(),
-        {"macd_line": [{"window": 26, "source": "close"}]},
+        {
+            "macd_line": [{"window": 26, "source": "close"}],
+            "obv": [{"window": 1, "source": "close"}],
+        },
     )
 
     macd_reference = vbt.MACD.run(
@@ -262,8 +265,13 @@ def test_vectorbt_catalog_features_reset_after_unrelated_core_gap(
         macd_ewm=True,
         signal_ewm=True,
     )
+    obv_reference = vbt.OBV.run(
+        frame["close"].iloc[gap_position + 1 :],
+        frame["volume"].iloc[gap_position + 1 :],
+    )
 
     assert pd.isna(generated["MACD_LINE_26"].iloc[gap_position])
+    assert pd.isna(generated["OBV_1"].iloc[gap_position])
     assert generated["MACD_LINE_26"].iloc[gap_position + 1 :].first_valid_index() == (
         macd_reference.macd.first_valid_index()
     )
@@ -272,6 +280,49 @@ def test_vectorbt_catalog_features_reset_after_unrelated_core_gap(
         macd_reference.macd.to_numpy(),
         equal_nan=True,
     )
+    assert np.allclose(
+        generated["OBV_1"].iloc[gap_position + 1 :].to_numpy(),
+        obv_reference.obv.to_numpy(),
+        equal_nan=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("feature_config", "columns"),
+    [
+        (
+            {"macd_line": [{"window": 26, "source": "close"}]},
+            ["close"],
+        ),
+        (
+            {"obv": [{"window": 1, "source": "close"}]},
+            ["close", "volume"],
+        ),
+    ],
+)
+def test_catalog_features_require_complete_ohlcv_frame(
+    feature_config: dict,
+    columns: list[str],
+) -> None:
+    frame = _ohlcv_frame().loc[:, columns]
+
+    with pytest.raises(
+        FeatureConfigurationError,
+        match="complete OHLCV columns",
+    ):
+        add_features(frame, feature_config)
+
+
+def test_legacy_features_accept_partial_source_frame() -> None:
+    frame = _ohlcv_frame().loc[:, ["close"]]
+
+    generated = add_features(
+        frame.copy(),
+        {"ma": [5], "ema": [5]},
+    )
+
+    assert generated["MA_5"].iloc[-1] == pytest.approx(157.0)
+    assert pd.notna(generated["EMA_5"].iloc[-1])
 
 
 @pytest.mark.parametrize(
@@ -499,7 +550,7 @@ def test_local_indicator_zero_range_policy_preserves_neutral_values() -> None:
         ("cmf", "volume"),
     ],
 )
-def test_catalog_features_require_declared_ohlcv_columns(
+def test_catalog_frame_contract_precedes_family_required_columns(
     feature_name: str,
     missing_column: str,
 ) -> None:
@@ -512,7 +563,10 @@ def test_catalog_features_require_declared_ohlcv_columns(
         )
     )
 
-    with pytest.raises(FeatureConfigurationError, match="requires OHLCV columns"):
+    with pytest.raises(
+        FeatureConfigurationError,
+        match=rf"complete OHLCV columns: \['{missing_column}'\]",
+    ):
         add_features(
             frame,
             {feature_name: [{"window": window, "source": "close"}]},
@@ -531,7 +585,10 @@ def test_fixed_feature_presets_and_required_columns_are_explicit() -> None:
             {"macd_line": [{"window": 12, "source": "close"}]},
         )
 
-    with pytest.raises(FeatureConfigurationError, match="requires OHLCV columns"):
+    with pytest.raises(
+        FeatureConfigurationError,
+        match=r"complete OHLCV columns: \['volume'\]",
+    ):
         add_features(
             frame.drop(columns=["volume"]),
             {"mfi": [{"window": 14, "source": "close"}]},

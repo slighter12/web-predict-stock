@@ -409,6 +409,15 @@ def _assert_required_columns(df: pd.DataFrame, feature_name: str) -> None:
         )
 
 
+def _assert_catalog_frame_contract(df: pd.DataFrame) -> None:
+    missing = sorted(set(PRICE_SOURCE_OPTIONS) - set(df.columns))
+    if missing:
+        raise FeatureConfigurationError(
+            "Catalog feature frame contract requires complete OHLCV columns: "
+            f"{missing}."
+        )
+
+
 def _wilder_smooth(series: pd.Series, window: int) -> pd.Series:
     """Apply Wilder smoothing with an SMA seed to each finite data segment."""
     if window <= 0:
@@ -730,12 +739,9 @@ def _calculate_catalog_outputs(
         for output_name in output_names
     }
 
-    # Required columns are validated by the safe entry point. When a complete
-    # OHLCV frame is available, every present core column participates in the
-    # continuity boundary so no catalog family carries state through a bad row.
-    continuity_columns = tuple(
-        column for column in PRICE_SOURCE_OPTIONS if column in df.columns
-    )
+    # The safe entry point validates the complete catalog frame contract, so
+    # every core OHLCV column participates in the continuity boundary.
+    continuity_columns = PRICE_SOURCE_OPTIONS
     finite_mask = np.isfinite(
         df.loc[:, continuity_columns].to_numpy(dtype="float64")
     ).all(axis=1)
@@ -773,6 +779,7 @@ def _calculate_catalog_outputs_safely(
     definition = FEATURE_DEFINITION_BY_NAME[feature_name]
     family = str(definition["family"])
     try:
+        _assert_catalog_frame_contract(df)
         _assert_required_columns(df, feature_name)
         return _calculate_catalog_outputs(df, feature_name=feature_name)
     except FeatureConfigurationError as exc:
@@ -848,8 +855,10 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     Adds technical indicator features to an OHLCV DataFrame based on a configuration.
 
     Args:
-        df (pd.DataFrame): DataFrame with 'open', 'high', 'low', 'close', 'volume' columns.
-                           The index should be a DatetimeIndex.
+        df (pd.DataFrame): DataFrame containing the source columns requested by
+                           legacy editable features. Versioned catalog features
+                           additionally require 'open', 'high', 'low', 'close',
+                           and 'volume'. The index should be a DatetimeIndex.
         config (dict): A dictionary specifying the features to add.
                        Example: {'ma': [5, 20], 'rsi': 14}
 
