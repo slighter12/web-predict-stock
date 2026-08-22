@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 _PROSPECTIVE_COHORT_BATCH_SIZE = 500
 _MISSING_OR_INVALID_JSON = object()
+# Compatibility envelope until ResearchRun gains a dedicated field and a
+# backfill migration for the feature registry version.
 _RESULT_METADATA_KEY = "_result_metadata"
 
 

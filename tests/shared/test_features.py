@@ -241,6 +241,39 @@ def test_vectorbt_catalog_features_reset_after_invalid_ohlcv_row() -> None:
     )
 
 
+@pytest.mark.parametrize("invalid_column", ["high", "volume"])
+def test_vectorbt_catalog_features_reset_after_unrelated_core_gap(
+    invalid_column: str,
+) -> None:
+    frame = _ohlcv_frame(90)
+    gap_position = 35
+    frame.loc[frame.index[gap_position], invalid_column] = np.nan
+
+    generated = add_features(
+        frame.copy(),
+        {"macd_line": [{"window": 26, "source": "close"}]},
+    )
+
+    macd_reference = vbt.MACD.run(
+        frame["close"].iloc[gap_position + 1 :],
+        fast_window=12,
+        slow_window=26,
+        signal_window=9,
+        macd_ewm=True,
+        signal_ewm=True,
+    )
+
+    assert pd.isna(generated["MACD_LINE_26"].iloc[gap_position])
+    assert generated["MACD_LINE_26"].iloc[gap_position + 1 :].first_valid_index() == (
+        macd_reference.macd.first_valid_index()
+    )
+    assert np.allclose(
+        generated["MACD_LINE_26"].iloc[gap_position + 1 :].to_numpy(),
+        macd_reference.macd.to_numpy(),
+        equal_nan=True,
+    )
+
+
 @pytest.mark.parametrize(
     ("feature_config", "output_column"),
     [

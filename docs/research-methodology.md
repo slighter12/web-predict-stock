@@ -241,9 +241,13 @@ The deterministic local calculations use the following zero-range policy:
   that movement count. MFI returns 50 when both rolling flow totals are zero,
   100 when only negative flow is zero, and 0 when only positive flow is zero.
 - Normal insufficient-history warmup remains `NaN`. A valid zero-range OHLCV
-  row does not reset pooled Feature continuity; invalid or non-finite core
-  OHLCV rows still form continuity boundaries and are excluded by the existing
-  complete-case policy.
+  row does not reset Feature continuity; invalid or non-finite core OHLCV rows
+  form continuity boundaries for both standalone catalog calculations and
+  pooled Feature continuity and are excluded by the existing complete-case
+  policy. When all core OHLCV columns are present, a non-finite value in any
+  one of them resets every catalog family. This is a dataset-level continuity
+  policy shared by standalone and pooled processing; `required_columns` still
+  describes each family's mathematical input contract.
 
 The backend owns the registry version. New Research Runs persist the actual
 version as resolved result metadata and expose it as

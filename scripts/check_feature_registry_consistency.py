@@ -25,6 +25,7 @@ FEATURE_FIELDS = (
     "parameter_tuple",
     "required_columns",
 )
+_FRONTEND_REGISTRY_TIMEOUT_SECONDS = 120
 
 
 def _normalized_registry(version: str, features: list[dict[str, Any]]) -> dict[str, Any]:
@@ -37,13 +38,24 @@ def _normalized_registry(version: str, features: list[dict[str, Any]]) -> dict[s
 
 
 def _load_frontend_registry() -> dict[str, Any]:
-    result = subprocess.run(
-        ["bun", "tests/featureRegistry.contract.ts"],
-        cwd=FRONTEND_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["bun", "tests/featureRegistry.contract.ts"],
+            cwd=FRONTEND_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=_FRONTEND_REGISTRY_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "frontend feature registry contract requires 'bun' on PATH"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "frontend feature registry contract timed out after "
+            f"{_FRONTEND_REGISTRY_TIMEOUT_SECONDS} seconds"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(
             "frontend feature registry contract failed:\n"

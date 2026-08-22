@@ -999,6 +999,8 @@ def add_features(df: pd.DataFrame, config: dict) -> pd.DataFrame:
             parameter_key = tuple(
                 sorted((str(key), repr(value)) for key, value in parameters.items())
             )
+            # Every output in a family currently shares required_columns. The
+            # cache key intentionally relies on that catalog invariant.
             cache_key = (family, parameter_key)
             outputs = catalog_outputs.get(cache_key)
             if outputs is None:

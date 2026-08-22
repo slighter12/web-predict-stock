@@ -445,7 +445,7 @@ def test_feature_config_rejects_conflicting_shifts_for_one_output_column():
 
     with pytest.raises(
         UnsupportedConfigurationError,
-        match="MA_5.*conflicting shift",
+        match=r"MA_5.*conflicting shift",
     ):
         build_engine_feature_config(features)
 
