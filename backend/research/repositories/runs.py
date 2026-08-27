@@ -25,6 +25,68 @@ logger = logging.getLogger(__name__)
 
 _PROSPECTIVE_COHORT_BATCH_SIZE = 500
 _MISSING_OR_INVALID_JSON = object()
+# Compatibility envelope until ResearchRun gains a dedicated field and a
+# backfill migration for the feature registry version.
+_RESULT_METADATA_KEY = "_result_metadata"
+_REQUEST_PAYLOAD_ABSENT_KEY = "request_payload_absent"
+
+
+def _split_persisted_request_payload(
+    payload: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """Separate internal result metadata from the user request projection."""
+    if not isinstance(payload, dict):
+        return payload, {}
+
+    request_payload = dict(payload)
+    result_metadata = request_payload.pop(_RESULT_METADATA_KEY, None)
+    if not isinstance(result_metadata, dict):
+        result_metadata = {}
+    else:
+        result_metadata = dict(result_metadata)
+
+    request_payload_absent = (
+        result_metadata.pop(_REQUEST_PAYLOAD_ABSENT_KEY, False) is True
+    )
+    legacy_version = request_payload.pop("feature_registry_version", None)
+    if (
+        "feature_registry_version" not in result_metadata
+        and legacy_version is not None
+    ):
+        result_metadata["feature_registry_version"] = legacy_version
+    if request_payload_absent and not request_payload:
+        return None, result_metadata
+    return request_payload, result_metadata
+
+
+def _build_persisted_request_payload(
+    payload: Any,
+    *,
+    feature_registry_version: str | None,
+) -> Any:
+    """Persist request data with result metadata in the existing JSON column."""
+    if not isinstance(payload, dict):
+        if payload is None and feature_registry_version is not None:
+            return {
+                _RESULT_METADATA_KEY: {
+                    "feature_registry_version": feature_registry_version,
+                    _REQUEST_PAYLOAD_ABSENT_KEY: True,
+                }
+            }
+        return payload
+
+    persisted = dict(payload)
+    result_metadata = persisted.get(_RESULT_METADATA_KEY)
+    if not isinstance(result_metadata, dict):
+        result_metadata = {}
+    if feature_registry_version is not None:
+        result_metadata = {
+            **result_metadata,
+            "feature_registry_version": feature_registry_version,
+        }
+    if result_metadata:
+        persisted[_RESULT_METADATA_KEY] = result_metadata
+    return persisted
 
 
 def _coerce_date(value: Any) -> date | None:
@@ -51,7 +113,10 @@ def _run_row_to_snapshot(
 
     validation_outcome = json_loads(row.validation_outcome_json, None)
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
-    request_payload = json_loads(row.request_payload_json, None)
+    persisted_request_payload = json_loads(row.request_payload_json, None)
+    request_payload, result_metadata = _split_persisted_request_payload(
+        persisted_request_payload
+    )
     metrics = json_loads(row.metrics_json, None)
     equity_curve = json_loads(row.equity_curve_json, _MISSING_OR_INVALID_JSON)
     signals = json_loads(row.signals_json, _MISSING_OR_INVALID_JSON)
@@ -59,10 +124,12 @@ def _run_row_to_snapshot(
     parsed_baselines = json_loads(row.baselines_json, None)
     baselines = parsed_baselines if isinstance(parsed_baselines, dict) else {}
     warnings = json_loads(row.warnings_json, [])
+    feature_registry_version = result_metadata.get("feature_registry_version")
     payload = {
         "run_id": row.run_id,
         "request_id": row.request_id,
         "status": row.status,
+        "feature_registry_version": feature_registry_version,
         "market": row.market,
         "symbols": json_loads(row.symbols_json, []),
         "strategy_type": row.strategy_type,
@@ -239,7 +306,12 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
             row.fallback_audit_json = json_dumps(record.get("fallback_audit"))
             row.validation_outcome_json = json_dumps(record.get("validation_outcome"))
             row.rejection_reason = record.get("rejection_reason")
-            row.request_payload_json = json_dumps(record.get("request_payload"))
+            row.request_payload_json = json_dumps(
+                _build_persisted_request_payload(
+                    record.get("request_payload"),
+                    feature_registry_version=record.get("feature_registry_version"),
+                )
+            )
             row.metrics_json = json_dumps(record.get("metrics"))
             row.equity_curve_json = json_dumps(record.get("equity_curve", []))
             row.signals_json = json_dumps(record.get("signals", []))
@@ -418,7 +490,9 @@ def get_research_run_request_payload(run_id: str) -> dict[str, Any] | None:
         with SessionLocal() as session:
             row = session.get(ResearchRun, run_id)
             if row is not None:
-                return json_loads(row.request_payload_json, None)
+                payload = json_loads(row.request_payload_json, None)
+                request_payload, _ = _split_persisted_request_payload(payload)
+                return request_payload
     except Exception as exc:
         logger.exception(
             "Failed to load research run request payload run_id=%s",

@@ -56,10 +56,7 @@ class PooledModelReadyDataset:
 
 
 _REQUIRED_CORE_COLUMNS = ("open", "high", "low", "close", "volume")
-
-
-class FeatureConfigurationError(ValueError):
-    """Raised when feature configuration cannot produce requested columns."""
+FeatureConfigurationError = feature_engine.FeatureConfigurationError
 
 
 def _as_date(value: date | datetime | str) -> date:
@@ -243,6 +240,14 @@ def _feature_names_from_config(feature_config: Mapping[str, object]) -> set[str]
                 raise FeatureConfigurationError(
                     f"feature configuration is invalid for '{feature_name}'."
                 )
+            try:
+                feature_engine.validate_feature_config_entry(
+                    str(feature_name),
+                    window=normalized_window,
+                    source=str(source),
+                )
+            except ValueError as exc:
+                raise FeatureConfigurationError(str(exc)) from exc
             names.add(
                 feature_engine.feature_col_name(
                     str(feature_name), normalized_window, str(source)

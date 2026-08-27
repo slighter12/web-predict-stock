@@ -555,6 +555,113 @@ def test_run_row_to_snapshot_preserves_json_fallback_behavior(
     assert snapshot["_artifact_presence"]["signals"] is False
 
 
+def test_legacy_run_without_registry_version_projects_unavailable() -> None:
+    row = ResearchRun(
+        run_id="legacy-feature-registry",
+        status="succeeded",
+        request_payload_json='{"runtime_mode":"runtime_compatibility_mode"}',
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert snapshot["feature_registry_version"] is None
+
+
+def test_legacy_top_level_registry_version_migrates_into_metadata() -> None:
+    row = ResearchRun(
+        run_id="legacy-top-level-registry",
+        status="succeeded",
+        request_payload_json=(
+            '{"market":"TW",'
+            '"feature_registry_version":"technical_feature_registry_v2"}'
+        ),
+    )
+
+    snapshot = research_run_repository._run_row_to_snapshot(row)
+
+    assert snapshot["feature_registry_version"] == "technical_feature_registry_v2"
+    assert "feature_registry_version" not in snapshot["request_payload"]
+    assert snapshot["request_payload"]["market"] == "TW"
+
+
+def test_none_request_payload_round_trips_with_registry_metadata(monkeypatch):
+    feature_registry_version = "technical_feature_registry_v3"
+    persisted_payload = research_run_repository._build_persisted_request_payload(
+        None,
+        feature_registry_version=feature_registry_version,
+    )
+
+    request_payload, result_metadata = (
+        research_run_repository._split_persisted_request_payload(persisted_payload)
+    )
+
+    assert request_payload is None
+    assert result_metadata == {
+        "feature_registry_version": feature_registry_version,
+    }
+    assert persisted_payload["_result_metadata"] == {
+        "feature_registry_version": feature_registry_version,
+        "request_payload_absent": True,
+    }
+
+    engine = create_engine("sqlite:///:memory:")
+    testing_session_local = sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=engine,
+    )
+    Base.metadata.create_all(bind=engine, tables=[ResearchRun.__table__])
+    monkeypatch.setattr(research_run_repository, "SessionLocal", testing_session_local)
+
+    with testing_session_local() as session:
+        session.add(
+            ResearchRun(
+                run_id="none-request-payload",
+                status="succeeded",
+                symbols_json="[]",
+                request_payload_json=research_run_repository.json_dumps(
+                    persisted_payload
+                ),
+            )
+        )
+        session.commit()
+
+    snapshot = research_run_repository._run_row_to_snapshot(
+        ResearchRun(
+            run_id="none-request-payload-snapshot",
+            status="succeeded",
+            request_payload_json=research_run_repository.json_dumps(
+                persisted_payload
+            ),
+        )
+    )
+
+    assert snapshot["request_payload"] is None
+    assert snapshot["feature_registry_version"] == feature_registry_version
+    assert (
+        research_run_repository.get_research_run_request_payload(
+            "none-request-payload"
+        )
+        is None
+    )
+
+
+def test_empty_request_payload_remains_empty_with_registry_metadata() -> None:
+    persisted_payload = research_run_repository._build_persisted_request_payload(
+        {},
+        feature_registry_version="technical_feature_registry_v3",
+    )
+
+    request_payload, result_metadata = (
+        research_run_repository._split_persisted_request_payload(persisted_payload)
+    )
+
+    assert request_payload == {}
+    assert result_metadata == {
+        "feature_registry_version": "technical_feature_registry_v3",
+    }
+
+
 def test_project_persisted_snapshot_does_not_mutate_reused_snapshot():
     row = ResearchRun(
         run_id="reused-snapshot",
@@ -632,6 +739,7 @@ def test_research_run_repository_roundtrip(monkeypatch):
         "run_id": "run_123",
         "request_id": "req_123",
         "status": "succeeded",
+        "feature_registry_version": "technical_feature_registry_v3",
         "market": None,
         "symbols": ["2330", "2317", "2454", "9999"],
         "strategy_type": "research_v1",
@@ -772,6 +880,16 @@ def test_research_run_repository_roundtrip(monkeypatch):
     loaded = research_run_projection.get_research_run_record("run_123")
 
     assert loaded["run_id"] == "run_123"
+    assert loaded["feature_registry_version"] == "technical_feature_registry_v3"
+    assert "feature_registry_version" not in loaded["request_payload"]
+    with testing_session_local() as session:
+        stored_request = research_run_repository.json_loads(
+            session.get(ResearchRun, "run_123").request_payload_json,
+            None,
+        )
+    assert stored_request["_result_metadata"] == {
+        "feature_registry_version": "technical_feature_registry_v3"
+    }
     assert loaded["market"] is None
     assert loaded["request_payload"]["market"] == "TW"
     assert loaded["request_payload"]["features"][0]["shift"] == 0

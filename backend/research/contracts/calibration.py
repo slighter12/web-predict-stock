@@ -236,6 +236,7 @@ class CalibrationEvaluation(RequestModel):
 class CalibrationMatrixResponse(RequestModel):
     matrix_id: str
     request_id: str
+    feature_registry_version: str | None = None
     status: CalibrationMatrixStatus
     request: CalibrationMatrixCreateRequest
     dataset: CalibrationDatasetSummary

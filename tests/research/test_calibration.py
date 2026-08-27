@@ -12,13 +12,15 @@ from sqlalchemy.pool import StaticPool
 import backend.research.api as research_api
 import backend.research.services.calibration as calibration_service
 from backend.app import app
-from backend.database import Base
+from backend.database import Base, CalibrationMatrix
 import backend.research.repositories.calibration as calibration_repository
 from backend.platform.errors import (
     CalibrationBusyError,
     CalibrationEvaluationError,
+    DataAccessError,
 )
 from backend.shared.analytics.models import ModelUnavailableError
+from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
 from backend.shared.analytics.pooled import (
     FeatureConfigurationError,
     MarketDateFold,
@@ -133,6 +135,7 @@ def test_calibration_service_runs_each_configured_family_without_xgboost_fallbac
     )
 
     assert result.matrix_id == "calibration_123"
+    assert result.feature_registry_version == FEATURE_REGISTRY_VERSION
     assert result.status == "succeeded"
     assert result.evaluation.status == "evaluated"
     assert result.dataset.model_ready_row_count > 0
@@ -195,6 +198,8 @@ def test_calibration_service_runs_each_configured_family_without_xgboost_fallbac
     assert "research_run_id" not in result.model_dump()
     assert len(persisted) == 1
     assert persisted[0]["matrix_id"] == "calibration_123"
+    assert persisted[0]["feature_registry_version"] == FEATURE_REGISTRY_VERSION
+    assert "feature_registry_version" not in persisted[0]["request"]
     assert "model_availability" not in persisted[0]["evaluation"]
 
 
@@ -748,3 +753,54 @@ def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch, request
     assert loaded.json()["comparison_caveats"][0]["code"] == (
         "TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE"
     )
+    with calibration_repository.SessionLocal() as session:
+        row = session.get(CalibrationMatrix, matrix_id)
+        request_payload = calibration_repository.json_loads(
+            row.request_payload_json,
+            {},
+        )
+        result_payload = calibration_repository.json_loads(
+            row.result_payload_json,
+            {},
+        )
+    assert "feature_registry_version" not in request_payload
+    assert result_payload["feature_registry_version"] == FEATURE_REGISTRY_VERSION
+
+
+def test_persist_calibration_matrix_rejects_missing_request(monkeypatch):
+    class _Session:
+        added = False
+        committed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+        def get(self, *_args):
+            return None
+
+        def add(self, _row):
+            self.added = True
+
+        def commit(self):
+            self.committed = True
+
+        def refresh(self, _row):
+            return None
+
+    session = _Session()
+    monkeypatch.setattr(calibration_repository, "SessionLocal", lambda: session)
+
+    with pytest.raises(DataAccessError):
+        calibration_repository.persist_calibration_matrix(
+            {
+                "matrix_id": "missing-request",
+                "request_id": "request-missing",
+                "status": "succeeded",
+            }
+        )
+
+    assert session.committed is False
+    assert session.added is False

@@ -345,16 +345,32 @@ running local checks.
 make test
 ```
 
-Equivalent direct command:
+`make test` is the complete repository test gate. It runs the backend test suite,
+the frontend feature-registry contract check, and the backend/frontend catalog
+consistency check.
+
+Backend-only regression test:
 
 ```bash
 .venv/bin/python -m pytest -q
+```
+
+Feature-registry consistency gate:
+
+```bash
+make feature-registry-check
 ```
 
 Frontend typecheck:
 
 ```bash
 bun x tsc -p frontend/tsconfig.json --noEmit
+```
+
+Frontend production build:
+
+```bash
+make frontend-build
 ```
 
 ## Environment Variables

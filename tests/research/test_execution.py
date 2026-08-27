@@ -16,9 +16,13 @@ from backend.platform.errors import (
     UnsupportedConfigurationError,
 )
 from backend.research.contracts.runs import (
+    FeatureSpec,
     ResearchRunCreateRequest,
     ValidationConfig,
     ValidationSummary,
+)
+from backend.research.services.feature_config import (
+    build_feature_config as build_engine_feature_config,
 )
 from backend.shared.analytics.strategy import ResearchStrategyConfig
 
@@ -420,6 +424,42 @@ def _make_request() -> ResearchRunCreateRequest:
         cluster_snapshot_version="peer_cluster_kmeans_v1",
         peer_policy_version="cluster_nearest_neighbors_v1",
     )
+
+
+def test_build_feature_config_rejects_non_preset_feature_window():
+    payload = _make_request().model_dump()
+    payload["features"] = [
+        {"name": "macd_line", "window": 12, "source": "close", "shift": 1}
+    ]
+    request = ResearchRunCreateRequest.model_validate(payload)
+
+    with pytest.raises(UnsupportedConfigurationError, match="preset window 26"):
+        backtest_engine_service.build_feature_config(request)
+
+
+def test_feature_config_rejects_conflicting_shifts_for_one_output_column():
+    features = [
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+        FeatureSpec(name="ma", window=5, source="close", shift=2),
+    ]
+
+    with pytest.raises(
+        UnsupportedConfigurationError,
+        match=r"MA_5.*conflicting shift",
+    ):
+        build_engine_feature_config(features)
+
+
+def test_feature_config_deduplicates_same_shift_for_one_output_column():
+    features = [
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+        FeatureSpec(name="ma", window=5, source="close", shift=1),
+    ]
+
+    config, shift_map = build_engine_feature_config(features)
+
+    assert config == {"ma": [{"window": 5, "source": "close"}]}
+    assert shift_map == {"MA_5": 1}
 
 
 @pytest.mark.parametrize(

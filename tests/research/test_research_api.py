@@ -46,7 +46,9 @@ def test_public_request_accepts_direction_model_defaults():
     payload = make_payload()
     payload["direction_model"] = {"type": "extra_trees", "params": {}}
 
-    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
+    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(
+        payload
+    )
 
     assert request.direction_model.positive_return_threshold == 0.0
     assert request.direction_model.confirmation_probability_threshold == 0.5
@@ -71,6 +73,38 @@ def test_public_request_model_defaults_and_explicit_overrides():
     assert request.model.type == "xgboost"
     assert request.direction_model is not None
     assert request.direction_model.type == "extra_trees"
+
+
+def test_public_request_accepts_independent_feature_family_outputs():
+    payload = make_payload()
+    payload["features"] = [
+        {"name": "macd_line", "window": 26, "source": "close", "shift": 1}
+    ]
+
+    request = research_runs_api.PublicResearchRunCreateRequest.model_validate(payload)
+
+    assert request.features[0].name == "macd_line"
+
+
+def test_feature_registry_endpoint_exposes_family_metadata():
+    response = client.get("/api/v1/research/feature-registry")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "technical_feature_registry_v3"
+    macd_line = next(
+        feature for feature in payload["features"] if feature["name"] == "macd_line"
+    )
+    assert macd_line["family"] == "macd"
+    assert macd_line["parameter_tuple"] == {
+        "fast_window": 12,
+        "slow_window": 26,
+        "signal_window": 9,
+        "macd_ewm": True,
+        "signal_ewm": True,
+    }
+    assert macd_line["required_columns"] == ["close"]
+    assert macd_line["window_editable"] is False
 
 
 def test_public_request_rejects_unknown_direction_calibration_policy():

@@ -34,7 +34,11 @@ export interface ResearchFeatureDefinition {
   label: string;
   description: string;
   default_window: number;
+  window_editable?: boolean;
   allowed_sources: PriceSource[];
+  family?: string;
+  parameter_tuple?: Record<string, number | boolean | string>;
+  required_columns?: string[];
 }
 
 export interface ResearchFeatureRegistryResponse {
@@ -229,8 +233,9 @@ export interface ResearchRunResponse
     P3Summary,
     GovernanceMetadata,
     FoundationMetadata,
-    ReviewArtifactSummary {
+  ReviewArtifactSummary {
   run_id: string;
+  feature_registry_version: string | null;
   metrics: Metrics;
   equity_curve: EquityPoint[];
   signals: SignalPoint[];
@@ -251,8 +256,9 @@ export interface ResearchRunRecord
     P3Summary,
     GovernanceMetadata,
     FoundationMetadata,
-    ReviewArtifactSummary {
+  ReviewArtifactSummary {
   run_id: string;
+  feature_registry_version: string | null;
   request_id: string | null;
   status: RunStatus;
   market: string | null;

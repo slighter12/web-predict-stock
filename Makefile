@@ -1,4 +1,4 @@
-.PHONY: setup venv install dev test smoke db-up db-down frontend-install frontend-dev frontend-build
+.PHONY: setup venv install dev test smoke db-up db-down frontend-install frontend-dev frontend-build frontend-test feature-registry-check
 
 setup: venv install dev
 
@@ -13,6 +13,7 @@ dev:
 
 test:
 	.venv/bin/python -m pytest -q
+	$(MAKE) feature-registry-check
 
 smoke:
 	.venv/bin/python -m scripts.backtest_smoke
@@ -31,3 +32,9 @@ frontend-dev:
 
 frontend-build:
 	cd frontend && bun run build
+
+frontend-test:
+	cd frontend && bun run test
+
+feature-registry-check: frontend-test
+	.venv/bin/python -m scripts.check_feature_registry_consistency

@@ -6,7 +6,29 @@ from pydantic import BaseModel, ConfigDict
 
 MarketCode = Literal["TW", "US"]
 PriceSource = Literal["open", "high", "low", "close", "volume"]
-FeatureName = Literal["ma", "ema", "rsi", "roc", "volatility", "zscore"]
+FeatureName = Literal[
+    "ma",
+    "ema",
+    "rsi",
+    "roc",
+    "volatility",
+    "zscore",
+    "macd_line",
+    "macd_signal",
+    "macd_histogram",
+    "bbands_upper",
+    "bbands_middle",
+    "bbands_lower",
+    "atr",
+    "stoch_k",
+    "stoch_d",
+    "obv",
+    "adx",
+    "dmi_plus",
+    "dmi_minus",
+    "mfi",
+    "cmf",
+]
 ReturnTarget = Literal["open_to_open", "close_to_close", "open_to_close"]
 ModelType = Literal["xgboost", "random_forest", "extra_trees"]
 StrategyType = Literal["research_v1"]

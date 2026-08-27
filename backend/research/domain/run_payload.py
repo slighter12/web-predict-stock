@@ -4,6 +4,7 @@ from typing import Any
 
 from backend.research.domain.result_caveats import warnings_with_result_caveats
 from backend.research.domain.version_pack import build_version_pack_payload
+from backend.shared.analytics.features import FEATURE_REGISTRY_VERSION
 
 
 def _strategy_value(strategy_context: Any, key: str) -> Any:
@@ -95,6 +96,7 @@ def build_research_run_payload(
         "run_id": run_id,
         "request_id": request_id,
         "status": status,
+        "feature_registry_version": FEATURE_REGISTRY_VERSION,
         "market": market,
         "symbols": symbols or [],
         "strategy_type": strategy_type,

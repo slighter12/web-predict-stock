@@ -7,6 +7,21 @@ export const knownFeatureNames = [
   "roc",
   "volatility",
   "zscore",
+  "macd_line",
+  "macd_signal",
+  "macd_histogram",
+  "bbands_upper",
+  "bbands_middle",
+  "bbands_lower",
+  "atr",
+  "stoch_k",
+  "stoch_d",
+  "obv",
+  "adx",
+  "dmi_plus",
+  "dmi_minus",
+  "mfi",
+  "cmf",
 ] as const;
 
 type ServerFeatureName = string & {
