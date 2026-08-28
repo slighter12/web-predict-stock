@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import date
+from itertools import product
 from typing import Any
 from uuid import uuid4
 
@@ -25,7 +26,12 @@ from backend.platform.errors import (
 from backend.platform.time import utc_now
 from backend.research.contracts.calibration import (
     CalibrationArtifactEvidence,
+    CalibrationCandidateFoldResult,
+    CalibrationCandidateEvaluationPolicy,
+    CalibrationCandidateManifest,
+    CalibrationCandidateResult,
     CalibrationDatasetSummary,
+    CalibrationDirectionCalibrationEvidence,
     CalibrationEvaluation,
     CalibrationFoldMetrics,
     CalibrationFoldSummary,
@@ -34,6 +40,7 @@ from backend.research.contracts.calibration import (
     CalibrationModelAvailability,
     CalibrationModelManifest,
     CalibrationModelResult,
+    CalibrationOutcomeMetrics,
     CalibrationResourceEvidence,
     CalibrationSymbolCoverage,
     CalibrationSymbolExclusion,
@@ -44,11 +51,22 @@ from backend.research.domain.result_caveats import (
 )
 from backend.research.policies.calibration import (
     CALIBRATION_CAPACITY_PRESET_VERSION,
+    CALIBRATION_CANDIDATE_GRID_POLICY_VERSION,
+    CALIBRATION_DIRECTION_PROBABILITY_CUTOFF,
+    CALIBRATION_DIRECTION_CALIBRATION_TAIL_FRACTION,
+    CALIBRATION_DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT,
+    CALIBRATION_DIRECTION_CALIBRATION_MIN_SAMPLES,
+    CALIBRATION_DIRECTION_GATE_POLICY_VERSION,
+    CALIBRATION_FEE,
     CALIBRATION_DATA_SOURCE_POLICY_VERSION,
     CALIBRATION_EXECUTED_PRESET,
     CALIBRATION_FOLD_COUNT,
     CALIBRATION_SOURCE_PRIORITY,
+    CALIBRATION_SLIPPAGE,
     CALIBRATION_TEST_SIZE,
+    CALIBRATION_TOP_N_VALUES,
+    CALIBRATION_VOLATILITY_LOOKBACKS,
+    CALIBRATION_VOLATILITY_MULTIPLIERS,
     capacity_presets_for,
 )
 from backend.research.repositories.calibration import (
@@ -75,6 +93,38 @@ class _PreparedFoldRows:
     raw_train: pd.DataFrame
     train: pd.DataFrame
     holdout: pd.DataFrame
+
+
+def _candidate_id(
+    *, horizon_days: int, lookback: int, multiplier: float, top_n: int
+) -> str:
+    multiplier_token = str(multiplier).replace(".", "p")
+    return f"h{horizon_days}_l{lookback}_m{multiplier_token}_n{top_n}"
+
+
+def build_calibration_candidate_manifest(
+    *, horizon_days: int
+) -> list[CalibrationCandidateManifest]:
+    """Return the fixed, ordered calibration grid for one Horizon."""
+    return [
+        CalibrationCandidateManifest(
+            candidate_id=_candidate_id(
+                horizon_days=horizon_days,
+                lookback=lookback,
+                multiplier=multiplier,
+                top_n=top_n,
+            ),
+            horizon_days=horizon_days,
+            volatility_lookback=lookback,
+            multiplier=multiplier,
+            top_n=top_n,
+        )
+        for lookback, multiplier, top_n in product(
+            CALIBRATION_VOLATILITY_LOOKBACKS,
+            CALIBRATION_VOLATILITY_MULTIPLIERS,
+            CALIBRATION_TOP_N_VALUES,
+        )
+    ]
 
 
 def _feature_config(
@@ -213,20 +263,256 @@ def _not_evaluated_fold(number: int, reason: str) -> CalibrationFoldMetrics:
     )
 
 
+def _candidate_thresholds(
+    frame: pd.DataFrame,
+    candidate: CalibrationCandidateManifest,
+) -> pd.Series:
+    column = f"open_to_open_volatility_{candidate.volatility_lookback}"
+    if column not in frame.columns:
+        raise CalibrationEvaluationError(
+            f"Calibration dataset is missing required volatility column '{column}'."
+        )
+    volatility = pd.to_numeric(frame[column], errors="coerce")
+    return volatility * candidate.multiplier * math.sqrt(candidate.horizon_days)
+
+
+def _class_counts(labels: pd.Series) -> dict[str, int]:
+    return {
+        "negative": int((labels == 0).sum()),
+        "positive": int((labels == 1).sum()),
+    }
+
+
+def _fit_pooled_direction_classifier(
+    *,
+    train: pd.DataFrame,
+    feature_names: tuple[str, ...],
+    candidate: CalibrationCandidateManifest,
+    model_type: str,
+    model_params: dict[str, Any],
+) -> tuple[object | None, str | None, CalibrationDirectionCalibrationEvidence]:
+    """Fit a calibrated gate while keeping every Market Date on one side."""
+    threshold = _candidate_thresholds(train, candidate)
+    usable = train.loc[np.isfinite(threshold)].copy()
+    usable["_direction_threshold"] = threshold.loc[usable.index]
+    usable = usable.sort_values(["date", "symbol"]).reset_index(drop=True)
+    dates = tuple(sorted(set(usable["date"])))
+    if not dates:
+        return None, (
+            f"No rows have a complete {candidate.volatility_lookback}-return volatility window "
+            f"({CALIBRATION_DIRECTION_GATE_POLICY_VERSION})."
+        ), CalibrationDirectionCalibrationEvidence()
+    if len(dates) < 2:
+        return None, (
+            "Direction Gate needs at least two threshold-eligible Market Dates "
+            f"({CALIBRATION_DIRECTION_GATE_POLICY_VERSION})."
+        ), CalibrationDirectionCalibrationEvidence()
+
+    tail_count = max(1, math.ceil(len(dates) * CALIBRATION_DIRECTION_CALIBRATION_TAIL_FRACTION))
+    calibration_dates = dates[-tail_count:]
+    calibration_start = calibration_dates[0]
+    pre_tail = usable.loc[usable["date"] < calibration_start]
+    base = pre_tail.loc[
+        pd.to_datetime(pre_tail["target_end_date"], errors="coerce")
+        < pd.Timestamp(calibration_start)
+    ].copy()
+    calibration = usable.loc[usable["date"].isin(calibration_dates)].copy()
+    base_labels = (base["target"] >= base["_direction_threshold"]).astype(int)
+    calibration_labels = (
+        calibration["target"] >= calibration["_direction_threshold"]
+    ).astype(int)
+    evidence = CalibrationDirectionCalibrationEvidence(
+        calibration_date_start=calibration_start,
+        calibration_date_end=calibration_dates[-1],
+        base_market_date_count=base["date"].nunique(),
+        calibration_market_date_count=len(calibration_dates),
+        base_row_count=len(base),
+        calibration_row_count=len(calibration),
+        target_purge_row_count=len(pre_tail) - len(base),
+        base_class_counts=_class_counts(base_labels),
+        calibration_class_counts=_class_counts(calibration_labels),
+    )
+    try:
+        model, reason = model_service.fit_partitioned_calibrated_direction_classifier(
+            model_type=model_type,
+            X_base=base.loc[:, list(feature_names)],
+            y_base=base_labels,
+            X_calibration=calibration.loc[:, list(feature_names)],
+            y_calibration=calibration_labels,
+            model_params=model_params,
+            minimum_samples=CALIBRATION_DIRECTION_CALIBRATION_MIN_SAMPLES,
+            minimum_class_support=CALIBRATION_DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT,
+            policy_version=CALIBRATION_DIRECTION_GATE_POLICY_VERSION,
+        )
+        if model is None:
+            return None, reason, evidence
+    except ModelUnavailableError as exc:
+        return None, _failure_reason(exc), evidence
+    except Exception as exc:
+        logger.exception(
+            "Pooled Direction Gate calibration failed model_type=%s", model_type
+        )
+        raise CalibrationEvaluationError(
+            "Calibration Direction Gate failed during evaluation."
+        ) from exc
+    return model, None, evidence
+
+
+def _select_scored_rows(rows: pd.DataFrame, *, top_n: int) -> pd.DataFrame:
+    finite = rows.loc[np.isfinite(pd.to_numeric(rows["score"], errors="coerce"))].copy()
+    if finite.empty:
+        return finite
+    return (
+        finite.sort_values(
+            ["date", "score", "symbol"],
+            ascending=[True, False, True],
+            kind="stable",
+        )
+        .groupby("date", sort=True, group_keys=False)
+        .head(top_n)
+    )
+
+
+def _candidate_status(folds: list[CalibrationCandidateFoldResult]) -> str:
+    statuses = {item.status for item in folds}
+    if "evaluated" in statuses:
+        return "evaluated"
+    if "no_opinion" in statuses:
+        return "no_opinion"
+    return "not_evaluated"
+
+
+def _outcome_metrics(rows: pd.DataFrame) -> tuple[CalibrationOutcomeMetrics, pd.Series]:
+    if rows.empty:
+        return CalibrationOutcomeMetrics(), pd.Series(dtype="float64")
+    gross = pd.to_numeric(rows["target"], errors="coerce")
+    cost_multiplier = (
+        (1 - CALIBRATION_SLIPPAGE) * (1 - CALIBRATION_FEE)
+    ) / ((1 + CALIBRATION_SLIPPAGE) * (1 + CALIBRATION_FEE))
+    net = (1.0 + gross) * cost_multiplier - 1.0
+    valid = rows.loc[np.isfinite(gross) & np.isfinite(net)].copy()
+    if valid.empty:
+        return CalibrationOutcomeMetrics(), pd.Series(dtype="float64")
+    valid["_gross"] = gross.loc[valid.index]
+    valid["_net"] = net.loc[valid.index]
+    by_date = valid.groupby("date", sort=True)["_net"].mean()
+    return (
+        CalibrationOutcomeMetrics(
+            signal_market_date_count=len(by_date),
+            participant_count=len(valid),
+            mean_gross_return=float(valid.groupby("date", sort=True)["_gross"].mean().mean()),
+            mean_net_return=float(by_date.mean()),
+        ),
+        by_date,
+    )
+
+
+def _evaluate_candidate_fold(
+    *,
+    candidate: CalibrationCandidateManifest,
+    fold: MarketDateFold,
+    holdout: pd.DataFrame,
+    scores: np.ndarray,
+    probabilities: np.ndarray | None,
+    unavailable_reason: str | None,
+    evidence: CalibrationDirectionCalibrationEvidence | None,
+) -> CalibrationCandidateFoldResult:
+    scored = holdout.copy()
+    scored["score"] = scores
+    thresholds = _candidate_thresholds(scored, candidate)
+    threshold_available = np.isfinite(thresholds)
+    eligible = scored.loc[
+        threshold_available & np.isfinite(pd.to_numeric(scored["score"], errors="coerce"))
+    ].copy()
+    reference = _select_scored_rows(eligible, top_n=candidate.top_n)
+    reference_outcomes, _ = _outcome_metrics(reference)
+    diagnostics = {
+        "threshold_unavailable_row_count": int((~threshold_available).sum()),
+        "eligible_row_count": len(eligible),
+        "eligible_market_date_count": int(eligible["date"].nunique()),
+    }
+    if unavailable_reason is not None or probabilities is None:
+        return CalibrationCandidateFoldResult(
+            fold_number=fold.number,
+            status="not_evaluated",
+            status_reason=unavailable_reason or "Direction Gate is unavailable.",
+            **diagnostics,
+            eligible_date_reference_baseline_outcomes=reference_outcomes,
+            direction_calibration=evidence,
+        )
+    scored["probability"] = probabilities
+    scored["threshold"] = thresholds
+    gated = scored.loc[
+        threshold_available
+        & np.isfinite(pd.to_numeric(scored["probability"], errors="coerce"))
+        & (scored["probability"] >= CALIBRATION_DIRECTION_PROBABILITY_CUTOFF)
+    ]
+    actions = _select_scored_rows(gated, top_n=candidate.top_n)
+    gate_pass_dates = int(gated["date"].nunique())
+    gate_diagnostics = {
+        **diagnostics,
+        "gate_pass_row_count": len(gated),
+        "gate_pass_market_date_count": gate_pass_dates,
+        "gate_rejected_market_date_count": diagnostics["eligible_market_date_count"] - gate_pass_dates,
+    }
+    if actions.empty:
+        return CalibrationCandidateFoldResult(
+            fold_number=fold.number,
+            status="no_opinion",
+            **gate_diagnostics,
+            eligible_date_reference_baseline_outcomes=reference_outcomes,
+            direction_calibration=evidence,
+        )
+    candidate_outcomes, candidate_by_date = _outcome_metrics(actions)
+    matched_baseline = _select_scored_rows(
+        eligible.loc[eligible["date"].isin(candidate_by_date.index)], top_n=candidate.top_n
+    )
+    matched_outcomes, matched_by_date = _outcome_metrics(matched_baseline)
+    threshold_hits = actions["target"] >= actions["threshold"]
+    aligned_dates = candidate_by_date.index.intersection(matched_by_date.index)
+    relative = (
+        float((candidate_by_date.loc[aligned_dates] - matched_by_date.loc[aligned_dates]).mean())
+        if len(aligned_dates)
+        else None
+    )
+    return CalibrationCandidateFoldResult(
+        fold_number=fold.number,
+        status="evaluated",
+        **gate_diagnostics,
+        action_row_count=len(actions),
+        action_row_threshold_hit_count=int(threshold_hits.sum()),
+        action_row_threshold_hit_rate=float(threshold_hits.groupby(actions["date"]).mean().mean()),
+        mean_realized_excess_return=float(
+            (actions["target"] - actions["threshold"]).groupby(actions["date"]).mean().mean()
+        ),
+        candidate_outcomes=candidate_outcomes,
+        matched_baseline_outcomes=matched_outcomes,
+        eligible_date_reference_baseline_outcomes=reference_outcomes,
+        baseline_relative_mean_net_return=relative,
+        direction_calibration=evidence,
+    )
+
+
 def _evaluate_model_family(
     model_type: str,
     *,
     frame: pd.DataFrame,
     feature_names: tuple[str, ...],
     folds: list[MarketDateFold],
+    candidate_manifest: list[CalibrationCandidateManifest] | None = None,
     prepared_rows: list[_PreparedFoldRows] | None = None,
-) -> tuple[CalibrationModelResult, int]:
+) -> tuple[CalibrationModelResult, int, int]:
     params = capacity_presets_for(model_type)[CALIBRATION_EXECUTED_PRESET]
     fold_metrics: list[CalibrationFoldMetrics] = []
     evaluated_fold_count = 0
-    fit_attempt_count = 0
+    regression_fit_attempt_count = 0
+    direction_gate_fit_attempt_count = 0
     model_unavailable_reason: str | None = None
     empty_fold_count = 0
+    candidate_manifest = candidate_manifest or []
+    candidate_folds: dict[str, list[CalibrationCandidateFoldResult]] = {
+        item.candidate_id: [] for item in candidate_manifest
+    }
 
     prepared_rows = prepared_rows or [
         _prepare_fold_rows(fold, frame) for fold in folds
@@ -240,6 +526,15 @@ def _evaluate_model_family(
                     f"{model_unavailable_reason}",
                 )
             )
+            for candidate in candidate_manifest:
+                candidate_folds[candidate.candidate_id].append(
+                    CalibrationCandidateFoldResult(
+                        fold_number=fold.number,
+                        status="not_evaluated",
+                        status_reason="Model family unavailable after an earlier fold: "
+                        f"{model_unavailable_reason}",
+                    )
+                )
             continue
 
         train = fold_rows.train
@@ -252,10 +547,18 @@ def _evaluate_model_family(
                     "Pooled train or holdout rows are unavailable.",
                 )
             )
+            for candidate in candidate_manifest:
+                candidate_folds[candidate.candidate_id].append(
+                    CalibrationCandidateFoldResult(
+                        fold_number=fold.number,
+                        status="not_evaluated",
+                        status_reason="Pooled train or holdout rows are unavailable.",
+                    )
+                )
             continue
 
         try:
-            fit_attempt_count += 1
+            regression_fit_attempt_count += 1
             model = model_service.fit_regressor(
                 model_type=model_type,
                 X_train=train.loc[:, list(feature_names)],
@@ -280,6 +583,14 @@ def _evaluate_model_family(
             fold_metrics.append(
                 _not_evaluated_fold(fold.number, model_unavailable_reason)
             )
+            for candidate in candidate_manifest:
+                candidate_folds[candidate.candidate_id].append(
+                    CalibrationCandidateFoldResult(
+                        fold_number=fold.number,
+                        status="not_evaluated",
+                        status_reason=model_unavailable_reason,
+                    )
+                )
             continue
         except Exception as exc:
             logger.exception(
@@ -299,6 +610,57 @@ def _evaluate_model_family(
             )
         )
         evaluated_fold_count += 1
+        gate_cache: dict[
+            tuple[int, float],
+            tuple[np.ndarray | None, str | None, CalibrationDirectionCalibrationEvidence],
+        ] = {}
+        for candidate in candidate_manifest:
+            gate_key = (candidate.volatility_lookback, candidate.multiplier)
+            cached = gate_cache.get(gate_key)
+            if cached is None:
+                direction_gate_fit_attempt_count += 1
+                classifier, gate_reason, gate_evidence = _fit_pooled_direction_classifier(
+                    train=train,
+                    feature_names=feature_names,
+                    candidate=candidate,
+                    model_type=model_type,
+                    model_params=params,
+                )
+                probabilities: np.ndarray | None = None
+                if classifier is not None:
+                    try:
+                        probabilities = np.asarray(
+                            classifier.predict_proba(holdout.loc[:, list(feature_names)])
+                        )[:, 1]
+                        if (
+                            len(probabilities) != len(holdout)
+                            or not np.isfinite(probabilities).all()
+                        ):
+                            raise ValueError("Direction Gate produced invalid probabilities.")
+                    except Exception as exc:
+                        logger.exception(
+                            "Calibration Direction Gate prediction failed "
+                            "model_type=%s fold=%s",
+                            model_type,
+                            fold.number,
+                        )
+                        raise CalibrationEvaluationError(
+                            "Calibration Direction Gate failed during prediction."
+                        ) from exc
+                cached = (probabilities, gate_reason, gate_evidence)
+                gate_cache[gate_key] = cached
+            probabilities, gate_reason, gate_evidence = cached
+            candidate_folds[candidate.candidate_id].append(
+                _evaluate_candidate_fold(
+                    candidate=candidate,
+                    fold=fold,
+                    holdout=holdout,
+                    scores=predicted,
+                    probabilities=probabilities,
+                    unavailable_reason=gate_reason,
+                    evidence=gate_evidence,
+                )
+            )
 
     availability_reason = model_unavailable_reason
     if (
@@ -318,8 +680,28 @@ def _evaluate_model_family(
             model_type=model_type,
             availability=availability,
             folds=fold_metrics,
+            candidate_results=[
+                CalibrationCandidateResult(
+                    candidate_id=candidate.candidate_id,
+                    status=_candidate_status(candidate_folds[candidate.candidate_id]),
+                    status_reason=next(
+                        (
+                            item.status_reason
+                            for item in candidate_folds[candidate.candidate_id]
+                            if item.status_reason
+                        ),
+                        None,
+                    ),
+                    evaluated_fold_count=sum(item.status == "evaluated" for item in candidate_folds[candidate.candidate_id]),
+                    no_opinion_fold_count=sum(item.status == "no_opinion" for item in candidate_folds[candidate.candidate_id]),
+                    not_evaluated_fold_count=sum(item.status == "not_evaluated" for item in candidate_folds[candidate.candidate_id]),
+                    folds=candidate_folds[candidate.candidate_id],
+                )
+                for candidate in candidate_manifest
+            ],
         ),
-        fit_attempt_count,
+        regression_fit_attempt_count,
+        direction_gate_fit_attempt_count,
     )
 
 
@@ -394,6 +776,7 @@ def _build_response(
             requested_symbols=request.symbols,
             market_dates=market_dates,
             source_priority=CALIBRATION_SOURCE_PRIORITY,
+            volatility_lookbacks=CALIBRATION_VOLATILITY_LOOKBACKS,
         )
     except (TypeError, ValueError) as exc:
         raise CalibrationEvaluationError(
@@ -431,17 +814,23 @@ def _build_response(
     ]
 
     model_results: list[CalibrationModelResult] = []
-    model_fit_count = 0
+    regression_fit_attempt_count = 0
+    direction_gate_fit_attempt_count = 0
+    candidate_manifest = build_calibration_candidate_manifest(
+        horizon_days=request.horizon_days
+    )
     for model_type in request.model_families:
-        result, fit_count = _evaluate_model_family(
+        result, regression_fits, direction_gate_fits = _evaluate_model_family(
             model_type,
             frame=dataset.frame,
             feature_names=dataset.feature_names,
             folds=folds,
+            candidate_manifest=candidate_manifest,
             prepared_rows=prepared_fold_rows,
         )
         model_results.append(result)
-        model_fit_count += fit_count
+        regression_fit_attempt_count += regression_fits
+        direction_gate_fit_attempt_count += direction_gate_fits
 
     availability = [result.availability for result in model_results]
     evaluated = any(item.evaluated_fold_count > 0 for item in availability)
@@ -463,6 +852,8 @@ def _build_response(
         "capacity_preset_manifest",
         "model_availability",
         "fold_model_summaries",
+        "candidate_manifest",
+        "candidate_fold_summaries",
         "resource_evidence",
     ]
     if comparison_caveats:
@@ -475,13 +866,17 @@ def _build_response(
         model_ready_row_count=len(dataset.frame),
         feature_count=len(dataset.feature_names),
         fold_count=len(folds),
-        model_fit_count=model_fit_count,
+        model_fit_count=regression_fit_attempt_count + direction_gate_fit_attempt_count,
+        regression_fit_attempt_count=regression_fit_attempt_count,
+        direction_gate_fit_attempt_count=direction_gate_fit_attempt_count,
         deduplicated_market_date_row_count=dataset.deduplicated_row_count,
     )
     evaluation = CalibrationEvaluation(
         status=evaluation_status,
         status_reason=status_reason,
         model_results=model_results,
+        candidate_manifest=candidate_manifest,
+        candidate_evaluation_policy=CalibrationCandidateEvaluationPolicy(),
         artifact_evidence=CalibrationArtifactEvidence(
             completeness="complete",
             present_artifacts=present_artifacts,

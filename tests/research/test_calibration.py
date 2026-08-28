@@ -36,6 +36,7 @@ from backend.research.contracts.calibration import (
     CalibrationModelAvailability,
     CalibrationModelResult,
     CalibrationResourceEvidence,
+    CalibrationDirectionCalibrationEvidence,
 )
 from backend.research.policies.calibration import (
     CALIBRATION_FEATURE_CONTINUITY_POLICY_VERSION,
@@ -77,6 +78,225 @@ def _market_frame() -> pd.DataFrame:
 
 def _market_dates() -> tuple[date, ...]:
     return tuple(sorted(set(_market_frame()["date"].dt.date)))
+
+
+def _candidate_market_frame() -> pd.DataFrame:
+    dates = pd.date_range("2023-01-01", periods=330, freq="D")
+    rows = []
+    for symbol, phase in (("AAA", 0.0), ("BBB", 0.7), ("CCC", 1.4)):
+        for offset, timestamp in enumerate(dates):
+            open_price = 100.0 + (8.0 * np.sin(offset / 3.0 + phase)) + offset * 0.03
+            rows.append(
+                {
+                    "date": timestamp,
+                    "symbol": symbol,
+                    "open": open_price,
+                    "high": open_price + 1.0,
+                    "low": open_price - 1.0,
+                    "close": open_price + 0.25,
+                    "volume": 1000 + offset,
+                    "source": "official",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def test_calibration_evaluates_grid_and_keeps_ungated_baseline_for_no_opinion(
+    monkeypatch,
+):
+    frame = _candidate_market_frame()
+    persisted: list[dict] = []
+    monkeypatch.setattr(calibration_service.data_service, "get_data", lambda **_: frame)
+    monkeypatch.setattr(
+        calibration_service.data_service, "load_official_no_data_dates", lambda **_: set()
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service,
+        "load_tw_market_dates",
+        lambda **_: tuple(sorted(set(frame["date"].dt.date))),
+    )
+
+    class _Regressor:
+        def predict(self, features: pd.DataFrame) -> np.ndarray:
+            return np.linspace(0.01, 0.03, len(features))
+
+    class _Gate:
+        def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
+            return np.tile([0.9, 0.1], (len(features), 1))
+
+    monkeypatch.setattr(
+        calibration_service.model_service, "fit_regressor", lambda **_: _Regressor()
+    )
+    monkeypatch.setattr(
+        calibration_service,
+        "_fit_pooled_direction_classifier",
+        lambda **_: (
+            _Gate(),
+            None,
+            CalibrationDirectionCalibrationEvidence(base_row_count=20),
+        ),
+    )
+    monkeypatch.setattr(
+        calibration_service, "persist_calibration_matrix", lambda payload: persisted.append(payload)
+    )
+    request = _request().model_copy(
+        update={
+            "symbols": ["AAA", "BBB", "CCC"],
+            "model_families": ["extra_trees"],
+        }
+    )
+
+    result = calibration_service.create_calibration_matrix(
+        request, request_id="req_grid", matrix_id="calibration_grid"
+    )
+
+    candidates = result.evaluation.model_results[0].candidate_results
+    assert len(result.evaluation.candidate_manifest) == 27
+    assert len(candidates) == 27
+    assert all(item.status == "no_opinion" for item in candidates)
+    assert all(
+        fold.matched_baseline_outcomes.participant_count == 0
+        for item in candidates
+        for fold in item.folds
+    )
+    assert any(
+        fold.eligible_date_reference_baseline_outcomes.participant_count > 0
+        for item in candidates
+        for fold in item.folds
+    )
+    assert all(fold.action_row_count == 0 for item in candidates for fold in item.folds)
+    assert all(
+        fold.action_row_threshold_hit_rate is None
+        for item in candidates
+        for fold in item.folds
+    )
+    assert persisted[0]["evaluation"]["candidate_manifest"][0]["horizon_days"] == 5
+    assert "shortlist" not in persisted[0]
+    assert "research_run_id" not in persisted[0]
+
+
+def test_calibration_direction_prediction_error_fails_without_persisting(monkeypatch):
+    persisted: list[dict] = []
+    monkeypatch.setattr(
+        calibration_service.data_service, "get_data", lambda **_: _market_frame()
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service, "load_official_no_data_dates", lambda **_: set()
+    )
+    monkeypatch.setattr(
+        calibration_service.data_service, "load_tw_market_dates", lambda **_: _market_dates()
+    )
+
+    class _Regressor:
+        def predict(self, features: pd.DataFrame) -> np.ndarray:
+            return np.linspace(0.001, 0.01, len(features))
+
+    class _BrokenGate:
+        def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
+            raise RuntimeError("controlled probability failure")
+
+    monkeypatch.setattr(
+        calibration_service.model_service, "fit_regressor", lambda **_: _Regressor()
+    )
+    monkeypatch.setattr(
+        calibration_service,
+        "_fit_pooled_direction_classifier",
+        lambda **_: (_BrokenGate(), None, CalibrationDirectionCalibrationEvidence()),
+    )
+    monkeypatch.setattr(
+        calibration_service, "persist_calibration_matrix", lambda payload: persisted.append(payload)
+    )
+
+    with pytest.raises(CalibrationEvaluationError, match="Direction Gate failed"):
+        calibration_service.create_calibration_matrix(
+            _request().model_copy(update={"model_families": ["extra_trees"]}),
+            request_id="req_gate_prediction_failure",
+            matrix_id="calibration_gate_prediction_failure",
+        )
+
+    assert persisted == []
+
+
+def test_calibration_candidate_manifest_is_a_stable_horizon_scoped_fixed_grid():
+    manifest = calibration_service.build_calibration_candidate_manifest(
+        horizon_days=20
+    )
+
+    assert len(manifest) == 27
+    assert [
+        (item.volatility_lookback, item.multiplier, item.top_n)
+        for item in manifest
+    ] == [
+        (lookback, multiplier, top_n)
+        for lookback in (20, 60, 252)
+        for multiplier in (0.5, 0.75, 1.0)
+        for top_n in (5, 10, 20)
+    ]
+    assert {(item.volatility_lookback, item.multiplier, item.top_n) for item in manifest} == {
+        (lookback, multiplier, top_n)
+        for lookback in (20, 60, 252)
+        for multiplier in (0.5, 0.75, 1.0)
+        for top_n in (5, 10, 20)
+    }
+    assert {item.horizon_days for item in manifest} == {20}
+    assert {item.probability_cutoff for item in manifest} == {0.5}
+    assert {item.volatility_ddof for item in manifest} == {1}
+    assert {item.fee for item in manifest} == {0.002}
+    assert {item.slippage for item in manifest} == {0.001}
+
+
+def test_evaluated_candidate_matches_baseline_dates_and_uses_date_weighted_metrics():
+    candidate = calibration_service.build_calibration_candidate_manifest(
+        horizon_days=5
+    )[0].model_copy(update={"top_n": 2})
+    holdout = pd.DataFrame(
+        {
+            "date": [
+                date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 1),
+                date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 3),
+            ],
+            "symbol": ["AAA", "BBB", "CCC", "AAA", "BBB", "AAA"],
+            "target": [0.02, 0.0, 0.01, 0.02, 0.01, 0.02],
+            "open_to_open_volatility_20": [0.01] * 6,
+        }
+    )
+    result = calibration_service._evaluate_candidate_fold(
+        candidate=candidate,
+        fold=MarketDateFold(
+            1, (), (), (date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3))
+        ),
+        holdout=holdout,
+        scores=np.array([0.4, 0.3, 0.2, 0.4, 0.3, 0.4]),
+        probabilities=np.array([0.9, 0.9, 0.1, 0.1, 0.1, 0.9]),
+        unavailable_reason=None,
+        evidence=None,
+    )
+    assert result.status == "evaluated"
+    assert result.candidate_outcomes.signal_market_date_count == 2
+    assert result.matched_baseline_outcomes.signal_market_date_count == 2
+    assert result.eligible_date_reference_baseline_outcomes.signal_market_date_count == 3
+    assert result.action_row_threshold_hit_rate == pytest.approx(0.75)
+    assert result.matched_baseline_outcomes.participant_count == 3
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        (["not_evaluated", "evaluated", "evaluated"], "evaluated"),
+        (["not_evaluated", "no_opinion"], "no_opinion"),
+        (["not_evaluated"], "not_evaluated"),
+    ],
+)
+def test_candidate_status_rollup_prioritizes_evidence(statuses, expected):
+    folds = [
+        calibration_service.CalibrationCandidateFoldResult(
+            fold_number=index + 1,
+            status=status,
+            status_reason="unavailable" if status == "not_evaluated" else None,
+        )
+        for index, status in enumerate(statuses)
+    ]
+    assert calibration_service._candidate_status(folds) == expected
 
 
 def test_calibration_service_runs_each_configured_family_without_xgboost_fallback(
@@ -175,7 +395,10 @@ def test_calibration_service_runs_each_configured_family_without_xgboost_fallbac
         "flexible",
     }
     assert manifest["extra_trees"].executed_preset == "balanced"
-    assert result.evaluation.resource_evidence.model_fit_count == 4
+    evidence = result.evaluation.resource_evidence
+    assert evidence.regression_fit_attempt_count == 4
+    assert evidence.direction_gate_fit_attempt_count == 27
+    assert evidence.model_fit_count == 31
     assert result.comparison_caveats[0].code == (
         "TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE"
     )
@@ -270,7 +493,7 @@ def test_model_family_is_unavailable_when_all_folds_are_empty():
         holdout=pd.DataFrame(),
     )
 
-    result, fit_count = calibration_service._evaluate_model_family(
+    result, regression_fit_count, direction_gate_fit_count = calibration_service._evaluate_model_family(
         "extra_trees",
         frame=pd.DataFrame(),
         feature_names=("MA_1",),
@@ -278,7 +501,8 @@ def test_model_family_is_unavailable_when_all_folds_are_empty():
         prepared_rows=[empty_rows, empty_rows, empty_rows],
     )
 
-    assert fit_count == 0
+    assert regression_fit_count == 0
+    assert direction_gate_fit_count == 0
     assert result.availability.available is False
     assert result.availability.evaluated_fold_count == 0
     assert result.availability.reason == (
@@ -750,6 +974,10 @@ def test_public_calibration_api_persists_and_reloads_matrix(monkeypatch, request
     assert created.status_code == 200
     assert loaded.status_code == 200
     assert loaded.json() == created.json()
+    assert len(loaded.json()["evaluation"]["candidate_manifest"]) == 27
+    assert len(
+        loaded.json()["evaluation"]["model_results"][0]["candidate_results"]
+    ) == 27
     assert loaded.json()["comparison_caveats"][0]["code"] == (
         "TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE"
     )

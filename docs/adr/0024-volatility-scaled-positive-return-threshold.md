@@ -16,10 +16,12 @@ Horizon.
 This avoids a universal percentage that silently means very different things at
 different Horizons or during different volatility regimes. It also avoids an
 outcome-distribution quantile that would redefine the desired economic result
-as market conditions change. The policy version must record the volatility
-estimator, historical lookback, scaling formula, multiplier, and return basis;
-until those fields are decided, this ADR does not authorize a concrete numeric
-threshold or implementation.
+as market conditions change. The initial policy,
+`open_to_open_signal_date_sample_std_ddof1_full_window_v1`, uses the complete
+trailing 20, 60, or 252 daily `open_to_open` returns ending at the signal-date
+open, sample standard deviation (`ddof=1`), a multiplier of 0.5, 0.75, or 1.0,
+and square-root-of-Horizon scaling. Missing or invalid continuity makes the
+threshold unavailable rather than substituting a shorter window.
 
 ## Considered Options
 
@@ -34,3 +36,5 @@ threshold or implementation.
   and Horizon 20.
 - Every Research Run must persist the applicable threshold-policy version before
   its results may be compared.
+- Calibration Matrix results persist the same policy with the fixed candidate
+  grid; they remain execution evidence and cannot select a Method Candidate.

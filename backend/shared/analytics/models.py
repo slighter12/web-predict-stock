@@ -269,6 +269,37 @@ def build_classifier(
     return classifier_cls(**params)
 
 
+def fit_partitioned_calibrated_direction_classifier(
+    *,
+    model_type: str,
+    X_base: pd.DataFrame,
+    y_base: pd.Series,
+    X_calibration: pd.DataFrame,
+    y_calibration: pd.Series,
+    model_params: Dict[str, object] | None = None,
+    minimum_samples: int = DIRECTION_CALIBRATION_MIN_SAMPLES,
+    minimum_class_support: int = DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT,
+    policy_version: str = DIRECTION_CALIBRATION_SUPPORT_POLICY_VERSION,
+) -> tuple[object | None, str | None]:
+    """Fit one calibrated classifier from already chronology-safe partitions."""
+    if min(len(X_base), len(X_calibration)) < minimum_samples:
+        return None, f"Direction calibration requires at least {minimum_samples} rows on each side ({policy_version})."
+    for name, labels in (("training", y_base), ("calibration", y_calibration)):
+        if labels.value_counts().reindex([0, 1], fill_value=0).min() < minimum_class_support:
+            return None, f"Direction {name} requires at least {minimum_class_support} rows per class ({policy_version})."
+    from sklearn.calibration import CalibratedClassifierCV
+    combined = pd.concat([X_base, X_calibration], ignore_index=True)
+    labels = pd.concat([y_base, y_calibration], ignore_index=True)
+    model = CalibratedClassifierCV(
+        build_classifier(model_type=model_type, model_params=model_params),
+        method="sigmoid",
+        cv=[(np.arange(len(X_base)), np.arange(len(X_base), len(combined)))],
+        ensemble=True,
+    )
+    model.fit(combined, labels)
+    return model, None
+
+
 def fit_calibrated_direction_classifier(
     *,
     model_type: str,

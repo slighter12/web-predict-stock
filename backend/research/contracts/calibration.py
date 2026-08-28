@@ -15,7 +15,14 @@ from pydantic import (
 
 from backend.research.contracts.runs import ComparisonCaveat, DateRange, FeatureSpec
 from backend.research.policies.calibration import (
+    CALIBRATION_CANDIDATE_GRID_POLICY_VERSION,
+    CALIBRATION_DIRECTION_GATE_POLICY_VERSION,
+    CALIBRATION_DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT,
+    CALIBRATION_DIRECTION_CALIBRATION_MIN_SAMPLES,
+    CALIBRATION_DIRECTION_CALIBRATION_TAIL_FRACTION,
+    CALIBRATION_DIRECTION_PROBABILITY_CUTOFF,
     CALIBRATION_EXECUTED_PRESET,
+    CALIBRATION_FEE,
     CALIBRATION_DATA_SOURCE_POLICY_VERSION,
     CALIBRATION_FEATURE_CONTINUITY_POLICY_VERSION,
     CALIBRATION_FOLD_POLICY_VERSION,
@@ -26,7 +33,12 @@ from backend.research.policies.calibration import (
     CALIBRATION_POLICY_VERSION,
     CALIBRATION_REQUEST_BOUNDS_POLICY_VERSION,
     CALIBRATION_RESOURCE_POLICY_VERSION,
+    CALIBRATION_SLIPPAGE,
+    CALIBRATION_HORIZON_OUTCOME_POLICY_VERSION,
+    CALIBRATION_MATCHED_BASELINE_POLICY_VERSION,
+    CALIBRATION_REFERENCE_BASELINE_POLICY_VERSION,
     SUPPORTED_CALIBRATION_MODEL_FAMILIES,
+    CALIBRATION_VOLATILITY_POLICY_VERSION,
 )
 from backend.shared.contracts.common import ModelType, RequestModel
 
@@ -34,6 +46,7 @@ from backend.shared.contracts.common import ModelType, RequestModel
 CalibrationMatrixStatus = Literal["running", "succeeded", "failed"]
 CalibrationEvaluationStatus = Literal["evaluated", "not_evaluated"]
 CalibrationArtifactCompleteness = Literal["complete", "partial"]
+CalibrationCandidateStatus = Literal["evaluated", "not_evaluated", "no_opinion"]
 
 
 class CalibrationMatrixCreateRequest(RequestModel):
@@ -183,10 +196,111 @@ class CalibrationFoldMetrics(RequestModel):
         return self
 
 
+class CalibrationCandidateManifest(RequestModel):
+    candidate_id: str
+    horizon_days: Literal[5, 20]
+    return_target: Literal["open_to_open"] = "open_to_open"
+    volatility_lookback: conint(ge=2)  # type: ignore[valid-type]
+    multiplier: confloat(gt=0)  # type: ignore[valid-type]
+    top_n: conint(ge=1)  # type: ignore[valid-type]
+    volatility_estimator: Literal["sample_standard_deviation"] = (
+        "sample_standard_deviation"
+    )
+    volatility_ddof: Literal[1] = 1
+    volatility_requires_full_window: Literal[True] = True
+    horizon_scaling: Literal["square_root"] = "square_root"
+    probability_cutoff: confloat(ge=0, le=1) = (  # type: ignore[valid-type]
+        CALIBRATION_DIRECTION_PROBABILITY_CUTOFF
+    )
+    probability_comparison: Literal["greater_or_equal"] = "greater_or_equal"
+    grid_policy_version: str = CALIBRATION_CANDIDATE_GRID_POLICY_VERSION
+    volatility_policy_version: str = CALIBRATION_VOLATILITY_POLICY_VERSION
+    direction_gate_policy_version: str = CALIBRATION_DIRECTION_GATE_POLICY_VERSION
+    matched_baseline_policy_version: str = CALIBRATION_MATCHED_BASELINE_POLICY_VERSION
+    horizon_outcome_policy_version: str = CALIBRATION_HORIZON_OUTCOME_POLICY_VERSION
+    matched_baseline_selection: str = (
+        "ungated_score_top_n_on_action_dates"
+    )
+    equal_weighted: Literal[True] = True
+    fee: confloat(ge=0) = CALIBRATION_FEE  # type: ignore[valid-type]
+    slippage: confloat(ge=0) = CALIBRATION_SLIPPAGE  # type: ignore[valid-type]
+    outcome_aggregation: Literal["equal_weight_by_signal_date_then_mean"] = (
+        "equal_weight_by_signal_date_then_mean"
+    )
+
+
+class CalibrationCandidateEvaluationPolicy(RequestModel):
+    direction_gate_policy_version: str = CALIBRATION_DIRECTION_GATE_POLICY_VERSION
+    matched_baseline_policy_version: str = CALIBRATION_MATCHED_BASELINE_POLICY_VERSION
+    reference_baseline_policy_version: str = CALIBRATION_REFERENCE_BASELINE_POLICY_VERSION
+    probability_cutoff: confloat(ge=0, le=1) = CALIBRATION_DIRECTION_PROBABILITY_CUTOFF  # type: ignore[valid-type]
+    calibration_tail_fraction: confloat(gt=0, lt=1) = CALIBRATION_DIRECTION_CALIBRATION_TAIL_FRACTION  # type: ignore[valid-type]
+    minimum_sample_count: conint(ge=1) = CALIBRATION_DIRECTION_CALIBRATION_MIN_SAMPLES  # type: ignore[valid-type]
+    minimum_class_support: conint(ge=1) = CALIBRATION_DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT  # type: ignore[valid-type]
+    action_metric_aggregation: Literal["equal_weight_by_signal_date_then_mean"] = "equal_weight_by_signal_date_then_mean"
+
+
+class CalibrationDirectionCalibrationEvidence(RequestModel):
+    calibration_date_start: date | None = None
+    calibration_date_end: date | None = None
+    base_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    calibration_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    base_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    calibration_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    target_purge_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    base_class_counts: dict[str, conint(ge=0)] = Field(default_factory=dict)  # type: ignore[valid-type]
+    calibration_class_counts: dict[str, conint(ge=0)] = Field(default_factory=dict)  # type: ignore[valid-type]
+
+
+class CalibrationOutcomeMetrics(RequestModel):
+    signal_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    participant_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    mean_gross_return: float | None = None
+    mean_net_return: float | None = None
+
+
+class CalibrationCandidateFoldResult(RequestModel):
+    fold_number: conint(ge=1)  # type: ignore[valid-type]
+    status: CalibrationCandidateStatus
+    status_reason: str | None = None
+    threshold_unavailable_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    eligible_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    eligible_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    gate_pass_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    gate_pass_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    gate_rejected_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    action_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    action_row_threshold_hit_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    action_row_threshold_hit_rate: confloat(ge=0, le=1) | None = None  # type: ignore[valid-type]
+    mean_realized_excess_return: float | None = None
+    candidate_outcomes: CalibrationOutcomeMetrics = Field(
+        default_factory=CalibrationOutcomeMetrics
+    )
+    matched_baseline_outcomes: CalibrationOutcomeMetrics = Field(
+        default_factory=CalibrationOutcomeMetrics
+    )
+    eligible_date_reference_baseline_outcomes: CalibrationOutcomeMetrics = Field(
+        default_factory=CalibrationOutcomeMetrics
+    )
+    baseline_relative_mean_net_return: float | None = None
+    direction_calibration: CalibrationDirectionCalibrationEvidence | None = None
+
+
+class CalibrationCandidateResult(RequestModel):
+    candidate_id: str
+    status: CalibrationCandidateStatus
+    status_reason: str | None = None
+    evaluated_fold_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    no_opinion_fold_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    not_evaluated_fold_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    folds: list[CalibrationCandidateFoldResult] = Field(default_factory=list)
+
+
 class CalibrationModelResult(RequestModel):
     model_type: ModelType
     availability: CalibrationModelAvailability
     folds: list[CalibrationFoldMetrics] = Field(default_factory=list)
+    candidate_results: list[CalibrationCandidateResult] = Field(default_factory=list)
 
 
 class CalibrationResourceEvidence(RequestModel):
@@ -200,6 +314,8 @@ class CalibrationResourceEvidence(RequestModel):
     feature_count: conint(ge=0) = 0  # type: ignore[valid-type]
     fold_count: conint(ge=0) = 0  # type: ignore[valid-type]
     model_fit_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    regression_fit_attempt_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    direction_gate_fit_attempt_count: conint(ge=0) = 0  # type: ignore[valid-type]
     deduplicated_market_date_row_count: conint(ge=0) = 0  # type: ignore[valid-type]
 
 
@@ -215,6 +331,10 @@ class CalibrationEvaluation(RequestModel):
     status_reason: str | None = None
     fold_policy_version: str = CALIBRATION_FOLD_POLICY_VERSION
     model_results: list[CalibrationModelResult] = Field(default_factory=list)
+    candidate_manifest: list[CalibrationCandidateManifest] = Field(default_factory=list)
+    candidate_evaluation_policy: CalibrationCandidateEvaluationPolicy = Field(
+        default_factory=CalibrationCandidateEvaluationPolicy
+    )
     artifact_evidence: CalibrationArtifactEvidence
     resource_evidence: CalibrationResourceEvidence
 
