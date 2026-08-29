@@ -236,6 +236,18 @@ model, data-shape, or prediction errors fail the request with
 `500 CALIBRATION_EVALUATION_FAILED`; no incomplete Matrix is persisted. A
 request with no market rows returns `404 RESOURCE_NOT_FOUND`.
 
+Each request evaluates exactly one Horizon (`5` or `20`) and persists a fixed,
+ordered 27-item Direction Gate grid: lookback `{20, 60, 252}`, multiplier
+`{0.5, 0.75, 1.0}`, and `top_n` `{5, 10, 20}`. The response retains every
+candidate manifest and fold summary but never ranks candidates, creates a
+shortlist, or creates a Research Run. The gate uses a calibrated probability
+of at least `0.5`; its classifier calibration keeps whole Market Dates together
+and purges labels crossing its tail boundary. Matched Baseline outcomes use
+only Candidate Action-Row dates and the same threshold-eligible universe. A
+separate eligible-date reference Baseline retains ungated eligible dates,
+including `no_opinion` dates, for abstention context only. These are
+overlapping-Horizon outcome summaries, not portfolio equity curves.
+
 For a local Calibration Matrix verification after data and migrations are
 ready, issue one bounded POST and reload the returned matrix:
 

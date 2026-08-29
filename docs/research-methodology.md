@@ -127,8 +127,9 @@ Family level where correlated Features can mask each other.
   offline results do not force selection of a single winner.
 - The Direction Gate's Positive Return Threshold is Horizon-scoped rather than
   a universal 3% constant. It is derived from pre-signal Symbol volatility and
-  Horizon scaling under ADR-0024; its reproducible calculation policy is not
-  yet settled.
+  Horizon scaling under ADR-0024. The initial policy uses the complete trailing
+  20, 60, or 252 `open_to_open` returns ending on the signal-date open,
+  `ddof=1`, no annualization, and no gap bridging.
 - The volatility multiplier and `top_n` are Method Candidate parameters. A
   pre-recorded provisional candidate set is selected only inside each outer
   Fold's training period; no outer Holdout or final Holdout value may choose
@@ -183,10 +184,21 @@ Family level where correlated Features can mask each other.
 - The provisional initial tuples are MACD 12/26/9, BBANDS 20, ATR 14, STOCH
   14, OBV 1, ADX/DMI 14, MFI 14, and CMF 20.
 - Cost-aware comparison includes a same-Market-Date, same-`top_n`, equal-weight
-  cross-sectional Baseline. Existing `buy_and_hold`, `naive_momentum`, and
-  `ma_crossover` Baselines remain supplemental context.
+  cross-sectional Baseline. The Calibration Matrix's matched Baseline is
+  `matched_ungated_score_top_n_on_action_dates_v2`: it uses the same eligible
+  universe, Signal Market Dates, regression scores, and deterministic Symbol
+  tie-break but does not apply the Direction Gate. Its separate
+  `eligible_date_ungated_score_top_n_reference_v1` reference includes abstained
+  dates and is not a relative-performance denominator. Candidate participant
+  counts can be lower than the Baseline `top_n` cap and must be read alongside
+  any relative return. Existing
+  `buy_and_hold`, `naive_momentum`, and `ma_crossover` Baselines remain
+  supplemental context.
 - Every candidate and Baseline uses the existing provisional execution
   assumptions: 0.2% fee and 0.1% slippage on each side.
+- Calibration Matrix outcome summaries use each mature Horizon target once,
+  applying entry and exit costs to the signal and target-end opens. They are not
+  portfolio equity curves; overlapping-Horizon observations remain dependent.
 - Every shortlisted Method Candidate produces a Prospective Opinion on each
   Market Date. Its 5- or 20-Market-Date result is reconciled at maturity, and
   outcome reporting discloses overlapping-Horizon dependence.

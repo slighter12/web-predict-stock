@@ -6,12 +6,39 @@ import pytest
 from backend.shared.analytics import features as feature_engine
 from backend.shared.analytics.pooled import (
     FeatureConfigurationError,
+    build_pre_signal_open_to_open_volatility,
     build_market_date_folds,
     build_pooled_model_ready_dataset,
 )
 
 
 SOURCE_PRIORITY = {"official": 0, "yfinance": 1}
+
+
+def test_pre_signal_open_volatility_uses_completed_sample_returns_and_resets_gaps():
+    dates = pd.date_range("2024-01-01", periods=7, freq="D")
+    open_prices = pd.Series(
+        [100.0, 110.0, 121.0, 133.1, 146.41, 161.051, 177.1561],
+        index=dates,
+    )
+    continuity = pd.Series([True, True, True, True, False, True, True], index=dates)
+
+    result = build_pre_signal_open_to_open_volatility(
+        open_prices,
+        continuity=continuity,
+        lookbacks=(2,),
+    )
+
+    # The signal-date open is known, so 10% returns ending on days 3 and 4
+    # produce the first complete two-return sample window. The invalid day
+    # resets continuity instead of bridging a missing/invalid Market Date.
+    assert result.loc[dates[3], "open_to_open_volatility_2"] == pytest.approx(0.0)
+    assert result.loc[dates[4], "open_to_open_volatility_2"] != result.loc[
+        dates[4], "open_to_open_volatility_2"
+    ]
+    assert result.loc[dates[6], "open_to_open_volatility_2"] != result.loc[
+        dates[6], "open_to_open_volatility_2"
+    ]
 
 
 def test_market_date_folds_keep_dates_together_and_purge_target_lookahead():

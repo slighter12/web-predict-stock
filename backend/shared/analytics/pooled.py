@@ -280,6 +280,43 @@ def _contiguous_valid_segments(valid: pd.Series) -> tuple[tuple[int, int], ...]:
     return tuple((int(group[0]), int(group[-1]) + 1) for group in groups)
 
 
+def build_pre_signal_open_to_open_volatility(
+    open_prices: pd.Series,
+    *,
+    continuity: pd.Series,
+    lookbacks: Iterable[int],
+) -> pd.DataFrame:
+    """Build strict, pre-signal sample volatility without crossing boundaries.
+
+    A signal-date open is observable at signal time, so its completed return
+    from the preceding open participates in the trailing window. Missing or
+    invalid Market Dates break continuity; no return is bridged or filled.
+    """
+    normalized_lookbacks = tuple(sorted({int(value) for value in lookbacks}))
+    if not normalized_lookbacks or any(value < 2 for value in normalized_lookbacks):
+        raise ValueError("lookbacks must contain integers >= 2")
+    if not open_prices.index.equals(continuity.index):
+        raise ValueError("continuity must share the open price index")
+
+    result = pd.DataFrame(index=open_prices.index)
+    for lookback in normalized_lookbacks:
+        result[f"open_to_open_volatility_{lookback}"] = np.nan
+
+    numeric_open = pd.to_numeric(open_prices, errors="coerce")
+    valid = continuity.astype(bool) & np.isfinite(numeric_open)
+    for start, end in _contiguous_valid_segments(valid):
+        segment = numeric_open.iloc[start:end]
+        returns = segment.pct_change(fill_method=None)
+        for lookback in normalized_lookbacks:
+            result.iloc[start:end, result.columns.get_loc(
+                f"open_to_open_volatility_{lookback}"
+            )] = returns.rolling(
+                window=lookback,
+                min_periods=lookback,
+            ).std(ddof=1).to_numpy()
+    return result
+
+
 def _compute_segment_targets(
     indexed: pd.DataFrame,
     valid_mask: pd.Series,
@@ -356,6 +393,7 @@ def build_pooled_model_ready_dataset(
     requested_symbols: Iterable[str],
     market_dates: Iterable[date | datetime | str],
     source_priority: Mapping[str, int],
+    volatility_lookbacks: Iterable[int] | None = None,
 ) -> PooledModelReadyDataset:
     """Prepare pooled rows with separate target-axis and feature continuity rules."""
     symbols = tuple(
@@ -442,6 +480,15 @@ def build_pooled_model_ready_dataset(
                 return_target=return_target,
                 horizon_days=horizon_days,
             )
+            volatility = (
+                build_pre_signal_open_to_open_volatility(
+                    axis_indexed["open"],
+                    continuity=axis_valid_mask.set_axis(axis_indexed.index),
+                    lookbacks=volatility_lookbacks,
+                )
+                if volatility_lookbacks is not None
+                else pd.DataFrame(index=axis_indexed.index)
+            )
 
             observed_indexed = observed_core.set_index(
                 pd.to_datetime(observed_core["date"])
@@ -457,6 +504,8 @@ def build_pooled_model_ready_dataset(
             generated["target_end_date"] = target_end_date.reindex(
                 generated.index
             ).to_numpy()
+            for column in volatility.columns:
+                generated[column] = volatility[column].reindex(generated.index).to_numpy()
 
             ready = filter_complete_case_rows(
                 generated,
