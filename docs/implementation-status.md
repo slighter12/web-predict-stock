@@ -125,6 +125,19 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
   `56` explicit skips, and `0` unresolved dates; six transient TPEX transfer
   failures were retry-resolved
 
+### Method Selection Matrix
+
+- nested five-outer / three-inner Fold selection preserves the final 252
+  Market-Date Holdout and target-end purging; Fold dates are drawn from the
+  common Model-Ready rows after feature warmup
+- two-stage Feature Family screening records baseline, add-one, full, and
+  remove-one evidence before searching parameters only for the selected set
+- common Full-Feature Model-Ready rows prevent Feature Family warmup from
+  changing the comparison population; responses persist comparison caveats,
+  resource evidence, availability, rankings, rejections, and no-opinion results
+- migration `0010` is additive and retains Method Selection evidence during an
+  application rollback
+
 ### Hidden Advanced Foundations
 
 - tick archive dispatch, import, replay, and KPI surfaces exist

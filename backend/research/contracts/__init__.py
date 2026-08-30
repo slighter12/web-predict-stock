@@ -24,6 +24,15 @@ from .governance import (
     ResearchMicroKpiResponse,
     ResearchPhaseGateResponse,
 )
+from .method_selection import (
+    MethodCandidateManifest,
+    MethodCandidateSummary,
+    MethodSelectionFeatureSetManifest,
+    MethodSelectionFoldBoundary,
+    MethodSelectionMatrixCreateRequest,
+    MethodSelectionMatrixResponse,
+    MethodSelectionOuterFoldResult,
+)
 from .runs import (
     BacktestRequest,
     DateRange,
@@ -80,6 +89,13 @@ __all__ = [
     "CalibrationSymbolCoverage",
     "CalibrationSymbolExclusion",
     "ResearchGateArtifactResponse",
+    "MethodCandidateManifest",
+    "MethodCandidateSummary",
+    "MethodSelectionFeatureSetManifest",
+    "MethodSelectionFoldBoundary",
+    "MethodSelectionMatrixCreateRequest",
+    "MethodSelectionMatrixResponse",
+    "MethodSelectionOuterFoldResult",
     "ResearchMicroKpiResponse",
     "ResearchPhaseGateResponse",
     "BacktestRequest",
