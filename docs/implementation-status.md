@@ -116,7 +116,7 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
   workflows exist
 - raw payload preservation exists through raw ingest audit records
 - data repair and operational panels exist under secondary data surfaces
-- repository migration head is `0009`; the reconciled current-active profile universe
+- repository migration head is `0010`; the reconciled current-active profile universe
   contains `1,983` symbols (`TWSE 1,092`, `TPEX 891`)
 - verified TW daily range `2023-07-24..2026-07-24` contains `1,349,401` rows
   across `1,983` symbols; raw traceability, duplicate groups, and invalid or
@@ -124,6 +124,19 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
 - date reconciliation recorded `785` attempted dates, `729` final successes,
   `56` explicit skips, and `0` unresolved dates; six transient TPEX transfer
   failures were retry-resolved
+
+### Method Selection Matrix
+
+- nested five-outer / three-inner Fold selection preserves the final 252
+  Market-Date Holdout and target-end purging; Fold dates are drawn from the
+  common Model-Ready rows after feature warmup
+- two-stage Feature Family screening records baseline, add-one, full, and
+  remove-one evidence before searching parameters only for the selected set
+- common Full-Feature Model-Ready rows prevent Feature Family warmup from
+  changing the comparison population; responses persist comparison caveats,
+  resource evidence, availability, rankings, rejections, and no-opinion results
+- migration `0010` is additive and retains Method Selection evidence during an
+  application rollback
 
 ### Hidden Advanced Foundations
 
@@ -202,7 +215,7 @@ These foundations are implementation inventory, not v1 product scope.
 
 - authoritative data-readiness verification (`2026-07-27`):
   - the historical data-readiness snapshot was verified against migration head
-    `0008`; the current repository migration head is `0009`
+    `0008`; the current repository migration head is `0010`
   - current-active profiles: `1,983` (`TWSE 1,092`, `TPEX 891`)
   - TW daily range `2023-07-24..2026-07-24`: `1,349,401` rows across `1,983`
     symbols

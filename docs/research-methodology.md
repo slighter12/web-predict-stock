@@ -208,6 +208,30 @@ Family level where correlated Features can mask each other.
 - A Method Selection Matrix persists the candidate manifest, Fold summaries,
   ranking, and rejection reasons. Only final shortlisted results become full
   Research Runs. Each Horizon's shortlist contains at most three candidates.
+- Method Selection uses two stages. Feature Family screening evaluates the
+  existing six-Feature baseline, each baseline-plus-one-Family set, the full
+  set, and each full-minus-one-Family set with the fixed Extra Trees balanced,
+  60-date, 0.75-multiplier, top-10 recipe. The winning Feature Set alone then
+  enters the model, capacity, Direction Gate, and top-N grid. Both stages use
+  the same Full-Feature complete rows and all three volatility windows, so a
+  Feature Family cannot gain evidence merely by admitting earlier warmup rows.
+- The final 252 Market Dates are reserved before dataset construction. Outer
+  and inner Folds then use only the deduplicated Market Dates present in the
+  common Model-Ready rows, preventing feature warmup from creating empty Fold
+  partitions while preserving the final Holdout boundary.
+- Persisted comparability evidence records each Feature Set's counterfactual
+  complete-row count and the rows it loses under that shared-row policy.
+  Resource evidence records actual fits alongside a maximum planned fit count;
+  the maximum assumes every outer Fold reaches Phase B and is not an execution
+  guarantee.
+- Method Selection model availability reports model-group Fold executions in
+  `evaluated_group_fold_count`; it is not interchangeable with Calibration
+  Matrix's per-model `evaluated_fold_count`.
+- Inner-Fold selection orders threshold-hit rate, mean realized excess return,
+  and matched-Baseline-relative return. Outer evidence adds Action-Row
+  stability across outer Folds before the matched-Baseline criterion. Exact
+  semantic ties retain every tied candidate and use `candidate_id` only as a
+  deterministic display order; Feature count is not a ranking criterion.
 - A versioned Calibration Matrix precedes the formal evaluation. It verifies
   pooled-data shape, XGBoost availability, resource use, Fold boundaries, and
   artifact capture with a limited candidate matrix; it cannot select a Method

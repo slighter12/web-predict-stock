@@ -51,6 +51,30 @@ CALIBRATION_DIRECTION_CALIBRATION_MIN_CLASS_SUPPORT = 5
 CALIBRATION_FEE = 0.002
 CALIBRATION_SLIPPAGE = 0.001
 
+METHOD_SELECTION_POLICY_VERSION = "method_selection_matrix_v1"
+METHOD_SELECTION_FOLD_POLICY_VERSION = (
+    "nested_outer5_10pct_inner3_20pct_target_end_purged_v1"
+)
+METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION = (
+    "final_holdout_252_market_dates_provisional_v1"
+)
+METHOD_SELECTION_FEATURE_ABLATION_POLICY_VERSION = (
+    "feature_family_baseline_add_full_remove_screening_v1"
+)
+METHOD_SELECTION_RANKING_POLICY_VERSION = (
+    "threshold_hit_mean_excess_outer_stability_baseline_v1"
+)
+METHOD_SELECTION_FINAL_HOLDOUT_DATES = 252
+METHOD_SELECTION_SCREENING_POLICY_VERSION = (
+    "extra_trees_balanced_l60_m0p75_n10_probability_0p5_v1"
+)
+METHOD_SELECTION_COMPARABILITY_POLICY_VERSION = (
+    "full_feature_and_all_volatility_windows_common_rows_v1"
+)
+METHOD_SELECTION_OUTER_STABILITY_POLICY_VERSION = (
+    "outer_fold_action_row_threshold_hit_rate_population_stddev_v1"
+)
+
 SUPPORTED_CALIBRATION_MODEL_FAMILIES = (
     "extra_trees",
     "random_forest",

@@ -15,6 +15,10 @@ from backend.research.contracts.governance import (
     ResearchMicroKpiResponse,
     ResearchPhaseGateResponse,
 )
+from backend.research.contracts.method_selection import (
+    MethodSelectionMatrixCreateRequest,
+    MethodSelectionMatrixResponse,
+)
 from backend.research.contracts.runs import (
     DateRange,
     DirectionModelConfig,
@@ -44,6 +48,10 @@ from backend.research.services.calibration import (
     get_calibration_matrix,
 )
 from backend.research.services.micro_kpis import get_micro_kpi_summary
+from backend.research.services.method_selection import (
+    create_method_selection_matrix,
+    get_method_selection_matrix,
+)
 from backend.research.services.runs import (
     create_research_run,
     get_research_run,
@@ -186,6 +194,27 @@ def create_calibration_matrix_endpoint(
 )
 def read_calibration_matrix(matrix_id: str) -> CalibrationMatrixResponse:
     return get_calibration_matrix(matrix_id)
+
+
+@router.post(
+    "/api/v1/research/method-selection-matrices",
+    tags=["Method Selection Matrices"],
+    response_model=MethodSelectionMatrixResponse,
+)
+def create_method_selection_matrix_endpoint(
+    http_request: Request,
+    request: MethodSelectionMatrixCreateRequest,
+) -> MethodSelectionMatrixResponse:
+    return create_method_selection_matrix(request, request_id=get_request_id(http_request))
+
+
+@router.get(
+    "/api/v1/research/method-selection-matrices/{matrix_id}",
+    tags=["Method Selection Matrices"],
+    response_model=MethodSelectionMatrixResponse,
+)
+def read_method_selection_matrix(matrix_id: str) -> MethodSelectionMatrixResponse:
+    return get_method_selection_matrix(matrix_id)
 
 
 @router.get(

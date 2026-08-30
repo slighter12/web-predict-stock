@@ -60,6 +60,12 @@ keeps `calibration_matrices` and its research evidence so an older application
 can ignore the extra table without deleting records. Dropping this table is a
 separate retention operation and is not part of an application rollback.
 
+Method Selection Matrix releases additionally require additive migration `0010`.
+It creates `method_selection_matrices`, which stores nested-Fold evidence,
+comparison caveats, and resource evidence as one immutable snapshot. Back up the
+database before upgrading. Roll back the application rather than downgrading the
+database: the `0010` downgrade intentionally retains the table and its evidence.
+
 Alternative Makefile path:
 
 ```bash

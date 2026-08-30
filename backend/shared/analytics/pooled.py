@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import numpy as np
@@ -10,7 +10,7 @@ import pandas as pd
 from backend.shared.analytics import features as feature_engine
 from backend.shared.analytics.models import (
     compute_return_target,
-    filter_complete_case_rows,
+    normalize_non_finite_values,
     target_lookahead,
 )
 
@@ -53,6 +53,9 @@ class PooledModelReadyDataset:
     market_dates: tuple[date, ...] = ()
     deduplicated_row_count: int = 0
     symbol_coverage: tuple[PooledSymbolCoverage, ...] = ()
+    counterfactual_complete_case_row_counts: Mapping[str, int] = field(
+        default_factory=dict
+    )
 
 
 _REQUIRED_CORE_COLUMNS = ("open", "high", "low", "close", "volume")
@@ -394,6 +397,8 @@ def build_pooled_model_ready_dataset(
     market_dates: Iterable[date | datetime | str],
     source_priority: Mapping[str, int],
     volatility_lookbacks: Iterable[int] | None = None,
+    complete_case_extra_columns: Iterable[str] = (),
+    counterfactual_feature_sets: Mapping[str, Iterable[str]] | None = None,
 ) -> PooledModelReadyDataset:
     """Prepare pooled rows with separate target-axis and feature continuity rules."""
     symbols = tuple(
@@ -411,6 +416,12 @@ def build_pooled_model_ready_dataset(
     if not normalized.empty:
         _assert_core_columns(normalized)
     feature_names = tuple(shift_map)
+    complete_case_extra_columns = tuple(complete_case_extra_columns)
+    counterfactual_feature_sets = {
+        feature_set_id: tuple(columns)
+        for feature_set_id, columns in (counterfactual_feature_sets or {}).items()
+    }
+    counterfactual_counts = {key: 0 for key in counterfactual_feature_sets}
     _validate_feature_configuration(feature_config, feature_names)
     ready_frames: list[pd.DataFrame] = []
     exclusions: list[PooledDatasetExclusion] = []
@@ -507,10 +518,45 @@ def build_pooled_model_ready_dataset(
             for column in volatility.columns:
                 generated[column] = volatility[column].reindex(generated.index).to_numpy()
 
-            ready = filter_complete_case_rows(
-                generated,
-                columns=[*feature_names, "target", "target_end_date"],
-            ).copy()
+            finite_generated = normalize_non_finite_values(generated)
+            complete_case_columns = [
+                *feature_names,
+                "target",
+                "target_end_date",
+                *complete_case_extra_columns,
+            ]
+            missing_complete_case_columns = sorted(
+                set(complete_case_columns) - set(finite_generated.columns)
+            )
+            if missing_complete_case_columns:
+                raise FeatureConfigurationError(
+                    "complete-case requirements reference missing columns: "
+                    f"{missing_complete_case_columns}"
+                )
+
+            for (
+                feature_set_id,
+                comparison_features,
+            ) in counterfactual_feature_sets.items():
+                comparison_columns = [
+                    *comparison_features,
+                    "target",
+                    "target_end_date",
+                    *complete_case_extra_columns,
+                ]
+                missing_comparison_columns = sorted(
+                    set(comparison_columns) - set(finite_generated.columns)
+                )
+                if missing_comparison_columns:
+                    raise FeatureConfigurationError(
+                        "counterfactual_feature_sets references missing columns: "
+                        f"{missing_comparison_columns}"
+                    )
+                counterfactual_counts[feature_set_id] += len(
+                    finite_generated.dropna(subset=comparison_columns)
+                )
+
+            ready = finite_generated.dropna(subset=complete_case_columns).copy()
             ready["date"] = ready.index.date
             ready["symbol"] = symbol
             removed_count = raw_count - len(ready)
@@ -580,6 +626,7 @@ def build_pooled_model_ready_dataset(
             market_dates=axis_dates,
             deduplicated_row_count=deduplicated_row_count,
             symbol_coverage=tuple(symbol_coverage),
+            counterfactual_complete_case_row_counts=counterfactual_counts,
         )
 
     pooled = pd.concat(ready_frames, ignore_index=True, sort=False)
@@ -591,4 +638,5 @@ def build_pooled_model_ready_dataset(
         market_dates=axis_dates,
         deduplicated_row_count=deduplicated_row_count,
         symbol_coverage=tuple(symbol_coverage),
+        counterfactual_complete_case_row_counts=counterfactual_counts,
     )
