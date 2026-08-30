@@ -116,7 +116,12 @@ def filter_complete_case_rows(
 ) -> pd.DataFrame:
     """Keep rows whose selected model inputs are present and finite."""
     selected_columns = columns if columns is not None else list(frame.columns)
-    return frame.replace([np.inf, -np.inf], np.nan).dropna(subset=selected_columns)
+    return normalize_non_finite_values(frame).dropna(subset=selected_columns)
+
+
+def normalize_non_finite_values(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with positive and negative infinity represented as missing."""
+    return frame.replace([np.inf, -np.inf], np.nan)
 
 
 def prepare_training_data(

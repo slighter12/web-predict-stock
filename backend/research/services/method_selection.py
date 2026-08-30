@@ -317,7 +317,11 @@ def _summary(
 ) -> MethodCandidateSummary:
     if any(item.status == "not_evaluated" for item in folds):
         reason = next(
-            (item.status_reason for item in folds if item.status_reason),
+            (
+                item.status_reason
+                for item in folds
+                if item.status == "not_evaluated" and item.status_reason
+            ),
             "A Fold was not evaluated.",
         )
         return MethodCandidateSummary(

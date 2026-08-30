@@ -157,6 +157,38 @@ def test_pooled_dataset_records_counterfactual_complete_case_counts_once():
     assert result.counterfactual_complete_case_row_counts["short"] > len(result.frame)
 
 
+def test_pooled_dataset_rejects_missing_counterfactual_feature_column():
+    dates = pd.date_range("2024-01-01", periods=8, freq="D")
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "symbol": ["AAA"] * len(dates),
+            "open": [100.0 + offset for offset in range(len(dates))],
+            "high": [101.0 + offset for offset in range(len(dates))],
+            "low": [99.0 + offset for offset in range(len(dates))],
+            "close": [100.5 + offset for offset in range(len(dates))],
+            "volume": [1000.0] * len(dates),
+            "source": ["official"] * len(dates),
+        }
+    )
+
+    with pytest.raises(
+        FeatureConfigurationError,
+        match="counterfactual_feature_sets references missing columns",
+    ):
+        build_pooled_model_ready_dataset(
+            frame,
+            feature_config={"ma": [{"window": 1, "source": "close"}]},
+            shift_map={"MA_1": 1},
+            return_target="open_to_open",
+            horizon_days=1,
+            requested_symbols=["AAA"],
+            market_dates=tuple(timestamp.date() for timestamp in dates),
+            source_priority=SOURCE_PRIORITY,
+            counterfactual_feature_sets={"broken": ("MISSING",)},
+        )
+
+
 def test_pooled_dataset_shifts_new_feature_outputs_without_crossing_invalid_rows():
     dates = pd.date_range("2024-01-01", periods=65, freq="D")
     close = 100.0 + pd.Series(range(len(dates)), dtype="float64")

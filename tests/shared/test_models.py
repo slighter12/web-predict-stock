@@ -9,6 +9,7 @@ from backend.shared.analytics.models import (
     compute_return_target,
     fit_calibrated_direction_classifier,
     fit_regressor,
+    normalize_non_finite_values,
     prepare_training_data,
     target_lookahead,
     time_series_split,
@@ -233,6 +234,16 @@ def test_prepare_training_data_excludes_non_finite_features_and_targets():
     assert list(df_model.index) == [0, 2]
     assert np.isfinite(X.to_numpy()).all()
     assert np.isfinite(y.to_numpy()).all()
+
+
+def test_normalize_non_finite_values_returns_copy_without_infinities():
+    frame = pd.DataFrame({"value": [1.0, np.inf, -np.inf]})
+
+    normalized = normalize_non_finite_values(frame)
+
+    assert normalized["value"].isna().tolist() == [False, True, True]
+    assert np.isinf(frame["value"].iloc[1])
+    assert np.isneginf(frame["value"].iloc[2])
 
 
 @pytest.mark.parametrize("model_type", ["xgboost", "random_forest", "extra_trees"])

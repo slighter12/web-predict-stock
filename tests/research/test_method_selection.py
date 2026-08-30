@@ -83,6 +83,27 @@ def test_summary_uses_total_action_rows_not_unweighted_fold_mean():
     assert summary.action_row_threshold_hit_rate == 0.1
 
 
+def test_summary_uses_not_evaluated_reason_from_not_evaluated_fold_only():
+    summary = service._summary(
+        "candidate",
+        [
+            CalibrationCandidateFoldResult(
+                fold_number=1,
+                status="evaluated",
+                status_reason="unrelated evaluated status",
+            ),
+            CalibrationCandidateFoldResult(
+                fold_number=2,
+                status="not_evaluated",
+                status_reason="model unavailable",
+            ),
+        ],
+    )
+
+    assert summary.status_reason == "model unavailable"
+    assert summary.rejection_reason == "model unavailable"
+
+
 def test_exact_semantic_tie_uses_candidate_id_only_for_determinism():
     ranked = service._rank([
         MethodCandidateSummary(candidate_id="z", status="evaluated", action_row_threshold_hit_rate=.5, mean_realized_excess_return=.1, baseline_relative_mean_net_return=.01),
@@ -158,7 +179,7 @@ def test_load_dataset_excludes_final_holdout_and_passes_common_row_policy(monkey
 
 
 def test_create_matrix_connects_phase_a_phase_b_and_evidence(monkeypatch):
-    feature_sets, specs_by_id = service.build_feature_set_manifests()
+    feature_sets, _specs_by_id = service.build_feature_set_manifests()
     dates = tuple(date(2018, 1, 1) + timedelta(days=index) for index in range(1000))
     full_features = tuple(
         feature_sets[
@@ -290,8 +311,10 @@ def test_method_selection_api_contract_includes_caveat_and_evidence(monkeypatch)
 def test_method_selection_rejects_concurrent_matrix():
     assert service._METHOD_SELECTION_ACTIVE.acquire(blocking=False)
     try:
-        with pytest.raises(CalibrationBusyError): service.create_method_selection_matrix(_request(), request_id="req_busy")
-    finally: service._METHOD_SELECTION_ACTIVE.release()
+        with pytest.raises(CalibrationBusyError):
+            service.create_method_selection_matrix(_request(), request_id="req_busy")
+    finally:
+        service._METHOD_SELECTION_ACTIVE.release()
 
 
 def test_method_selection_migration_retains_evidence_on_downgrade():
@@ -300,11 +323,16 @@ def test_method_selection_migration_retains_evidence_on_downgrade():
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     path = Path(__file__).resolve().parents[2] / "backend/alembic/versions/0010_method_selection_matrices.py"
-    spec = spec_from_file_location("migration_0010", path); assert spec and spec.loader
-    module = module_from_spec(spec); spec.loader.exec_module(module); engine = create_engine("sqlite:///:memory:")
+    spec = spec_from_file_location("migration_0010", path)
+    assert spec and spec.loader
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    engine = create_engine("sqlite:///:memory:")
     with engine.begin() as connection:
         context = MigrationContext.configure(connection)
-        with Operations.context(context): module.upgrade()
+        with Operations.context(context):
+            module.upgrade()
         connection.execute(text("INSERT INTO method_selection_matrices (matrix_id, request_id, status, request_payload_json, result_payload_json) VALUES ('matrix_1', 'req_1', 'succeeded', '{}', '{}')"))
-        with Operations.context(context): module.downgrade()
+        with Operations.context(context):
+            module.downgrade()
         assert inspect(connection).has_table("method_selection_matrices")
