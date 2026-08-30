@@ -417,7 +417,10 @@ def build_pooled_model_ready_dataset(
         _assert_core_columns(normalized)
     feature_names = tuple(shift_map)
     complete_case_extra_columns = tuple(complete_case_extra_columns)
-    counterfactual_feature_sets = counterfactual_feature_sets or {}
+    counterfactual_feature_sets = {
+        feature_set_id: tuple(columns)
+        for feature_set_id, columns in (counterfactual_feature_sets or {}).items()
+    }
     counterfactual_counts = {key: 0 for key in counterfactual_feature_sets}
     _validate_feature_configuration(feature_config, feature_names)
     ready_frames: list[pd.DataFrame] = []

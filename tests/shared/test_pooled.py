@@ -157,6 +157,42 @@ def test_pooled_dataset_records_counterfactual_complete_case_counts_once():
     assert result.counterfactual_complete_case_row_counts["short"] > len(result.frame)
 
 
+def test_pooled_dataset_reuses_generator_counterfactual_columns_per_symbol():
+    dates = pd.date_range("2024-01-01", periods=12, freq="D")
+    rows = []
+    for symbol, base in (("AAA", 100.0), ("BBB", 200.0)):
+        for offset, timestamp in enumerate(dates):
+            rows.append(
+                {
+                    "date": timestamp,
+                    "symbol": symbol,
+                    "open": base + offset,
+                    "high": base + offset + 1,
+                    "low": base + offset - 1,
+                    "close": base + offset + 0.5,
+                    "volume": 1000.0,
+                    "source": "official",
+                }
+            )
+    counterfactual_columns = (column for column in ("MA_3",))
+
+    result = build_pooled_model_ready_dataset(
+        pd.DataFrame(rows),
+        feature_config={"ma": [{"window": 3, "source": "close"}]},
+        shift_map={"MA_3": 1},
+        return_target="open_to_open",
+        horizon_days=1,
+        requested_symbols=["AAA", "BBB"],
+        market_dates=tuple(timestamp.date() for timestamp in dates),
+        source_priority=SOURCE_PRIORITY,
+        counterfactual_feature_sets={"full": counterfactual_columns},
+    )
+
+    assert result.counterfactual_complete_case_row_counts["full"] == len(
+        result.frame
+    )
+
+
 def test_pooled_dataset_rejects_missing_counterfactual_feature_column():
     dates = pd.date_range("2024-01-01", periods=8, freq="D")
     frame = pd.DataFrame(
