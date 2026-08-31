@@ -122,21 +122,28 @@ def _run_row_to_snapshot(
         else "static"
     )
     effective_strategy = None
+    dynamic_top_n = (
+        row.effective_top_n
+        if row.effective_top_n is not None
+        else strategy_payload.get("top_n")
+        if isinstance(strategy_payload, dict)
+        else None
+    )
+    dynamic_threshold_policy = (
+        strategy_payload.get("dynamic_threshold_policy")
+        if isinstance(strategy_payload, dict)
+        else None
+    )
+    # Static legacy snapshots retain the optional-column fallback; dynamic
+    # snapshots require both persisted values before projection can validate it.
     if threshold_mode == "dynamic":
-        effective_strategy = {
-            "threshold": None,
-            "top_n": row.effective_top_n
-            if row.effective_top_n is not None
-            else strategy_payload.get("top_n")
-            if isinstance(strategy_payload, dict)
-            else None,
-            "threshold_mode": "dynamic",
-            "dynamic_threshold_policy": strategy_payload.get(
-                "dynamic_threshold_policy"
-            )
-            if isinstance(strategy_payload, dict)
-            else None,
-        }
+        if dynamic_top_n is not None and dynamic_threshold_policy is not None:
+            effective_strategy = {
+                "threshold": None,
+                "top_n": dynamic_top_n,
+                "threshold_mode": "dynamic",
+                "dynamic_threshold_policy": dynamic_threshold_policy,
+            }
     elif row.effective_threshold is not None and row.effective_top_n is not None:
         effective_strategy = {
             "threshold": row.effective_threshold,

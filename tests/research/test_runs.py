@@ -160,6 +160,33 @@ def test_requested_missing_baseline_marks_response_partial():
     assert "baselines" not in response.present_artifacts
 
 
+def test_live_projection_rejects_missing_projected_effective_strategy(
+    monkeypatch,
+):
+    original_project = research_run_projection._project_reviewable_payload
+
+    def project_with_fallback(*args, **kwargs):
+        projected = original_project(*args, **kwargs)
+        projected["effective_strategy"] = None
+        projected["comparison_eligibility"] = "comparison_metadata_only"
+        return projected
+
+    monkeypatch.setattr(
+        research_run_projection,
+        "_project_reviewable_payload",
+        project_with_fallback,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="live projection must retain a valid effective strategy",
+    ):
+        research_run_projection.project_live_response(
+            make_response(),
+            make_request(),
+        )
+
+
 def test_tw_live_response_exposes_nonblocking_universe_caveat_and_warning():
     result = research_run_projection.project_live_response(
         make_response(),
@@ -167,6 +194,8 @@ def test_tw_live_response_exposes_nonblocking_universe_caveat_and_warning():
     )
 
     assert result.warnings == [TW_POINT_IN_TIME_MEMBERSHIP_WARNING]
+    assert isinstance(result.effective_strategy, EffectiveStrategyConfig)
+    assert result.comparison_eligibility == "research_only_comparable"
     assert result.model_dump(mode="json")["comparison_caveats"] == [
         {
             "code": TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,

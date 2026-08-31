@@ -744,6 +744,53 @@ def test_final_promotion_failure_is_retained_without_stopping_lineage(monkeypatc
     assert prepared_runs == []
 
 
+def test_final_inner_selection_failure_keeps_typed_reason(monkeypatch):
+    (
+        feature_sets,
+        specs_by_id,
+        feature_names_by_set,
+        selection_dataset,
+        full_dataset,
+        selection_dates,
+        final_dates,
+    ) = _synthetic_method_selection_datasets()
+    manifest = service.build_tuning_candidate_manifests(
+        _request(), feature_sets[0]
+    )[0]
+    monkeypatch.setattr(
+        service,
+        "_build_final_inner_selection",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError()),
+    )
+
+    result = service._build_final_holdout_result(
+        _request(),
+        matrix_id="matrix_inner_failure",
+        request_id="request_inner_failure",
+        shortlist_summary=MethodCandidateSummary(
+            candidate_id=manifest.candidate_id,
+            status="evaluated",
+        ),
+        feature_sets=feature_sets,
+        specs_by_id=specs_by_id,
+        feature_names_by_set=feature_names_by_set,
+        selection_dataset=selection_dataset,
+        full_dataset=full_dataset,
+        selection_dates=selection_dates,
+        final_holdout_dates=final_dates,
+        fit_counts=defaultdict(int),
+        phase_b_by_id={},
+        model_execution={},
+        final_inner_selection=None,
+        prepared_runs=[],
+    )
+
+    assert result.status == "not_evaluated"
+    assert result.status_reason == (
+        "Final inner selection could not be formed: RuntimeError"
+    )
+
+
 def test_method_selection_batch_rolls_back_promoted_runs_on_matrix_failure(monkeypatch):
     engine = create_engine(
         "sqlite://",
@@ -1351,6 +1398,126 @@ def test_method_selection_api_contract_includes_caveat_and_evidence(monkeypatch)
 
     assert client.post("/api/v1/research/method-selection-matrices", json=_request().model_dump(mode="json")).status_code == 200
     assert client.get("/api/v1/research/method-selection-matrices/matrix_1").json()["resource_evidence"]
+
+
+def _matrix_response_with_final_results(
+    *,
+    matrix_maturity: date | None,
+    result_maturities: list[date | None],
+    result_run_ids: list[str],
+    promoted_run_ids: list[str],
+) -> MethodSelectionMatrixResponse:
+    feature_sets, _ = service.build_feature_set_manifests()
+    manifest = service.build_tuning_candidate_manifests(
+        _request(), feature_sets[0]
+    )[0]
+    final_dates = [date(2024, 1, 2)]
+    boundary = MethodSelectionFoldBoundary(
+        number=6,
+        train_market_date_count=1,
+        holdout_market_date_count=1,
+    )
+    final_evaluation = CalibrationCandidateFoldResult(
+        fold_number=6,
+        status="evaluated",
+    )
+    shortlist_ids = [f"shortlist_{index}" for index in range(len(result_run_ids))]
+    return MethodSelectionMatrixResponse(
+        matrix_id="matrix_contract",
+        request_id="request_contract",
+        request=_request(),
+        feature_registry_version="registry",
+        dataset={"requested_symbol_count": 2},
+        final_holdout_policy_version="final_holdout_policy",
+        final_holdout_market_dates=final_dates,
+        fold_policy_version="fold",
+        policy_version="policy",
+        feature_ablation_policy_version="ablation",
+        ranking_policy_version="rank",
+        screening_policy_version="screening",
+        outer_stability_policy_version="stability",
+        feature_sets=[],
+        phase_a_candidate_manifests=[],
+        phase_b_candidate_manifests=[manifest],
+        outer_folds=[],
+        shortlist=[
+            {"candidate_id": candidate_id, "status": "evaluated"}
+            for candidate_id in shortlist_ids
+        ],
+        final_holdout_results=[
+            {
+                "shortlisted_candidate_id": candidate_id,
+                "final_candidate_id": manifest.candidate_id,
+                "final_candidate_manifest": manifest,
+                "final_holdout_policy_version": "final_holdout_policy",
+                "final_holdout_market_dates": final_dates,
+                "final_holdout_boundary": boundary,
+                "final_holdout_maturity_date": result_maturity,
+                "final_holdout_evaluation": final_evaluation,
+                "status": "promoted",
+                "promoted_research_run_id": run_id,
+            }
+            for candidate_id, result_maturity, run_id in zip(
+                shortlist_ids,
+                result_maturities,
+                result_run_ids,
+                strict=True,
+            )
+        ],
+        final_holdout_maturity_date=matrix_maturity,
+        promoted_research_run_ids=promoted_run_ids,
+        resource_evidence={"wall_clock_seconds": 0, "cpu_seconds": 0},
+        comparability_evidence={"policy_version": "common"},
+        created_at="2024-01-01T00:00:00Z",
+    )
+
+
+def test_matrix_rejects_duplicate_promoted_result_run_ids():
+    with pytest.raises(
+        ValueError,
+        match="each promoted final result must reference a unique Research Run",
+    ):
+        _matrix_response_with_final_results(
+            matrix_maturity=None,
+            result_maturities=[None, None],
+            result_run_ids=["run_duplicate", "run_duplicate"],
+            promoted_run_ids=["run_duplicate"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("matrix_maturity", "result_maturity"),
+    [
+        (None, date(2024, 1, 10)),
+        (date(2024, 1, 10), None),
+    ],
+)
+def test_matrix_rejects_one_sided_final_holdout_maturity_date(
+    matrix_maturity,
+    result_maturity,
+):
+    with pytest.raises(
+        ValueError,
+        match="final results must retain the Matrix Holdout maturity date",
+    ):
+        _matrix_response_with_final_results(
+            matrix_maturity=matrix_maturity,
+            result_maturities=[result_maturity],
+            result_run_ids=["run_maturity"],
+            promoted_run_ids=["run_maturity"],
+        )
+
+
+def test_matrix_allows_missing_maturity_date_when_both_sides_are_missing():
+    response = _matrix_response_with_final_results(
+        matrix_maturity=None,
+        result_maturities=[None],
+        result_run_ids=["run_no_maturity"],
+        promoted_run_ids=["run_no_maturity"],
+    )
+
+    assert response.final_holdout_maturity_date is None
+    assert response.final_holdout_results[0].final_holdout_maturity_date is None
 
 
 def test_method_selection_http_create_reload_and_promoted_run_artifacts(

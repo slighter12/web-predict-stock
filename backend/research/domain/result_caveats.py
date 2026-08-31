@@ -12,6 +12,16 @@ TW_POINT_IN_TIME_MEMBERSHIP_WARNING = (
     "symbols may be absent from price coverage and returns may be optimistic by an "
     "unquantified amount."
 )
+INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA = (
+    "invalid_dynamic_effective_strategy_metadata"
+)
+DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE = (
+    "DYNAMIC_STRATEGY_METADATA_UNAVAILABLE"
+)
+DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE = (
+    "Dynamic strategy metadata is unavailable; replay, prospective execution, "
+    "and full comparison are disabled."
+)
 
 
 def _market_value(

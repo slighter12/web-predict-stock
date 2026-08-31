@@ -1511,7 +1511,10 @@ def _build_final_holdout_result(
                     final_holdout_maturity_buffer_market_date_count
                 ),
                 status="not_evaluated",
-                status_reason=f"Final inner selection could not be formed: {exc}",
+                status_reason=(
+                    "Final inner selection could not be formed: "
+                    f"{calibration_service._failure_reason(exc)}"
+                ),
             )
 
     if final_inner_selection.error is not None:

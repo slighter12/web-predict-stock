@@ -15,6 +15,7 @@ from backend.research.domain.signal_snapshot import (
     valid_latest_signals as _valid_latest_signals,
 )
 from backend.research.domain.result_caveats import (
+    DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE,
     TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
     TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
 )
@@ -268,19 +269,37 @@ def _blocker_caveat_count(payload: Mapping[str, Any]) -> int:
 
 
 def _strategy_threshold(payload: Mapping[str, Any]) -> float | None:
-    strategy = _as_mapping(payload.get("effective_strategy")) or _as_mapping(
-        _as_mapping(payload.get("request_payload")).get("strategy")
-    )
+    strategy = _opinion_strategy(payload)
     threshold = strategy.get("threshold")
     return float(threshold) if _is_number(threshold) else None
 
 
 def _strategy_top_n(payload: Mapping[str, Any]) -> int | None:
-    strategy = _as_mapping(payload.get("effective_strategy")) or _as_mapping(
-        _as_mapping(payload.get("request_payload")).get("strategy")
-    )
+    strategy = _opinion_strategy(payload)
     top_n = strategy.get("top_n")
     return int(top_n) if isinstance(top_n, int) and not isinstance(top_n, bool) else None
+
+
+def _opinion_strategy(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    effective_strategy = _as_mapping(payload.get("effective_strategy"))
+    if effective_strategy:
+        return effective_strategy
+    request_strategy = _as_mapping(
+        _as_mapping(payload.get("request_payload")).get("strategy")
+    )
+    if request_strategy.get("threshold_mode") == "dynamic":
+        return {}
+    return request_strategy
+
+
+def _dynamic_strategy_metadata_unavailable(payload: Mapping[str, Any]) -> bool:
+    request_strategy = _as_mapping(
+        _as_mapping(payload.get("request_payload")).get("strategy")
+    )
+    return (
+        request_strategy.get("threshold_mode") == "dynamic"
+        and not _as_mapping(payload.get("effective_strategy"))
+    )
 
 
 def _confirmation_threshold(payload: Mapping[str, Any]) -> float | None:
@@ -963,8 +982,11 @@ def _empty_artifact(
 
 def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     status = payload.get("status")
+    dynamic_metadata_unavailable = _dynamic_strategy_metadata_unavailable(payload)
     if payload.get("summary_only"):
         limitations = [OMITTED_DETAIL_LIMITATION]
+        if dynamic_metadata_unavailable:
+            limitations.insert(0, DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE)
         if status != "succeeded":
             status_label = status if status is not None else "unavailable"
             limitations.insert(
@@ -975,7 +997,9 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
             "artifact_version": OPINION_ARTIFACT_VERSION,
             "state": "no-opinion" if status == "succeeded" else "do-not-adopt",
             "state_reason": (
-                OMITTED_DETAIL_LIMITATION
+                DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE
+                if dynamic_metadata_unavailable and status == "succeeded"
+                else OMITTED_DETAIL_LIMITATION
                 if status == "succeeded"
                 else "Research run did not complete successfully."
             ),
@@ -999,6 +1023,8 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         missing = [str(item) for item in _as_list(payload.get("missing_artifacts"))]
         detail = f" Missing artifacts: {', '.join(missing)}." if missing else ""
         limitations.append(f"Artifact completeness is {completeness}.{detail}")
+    if dynamic_metadata_unavailable:
+        limitations.append(DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE)
     if not _has_metrics_evidence(payload.get("metrics")):
         limitations.append("Strategy metrics artifact is unavailable.")
     if not _has_diagnostics_evidence(payload.get("model_diagnostics")):
@@ -1047,7 +1073,9 @@ def build_opinion_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     if limitations:
         return _empty_artifact(
             "no-opinion",
-            "Persisted artifacts are insufficient for reviewable, traceable model output.",
+            DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE
+            if dynamic_metadata_unavailable
+            else "Persisted artifacts are insufficient for reviewable, traceable model output.",
             limitations,
             payload,
         )

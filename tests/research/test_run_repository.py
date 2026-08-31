@@ -1,3 +1,5 @@
+import copy
+import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -12,11 +14,175 @@ from backend.database import (
     ResearchRun,
     ResearchRunLiquidityCoverage,
 )
+from backend.research.contracts.runs import ResearchRunRecordResponse
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.domain.result_caveats import (
+    DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE,
+    DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE,
+    INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA,
     TW_POINT_IN_TIME_MEMBERSHIP_UNAVAILABLE,
     TW_POINT_IN_TIME_MEMBERSHIP_WARNING,
 )
+
+
+_VALID_DYNAMIC_POLICY = {
+    "policy_version": "dynamic_threshold_v1",
+    "return_target": "open_to_open",
+    "horizon_days": 5,
+    "lookback": 20,
+    "multiplier": 1.5,
+    "estimator": "sample_standard_deviation",
+    "ddof": 1,
+    "complete_window_required": True,
+    "continuity_policy_version": "market_date_continuity_v1",
+    "horizon_scaling": "square_root",
+}
+
+
+def _dynamic_strategy_snapshot(
+    strategy: dict,
+    *,
+    effective_top_n: int | None = None,
+    comparison_eligibility: str = "research_only_comparable",
+) -> dict:
+    row = ResearchRun(
+        run_id="dynamic-projection",
+        status="succeeded",
+        market="US",
+        effective_top_n=effective_top_n,
+        request_payload_json=research_run_repository.json_dumps(
+            {"market": "US", "strategy": strategy}
+        ),
+        comparison_eligibility=comparison_eligibility,
+    )
+    return research_run_repository._run_row_to_snapshot(row)
+
+
+@pytest.mark.parametrize(
+    ("strategy", "expected_field"),
+    [
+        (
+            {
+                "threshold_mode": "dynamic",
+                "dynamic_threshold_policy": _VALID_DYNAMIC_POLICY,
+            },
+            "top_n",
+        ),
+        (
+            {"threshold_mode": "dynamic", "top_n": 5},
+            "dynamic_threshold_policy",
+        ),
+        (
+            {
+                "threshold_mode": "dynamic",
+                "top_n": 5,
+                "dynamic_threshold_policy": {
+                    "policy_version": "secret-policy",
+                    "lookback": 20,
+                },
+            },
+            "dynamic_threshold_policy",
+        ),
+    ],
+)
+def test_invalid_dynamic_strategy_metadata_projects_safe_reloadable_record(
+    strategy,
+    expected_field,
+    caplog,
+):
+    snapshot = _dynamic_strategy_snapshot(strategy)
+    original_snapshot = copy.deepcopy(snapshot)
+
+    with caplog.at_level(logging.WARNING, logger=research_run_projection.__name__):
+        projected = research_run_projection.project_persisted_snapshot(
+            snapshot,
+            include_artifacts=True,
+        )
+        projected_again = research_run_projection.project_persisted_snapshot(
+            snapshot,
+            include_artifacts=True,
+        )
+
+    response = ResearchRunRecordResponse.model_validate(projected)
+
+    assert response.effective_strategy is None
+    assert response.comparison_eligibility == "comparison_metadata_only"
+    assert (
+        response.comparison_caveats[0].code
+        == DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE
+    )
+    assert response.artifact_completeness == "metadata_only"
+    assert response.warnings.count(INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA) == 1
+    caveats = {
+        item.code: item for item in response.comparison_caveats
+    }
+    assert caveats[DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE].severity == (
+        "blocker"
+    )
+    assert (
+        caveats[DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE].label
+        == DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE
+    )
+    assert response.opinion_artifact.state == "no-opinion"
+    assert DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE in (
+        response.opinion_artifact.state_reason
+    )
+    assert projected_again["warnings"].count(
+        INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA
+    ) == 1
+    assert snapshot == original_snapshot
+    assert expected_field in caplog.text
+    assert "secret-policy" not in caplog.text
+
+
+def test_invalid_dynamic_strategy_metadata_preserves_stricter_comparison_state():
+    snapshot = _dynamic_strategy_snapshot(
+        {"threshold_mode": "dynamic", "top_n": 5},
+        comparison_eligibility="unresolved_event_quarantine",
+    )
+
+    projected = research_run_projection.project_persisted_snapshot(
+        snapshot,
+        include_artifacts=True,
+    )
+
+    assert projected["comparison_eligibility"] == "unresolved_event_quarantine"
+    assert any(
+        item["code"] == DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE
+        and item["severity"] == "blocker"
+        for item in projected["comparison_caveats"]
+    )
+
+
+def test_invalid_dynamic_strategy_metadata_keeps_complete_artifact_status():
+    projected = research_run_projection._project_reviewable_payload(
+        {
+            "run_id": "dynamic-complete-artifacts",
+            "status": "succeeded",
+            "market": "US",
+            "request_payload": {
+                "strategy": {"threshold_mode": "dynamic", "top_n": 5},
+                "validation": None,
+                "baselines": [],
+            },
+            "effective_strategy": None,
+            "comparison_eligibility": "research_only_comparable",
+            "warnings": [],
+        },
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": True,
+            "baselines": True,
+        },
+        summary_only=False,
+    )
+
+    assert projected["artifact_completeness"] == "complete"
+    assert projected["comparison_eligibility"] == "comparison_metadata_only"
+    assert projected["opinion_artifact"]["state"] == "no-opinion"
 
 
 def test_validation_parser_upgrades_legacy_empty_metrics_with_reason():

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+from pydantic import ValidationError
 
 from backend.research.contracts.runs import (
     ComparisonCaveat,
@@ -9,17 +12,98 @@ from backend.research.contracts.runs import (
     ResearchRunResponse,
     ValidationSummary,
 )
+from backend.research.contracts.runtime_metadata import EffectiveStrategyConfig
 from backend.research.domain.artifact_summary import (
     build_review_artifact_summary,
     has_requested_baselines,
 )
 from backend.research.domain.opinion import build_opinion_artifact
-from backend.research.domain.result_caveats import warnings_with_result_caveats
+from backend.research.domain.result_caveats import (
+    DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE,
+    DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE,
+    INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA,
+    warnings_with_result_caveats,
+)
 from backend.research.domain.version_pack import build_version_pack_payload
 from backend.research.repositories.runs import (
     get_research_run_snapshot,
     list_research_run_snapshots,
 )
+
+logger = logging.getLogger(__name__)
+
+_FULL_COMPARISON_ELIGIBILITY = {
+    "strategy_pair_comparable",
+    "research_only_comparable",
+}
+
+
+def _dynamic_strategy_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    request_payload = payload.get("request_payload")
+    if not isinstance(request_payload, dict):
+        return None
+    strategy_payload = request_payload.get("strategy")
+    if not isinstance(strategy_payload, dict):
+        return None
+    if strategy_payload.get("threshold_mode") != "dynamic":
+        return None
+    return strategy_payload
+
+
+def _validated_effective_strategy(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """Validate dynamic metadata while preserving legacy static snapshots."""
+    strategy_payload = _dynamic_strategy_payload(payload)
+    if strategy_payload is None:
+        effective_strategy = payload.get("effective_strategy")
+        return (
+            effective_strategy if isinstance(effective_strategy, dict) else None,
+            (),
+        )
+
+    effective_strategy = payload.get("effective_strategy")
+    if not isinstance(effective_strategy, dict):
+        invalid_fields = {
+            field
+            for field in ("top_n", "dynamic_threshold_policy")
+            if strategy_payload.get(field) is None
+        }
+        if not invalid_fields:
+            invalid_fields.add("effective_strategy")
+        return None, tuple(sorted(invalid_fields))
+
+    try:
+        validated = EffectiveStrategyConfig.model_validate(effective_strategy)
+    except ValidationError as exc:
+        invalid_fields = {
+            str(location[0])
+            for error in exc.errors()
+            if (location := error.get("loc"))
+        }
+        if not invalid_fields:
+            invalid_fields.add("effective_strategy")
+        return None, tuple(sorted(invalid_fields))
+    return validated.model_dump(mode="json"), ()
+
+
+def _add_dynamic_strategy_metadata_caveat(
+    caveats: list[dict[str, Any]],
+) -> None:
+    if any(
+        item.get("code") == DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE
+        for item in caveats
+        if isinstance(item, dict)
+    ):
+        return
+    caveats.insert(
+        0,
+        {
+            "code": DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE,
+            "label": DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_MESSAGE,
+            "severity": "blocker",
+        },
+    )
 
 
 def _validation_summary_from_payload(value: Any) -> dict[str, Any] | None:
@@ -145,6 +229,22 @@ def _project_reviewable_payload(
     summary_only: bool,
 ) -> dict[str, Any]:
     projected = dict(payload)
+    effective_strategy, invalid_dynamic_fields = _validated_effective_strategy(
+        projected
+    )
+    projected["effective_strategy"] = effective_strategy
+    if invalid_dynamic_fields:
+        warnings = projected.get("warnings")
+        projected["warnings"] = list(warnings) if isinstance(warnings, list) else []
+        if INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA not in projected["warnings"]:
+            projected["warnings"].append(INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA)
+        if projected.get("comparison_eligibility") in _FULL_COMPARISON_ELIGIBILITY:
+            projected["comparison_eligibility"] = "comparison_metadata_only"
+        logger.warning(
+            "Invalid dynamic effective strategy metadata run_id=%s invalid_fields=%s",
+            projected.get("run_id"),
+            list(invalid_dynamic_fields),
+        )
     summary = build_review_artifact_summary(
         status=str(projected.get("status") or ""),
         request_payload=projected.get("request_payload"),
@@ -153,6 +253,8 @@ def _project_reviewable_payload(
         market=projected.get("market"),
     )
     projected.update(summary)
+    if invalid_dynamic_fields:
+        _add_dynamic_strategy_metadata_caveat(projected["comparison_caveats"])
     projected["opinion_artifact"] = build_opinion_artifact(
         {**projected, "summary_only": summary_only}
     )
@@ -190,12 +292,20 @@ def project_live_response(
         },
         summary_only=False,
     )
+    projected_effective_strategy = projected["effective_strategy"]
+    if not isinstance(projected_effective_strategy, dict):
+        raise ValueError("live projection must retain a valid effective strategy")
+    projected_effective_strategy = EffectiveStrategyConfig.model_validate(
+        projected_effective_strategy
+    )
     return response.model_copy(
         update={
+            "effective_strategy": projected_effective_strategy,
             "artifact_completeness": projected["artifact_completeness"],
             "present_artifacts": projected["present_artifacts"],
             "missing_artifacts": projected["missing_artifacts"],
             "not_required_artifacts": projected["not_required_artifacts"],
+            "comparison_eligibility": projected["comparison_eligibility"],
             "comparison_caveats": [
                 ComparisonCaveat.model_validate(item)
                 for item in projected["comparison_caveats"]

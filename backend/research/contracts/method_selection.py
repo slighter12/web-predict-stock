@@ -284,6 +284,10 @@ class MethodSelectionMatrixResponse(RequestModel):
             set(self.promoted_research_run_ids)
         ):
             raise ValueError("promoted Research Run IDs must be unique")
+        if len(result_run_ids) != len(set(result_run_ids)):
+            raise ValueError(
+                "each promoted final result must reference a unique Research Run"
+            )
         if set(self.promoted_research_run_ids) != set(result_run_ids):
             raise ValueError(
                 "promoted Research Run IDs must match promoted final results"
@@ -304,11 +308,7 @@ class MethodSelectionMatrixResponse(RequestModel):
                 raise ValueError(
                     "final results must retain the Matrix Holdout maturity policy version"
                 )
-            if (
-                self.final_holdout_maturity_date is not None
-                and result.final_holdout_maturity_date
-                != self.final_holdout_maturity_date
-            ):
+            if result.final_holdout_maturity_date != self.final_holdout_maturity_date:
                 raise ValueError(
                     "final results must retain the Matrix Holdout maturity date"
                 )

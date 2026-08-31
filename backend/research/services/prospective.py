@@ -20,6 +20,9 @@ from backend.market_data.services.research_inputs import (
 )
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.domain.result_caveats import (
+    INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA,
+)
 from backend.research.policies.prospective import (
     COHORT_2330,
     COHORT_ALL_ACTIVE,
@@ -235,6 +238,13 @@ def _strict_run_issues(record: dict[str, Any], *, cohort_id: str) -> tuple[dict[
         issues.append("signal_frozen_at_not_on_basis_date")
     payload = record.get("request_payload") or {}
     if isinstance(payload, dict):
+        strategy = payload.get("strategy")
+        if (
+            isinstance(strategy, dict)
+            and strategy.get("threshold_mode") == "dynamic"
+            and record.get("effective_strategy") is None
+        ):
+            issues.append(INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA)
         issues.extend(
             issue
             for issue in strict_recipe_issues(payload)
