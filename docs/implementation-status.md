@@ -135,6 +135,20 @@ unless `docs/plan.md` explicitly promotes them into a v1 milestone.
 - common Full-Feature Model-Ready rows prevent Feature Family warmup from
   changing the comparison population; responses persist comparison caveats,
   resource evidence, availability, rankings, rejections, and no-opinion results
+- final post-shortlist inner selection searches the complete Feature Set/model/
+  capacity/grid catalog for every retained shortlist lineage using only
+  pre-final observations; deterministic reuse is retained as resource evidence
+  while lineages and promoted runs remain distinct
+- the exact last 252 requested-range signal Market Dates form the Final Holdout;
+  official post-range dates are fetched only as a label-maturity buffer, with
+  maturity evidence persisted and insufficient buffers rejected before writes
+- at most three evaluated shortlist entries can be promoted to complete,
+  reloadable Research Runs; promotion failures remain per-lineage
+  `not_evaluated` results with reasons, and successful Runs plus the Matrix are
+  persisted atomically through the Research Run registry
+- promoted runs persist structured dynamic Direction Gate threshold metadata
+  instead of a numeric transport placeholder; generic runtime replay rejects
+  dynamic strategy mode until its dedicated contract exists
 - migration `0010` is additive and retains Method Selection evidence during an
   application rollback
 

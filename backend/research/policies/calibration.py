@@ -56,7 +56,10 @@ METHOD_SELECTION_FOLD_POLICY_VERSION = (
     "nested_outer5_10pct_inner3_20pct_target_end_purged_v1"
 )
 METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION = (
-    "final_holdout_252_market_dates_provisional_v1"
+    "final_holdout_252_market_dates_matured_v2"
+)
+METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION = (
+    "official_market_date_buffer_after_request_end_for_open_to_open_labels_v1"
 )
 METHOD_SELECTION_FEATURE_ABLATION_POLICY_VERSION = (
     "feature_family_baseline_add_full_remove_screening_v1"

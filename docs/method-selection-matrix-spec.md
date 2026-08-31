@@ -25,9 +25,12 @@ complete Research Runs.
 Each Method Candidate is assessed by the Action Row rate meeting its
 Volatility-Scaled Positive Return Threshold. Ties use mean realized excess
 return, outer-Fold Action Row stability, and cost-aware matched Baseline
-results. Final Holdout results are evaluated once and cannot alter the
-configuration. Shortlisted candidates then emit daily Prospective Opinions and
-reconcile outcomes at their Horizons.
+results. The final Holdout is the exact last 252 official signal Market Dates
+inside the requested range. Its labels are matured with an official
+Market-Date buffer after the requested end; buffer dates never enter
+selection, ranking, or refitting. Final Holdout results cannot alter the
+configuration. Shortlisted candidates then emit daily Prospective Opinions
+and reconcile outcomes at their Horizons.
 
 ## User Stories
 
@@ -90,16 +93,20 @@ reconcile outcomes at their Horizons.
 22. As a researcher, I want each shortlist recipe to run final inner selection
     using all pre-final-Holdout rows, so that final training uses available
     history without touching the final Holdout.
-23. As a researcher, I want a daily Prospective Opinion to use each Symbol then
+23. As a researcher, I want each shortlisted lineage to retain its own final
+    selection and promoted Research Run even when the final configuration is
+    identical, so that duplicate configuration evidence is explicit rather than
+    silently deduplicated.
+24. As a researcher, I want a daily Prospective Opinion to use each Symbol then
     in the Model-Ready Universe and disclose exclusions, so that a missing
     Symbol does not silently change coverage.
-24. As a researcher, I want each prospective 5- or 20-Market-Date outcome
+25. As a researcher, I want each prospective 5- or 20-Market-Date outcome
     reconciled when mature, so that historical selection and forward evidence
     remain distinct.
-25. As a researcher, I want outcome reports to disclose overlapping-Horizon
+26. As a researcher, I want outcome reports to disclose overlapping-Horizon
     dependence, so that daily observations are not presented as independent
     evidence.
-26. As a researcher, I want XGBoost unavailability surfaced clearly until its
+27. As a researcher, I want XGBoost unavailability surfaced clearly until its
     local OpenMP dependency is installed, so that a missing family is never
     substituted silently.
 
@@ -129,9 +136,12 @@ reconcile outcomes at their Horizons.
   confirmed official no-data dates; it does not come from the requested
   Symbols' date union or non-official fallback rows.
 - Keep Horizon 5 and Horizon 20 manifests, outputs, and shortlists separate.
-- Use the final 252 observed Market Dates as
-  `final_holdout_252_market_dates_provisional_v1`; preserve the chosen date
-  range in every result.
+- Use the exact last 252 official signal Market Dates inside the requested range
+  as `final_holdout_252_market_dates_matured_v2`. Fetch official Market Dates
+  after the requested end only as a label-maturity buffer. Require at least the
+  requested Horizon's worth of buffer dates before any persistence; record the
+  maturity date and buffer count. Buffer dates cannot enter selection, ranking,
+  final Holdout, or refitting, and the persisted request range remains unchanged.
 - Define the Volatility-Scaled Positive Return Threshold from pre-signal rolling
   daily `open_to_open` volatility times the square root of Horizon. The inner
   candidate grid is lookback `{20, 60, 252}` and multiplier `{0.5, 0.75, 1.0}`.
@@ -156,12 +166,27 @@ reconcile outcomes at their Horizons.
   above the threshold, Action Row stability across outer Folds, and cost-aware
   Baseline-relative results. A candidate with no Action Rows in an outer Fold
   is `no-opinion`.
+- A promotion artifact, backtest, or metric failure downgrades only that final
+  result to `not_evaluated` with its failure reason. Successful promoted Runs
+  and the Matrix are committed as one transaction; a persistence failure rolls
+  back the batch and does not leave orphan Runs.
 - Use a Calibration Matrix before formal selection. It may check resource use,
   artifact capture, Pooled Cross-Sectional partitioning, and XGBoost readiness,
   but it cannot enter a shortlist.
 - After final Holdout, generate daily prospective records for each shortlisted
   candidate. Preserve the Model-Ready Universe participant count, exclusions,
   Horizon maturity date, and realized outcome.
+- Each shortlist lineage searches the complete final inner catalog: all Feature
+  Sets, requested model families, all three capacity presets, and the existing
+  lookback/multiplier/`top_n` grid. The catalog may be deterministically
+  memoized internally, but each lineage retains its own selection evidence and
+  complete promoted Research Run. Identical final configurations are grouped
+  by a canonical configuration ID and disclosed as non-independent evidence.
+- Promoted Research Runs use a structured dynamic-threshold policy containing
+  the policy version, return target, Horizon, lookback, multiplier, estimator,
+  `ddof`, complete-window requirement, continuity policy, and Horizon scaling.
+  Generic runtime replay does not infer or substitute a numeric threshold for
+  this dynamic policy.
 
 ## Testing Decisions
 
@@ -189,6 +214,10 @@ reconcile outcomes at their Horizons.
   rather than substituted.
 - Test complete Research Run reload behavior for shortlisted and final results,
   and summary-only Method Selection Matrix reload behavior for all candidates.
+- Test the true create -> promotion -> atomic registry persistence -> Matrix and
+  Research Run reload path, including duplicate final configurations, full date
+  axes with zero-weight no-signal dates, dynamic threshold metadata, maturity
+  buffer rejection, candidate-level promotion downgrade, and batch rollback.
 - Extend current research execution, prospective cohort, feature registry,
   run repository, and script test patterns rather than introducing a parallel
   test harness.

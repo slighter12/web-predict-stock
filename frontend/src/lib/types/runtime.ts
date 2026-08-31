@@ -7,14 +7,42 @@ import type {
   FallbackOutcome,
   MissingFeaturePolicyState,
   MonitorObservationStatus,
+  ReturnTarget,
   TradabilityState,
   VersionFieldStatus,
 } from "./common";
 
-export interface EffectiveStrategy {
-  threshold: number;
-  top_n: number;
+export interface DynamicThresholdPolicy {
+  policy_version: string;
+  return_target: ReturnTarget;
+  horizon_days: number;
+  lookback: number;
+  multiplier: number;
+  estimator: "sample_standard_deviation";
+  ddof: number;
+  complete_window_required: true;
+  continuity_policy_version: string;
+  horizon_scaling: "square_root";
 }
+
+export type EffectiveStrategy =
+  | {
+      top_n: number;
+      threshold: number;
+      threshold_mode?: "static";
+      dynamic_threshold_policy?: null;
+    }
+  | {
+      top_n: number;
+      threshold: null;
+      threshold_mode: "dynamic";
+      dynamic_threshold_policy: DynamicThresholdPolicy;
+    };
+
+export type DynamicEffectiveStrategy = Extract<
+  EffectiveStrategy,
+  { threshold_mode: "dynamic" }
+>;
 
 export interface ConfigSources {
   strategy: {

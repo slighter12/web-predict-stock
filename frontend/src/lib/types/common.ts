@@ -47,7 +47,10 @@ export type ExecutionRoute =
   | "simulation_internal_v1"
   | "live_stub_v1";
 export type AdaptiveMode = "off" | "shadow" | "candidate";
-export type ConfigValueSource = "request_override" | "spec_default";
+export type ConfigValueSource =
+  | "request_override"
+  | "spec_default"
+  | "derived_policy";
 export type FallbackOutcome = "not_needed" | "accepted" | "rejected";
 export type ComparisonEligibility =
   | "comparison_metadata_only"

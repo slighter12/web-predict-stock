@@ -279,6 +279,56 @@ def test_evaluated_candidate_matches_baseline_dates_and_uses_date_weighted_metri
     assert result.matched_baseline_outcomes.participant_count == 3
 
 
+def test_candidate_actions_exclude_non_finite_scores_from_gate_diagnostics():
+    candidate = calibration_service.build_calibration_candidate_manifest(
+        horizon_days=5
+    )[0].model_copy(update={"top_n": 2})
+    holdout = pd.DataFrame(
+        {
+            "date": [
+                date(2024, 1, 1), date(2024, 1, 1), date(2024, 1, 1),
+                date(2024, 1, 2), date(2024, 1, 2), date(2024, 1, 3),
+            ],
+            "symbol": ["AAA", "BBB", "CCC", "AAA", "BBB", "AAA"],
+            "target": [0.02, 0.01, 0.01, 0.02, 0.01, 0.02],
+            "open_to_open_volatility_20": [0.01] * 6,
+        }
+    )
+
+    result = calibration_service._evaluate_candidate_fold(
+        candidate=candidate,
+        fold=MarketDateFold(
+            1, (), (), (date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3))
+        ),
+        holdout=holdout,
+        scores=np.array([np.nan, 0.3, 0.2, 0.4, 0.3, 0.4]),
+        probabilities=np.array([0.9] * 6),
+        unavailable_reason=None,
+        evidence=None,
+    )
+
+    assert result.status == "evaluated"
+    assert result.gate_pass_row_count == 5
+    assert result.gate_pass_market_date_count == 3
+    assert result.action_row_count == 5
+
+
+def test_positive_probability_uses_classifier_class_order():
+    class ReverseClassOrderClassifier:
+        classes_ = np.array([1, 0])
+
+        def predict_proba(self, features):
+            return np.tile([0.8, 0.2], (len(features), 1))
+
+    features = pd.DataFrame({"feature": [1.0, 2.0]})
+
+    probabilities = calibration_service._positive_class_probabilities(
+        ReverseClassOrderClassifier(), features
+    )
+
+    assert probabilities.tolist() == [0.8, 0.8]
+
+
 @pytest.mark.parametrize(
     ("statuses", "expected"),
     [

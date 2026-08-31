@@ -28,6 +28,7 @@ from .method_selection import (
     MethodCandidateManifest,
     MethodCandidateSummary,
     MethodSelectionFeatureSetManifest,
+    MethodSelectionFinalHoldoutResult,
     MethodSelectionFoldBoundary,
     MethodSelectionMatrixCreateRequest,
     MethodSelectionMatrixResponse,
@@ -58,6 +59,7 @@ from .runs import (
 )
 from .runtime_metadata import (
     ConfigSources,
+    DynamicThresholdPolicy,
     EffectiveStrategyConfig,
     FallbackAudit,
     FallbackAuditEntry,
@@ -92,6 +94,7 @@ __all__ = [
     "MethodCandidateManifest",
     "MethodCandidateSummary",
     "MethodSelectionFeatureSetManifest",
+    "MethodSelectionFinalHoldoutResult",
     "MethodSelectionFoldBoundary",
     "MethodSelectionMatrixCreateRequest",
     "MethodSelectionMatrixResponse",
@@ -120,6 +123,7 @@ __all__ = [
     "ValidationConfig",
     "ValidationSummary",
     "ConfigSources",
+    "DynamicThresholdPolicy",
     "EffectiveStrategyConfig",
     "FallbackAudit",
     "FallbackAuditEntry",

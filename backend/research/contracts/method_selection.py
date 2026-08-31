@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import Field, conint, conlist, field_validator
+from pydantic import Field, conint, conlist, field_validator, model_validator
 
 from backend.research.contracts.calibration import (
     CalibrationCandidateFoldResult,
@@ -16,6 +16,7 @@ from backend.research.policies.calibration import (
     CALIBRATION_MAX_SYMBOLS,
     SUPPORTED_CALIBRATION_MODEL_FAMILIES,
     capacity_presets_for,
+    METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION,
 )
 from backend.shared.contracts.common import ModelType, RequestModel
 
@@ -137,6 +138,11 @@ class MethodSelectionComparabilityEvidence(RequestModel):
 class MethodSelectionResourceEvidence(CalibrationResourceEvidence):
     maximum_regression_fit_count: conint(ge=0) = 0  # type: ignore[valid-type]
     maximum_direction_gate_fit_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_inner_candidate_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_inner_execution_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_inner_reuse_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_holdout_execution_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_holdout_reuse_count: conint(ge=0) = 0  # type: ignore[valid-type]
 
 
 class MethodSelectionModelAvailability(RequestModel):
@@ -157,6 +163,67 @@ class MethodSelectionOuterFoldResult(RequestModel):
     outer_result: CalibrationCandidateFoldResult | None = None
 
 
+class MethodSelectionFinalHoldoutResult(RequestModel):
+    shortlisted_candidate_id: str
+    final_candidate_id: str | None = None
+    final_candidate_manifest: MethodCandidateManifest | None = None
+    final_inner_folds: list[MethodSelectionFoldBoundary] = Field(
+        default_factory=list
+    )
+    final_inner_summaries: list[MethodCandidateSummary] = Field(
+        default_factory=list
+    )
+    final_inner_selection_reuse_mode: Literal[
+        "computed", "deterministic_reused"
+    ] = "computed"
+    final_holdout_evaluation_reuse_mode: Literal[
+        "computed", "deterministic_reused"
+    ] = "computed"
+    final_inner_selected_candidate_id: str | None = None
+    final_holdout_policy_version: str
+    final_holdout_market_dates: list[date] = Field(default_factory=list)
+    final_holdout_boundary: MethodSelectionFoldBoundary
+    final_holdout_maturity_policy_version: str = (
+        METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION
+    )
+    final_holdout_maturity_date: date | None = None
+    final_holdout_maturity_buffer_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
+    final_holdout_evaluation: CalibrationCandidateFoldResult | None = None
+    status: Literal["promoted", "no_opinion", "not_evaluated"]
+    status_reason: str | None = None
+    promoted_research_run_id: str | None = None
+    same_final_configuration: bool = False
+    final_configuration_group_id: str | None = None
+    duplicate_configuration_run_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def promoted_result_has_complete_artifacts(
+        self,
+    ) -> "MethodSelectionFinalHoldoutResult":
+        if self.status == "promoted":
+            if not self.promoted_research_run_id:
+                raise ValueError("promoted final results require a Research Run ID")
+            if self.final_candidate_manifest is None:
+                raise ValueError("promoted final results require a candidate manifest")
+            if self.final_holdout_evaluation is None:
+                raise ValueError(
+                    "promoted final results require final Holdout evaluation evidence"
+                )
+        elif self.promoted_research_run_id is not None:
+            raise ValueError(
+                "non-promoted final results must not reference a Research Run"
+            )
+        if self.same_final_configuration and not self.final_configuration_group_id:
+            raise ValueError(
+                "duplicate final configurations require a configuration group ID"
+            )
+        if not self.same_final_configuration and self.duplicate_configuration_run_ids:
+            raise ValueError(
+                "unique final configurations must not list duplicate Research Runs"
+            )
+        return self
+
+
 class MethodSelectionMatrixResponse(RequestModel):
     matrix_id: str
     request_id: str
@@ -175,9 +242,26 @@ class MethodSelectionMatrixResponse(RequestModel):
     feature_sets: list[MethodSelectionFeatureSetManifest]
     phase_a_candidate_manifests: list[MethodCandidateManifest]
     phase_b_candidate_manifests: list[MethodCandidateManifest]
+    final_inner_candidate_manifests: list[MethodCandidateManifest] = Field(
+        default_factory=list
+    )
+    final_holdout_maturity_policy_version: str = (
+        METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION
+    )
+    final_holdout_maturity_date: date | None = None
+    final_holdout_maturity_buffer_market_date_count: conint(ge=0) = 0  # type: ignore[valid-type]
     outer_folds: list[MethodSelectionOuterFoldResult]
     outer_candidate_summaries: list[MethodCandidateSummary] = Field(
         default_factory=list
+    )
+    shortlist: list[MethodCandidateSummary] = Field(
+        default_factory=list, max_length=3
+    )
+    final_holdout_results: list[MethodSelectionFinalHoldoutResult] = Field(
+        default_factory=list, max_length=3
+    )
+    promoted_research_run_ids: list[str] = Field(
+        default_factory=list, max_length=3
     )
     comparison_caveats: list[ComparisonCaveat] = Field(default_factory=list)
     resource_evidence: MethodSelectionResourceEvidence
@@ -186,3 +270,59 @@ class MethodSelectionMatrixResponse(RequestModel):
     )
     comparability_evidence: MethodSelectionComparabilityEvidence
     created_at: datetime
+
+    @model_validator(mode="after")
+    def promoted_runs_match_final_results(
+        self,
+    ) -> "MethodSelectionMatrixResponse":
+        result_run_ids = [
+            item.promoted_research_run_id
+            for item in self.final_holdout_results
+            if item.promoted_research_run_id is not None
+        ]
+        if len(self.promoted_research_run_ids) != len(
+            set(self.promoted_research_run_ids)
+        ):
+            raise ValueError("promoted Research Run IDs must be unique")
+        if set(self.promoted_research_run_ids) != set(result_run_ids):
+            raise ValueError(
+                "promoted Research Run IDs must match promoted final results"
+            )
+        for result in self.final_holdout_results:
+            if result.final_holdout_policy_version != self.final_holdout_policy_version:
+                raise ValueError(
+                    "final results must retain the Matrix Holdout policy version"
+                )
+            if result.final_holdout_market_dates != self.final_holdout_market_dates:
+                raise ValueError(
+                    "final results must retain the Matrix Holdout Market Dates"
+                )
+            if (
+                result.final_holdout_maturity_policy_version
+                != self.final_holdout_maturity_policy_version
+            ):
+                raise ValueError(
+                    "final results must retain the Matrix Holdout maturity policy version"
+                )
+            if (
+                self.final_holdout_maturity_date is not None
+                and result.final_holdout_maturity_date
+                != self.final_holdout_maturity_date
+            ):
+                raise ValueError(
+                    "final results must retain the Matrix Holdout maturity date"
+                )
+            if (
+                result.final_holdout_maturity_buffer_market_date_count
+                != self.final_holdout_maturity_buffer_market_date_count
+            ):
+                raise ValueError(
+                    "final results must retain the Matrix Holdout maturity buffer evidence"
+                )
+        shortlist_ids = [item.candidate_id for item in self.shortlist]
+        result_ids = [item.shortlisted_candidate_id for item in self.final_holdout_results]
+        if result_ids != shortlist_ids:
+            raise ValueError(
+                "final Holdout results must retain one ordered result per shortlist entry"
+            )
+        return self

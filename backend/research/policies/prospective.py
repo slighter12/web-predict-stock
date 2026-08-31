@@ -31,6 +31,8 @@ STRICT_STRATEGY = {
     "type": "research_v1",
     "threshold": None,
     "top_n": None,
+    "threshold_mode": "static",
+    "dynamic_threshold_policy": None,
     "allow_proactive_sells": True,
 }
 STRICT_EXECUTION = {"slippage": 0.001, "fees": 0.002}

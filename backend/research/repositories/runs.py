@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from datetime import date, datetime
 from typing import Any
 
@@ -104,19 +105,43 @@ def _coerce_date(value: Any) -> date | None:
 def _run_row_to_snapshot(
     row: ResearchRun, *, include_artifacts: bool = True
 ) -> dict[str, Any]:
-    effective_strategy = None
-    if row.effective_threshold is not None and row.effective_top_n is not None:
-        effective_strategy = {
-            "threshold": row.effective_threshold,
-            "top_n": row.effective_top_n,
-        }
-
     validation_outcome = json_loads(row.validation_outcome_json, None)
     model_diagnostics = json_loads(row.model_diagnostics_json, None)
     persisted_request_payload = json_loads(row.request_payload_json, None)
     request_payload, result_metadata = _split_persisted_request_payload(
         persisted_request_payload
     )
+    strategy_payload = (
+        request_payload.get("strategy")
+        if isinstance(request_payload, dict)
+        else None
+    )
+    threshold_mode = (
+        strategy_payload.get("threshold_mode", "static")
+        if isinstance(strategy_payload, dict)
+        else "static"
+    )
+    effective_strategy = None
+    if threshold_mode == "dynamic":
+        effective_strategy = {
+            "threshold": None,
+            "top_n": row.effective_top_n
+            if row.effective_top_n is not None
+            else strategy_payload.get("top_n")
+            if isinstance(strategy_payload, dict)
+            else None,
+            "threshold_mode": "dynamic",
+            "dynamic_threshold_policy": strategy_payload.get(
+                "dynamic_threshold_policy"
+            )
+            if isinstance(strategy_payload, dict)
+            else None,
+        }
+    elif row.effective_threshold is not None and row.effective_top_n is not None:
+        effective_strategy = {
+            "threshold": row.effective_threshold,
+            "top_n": row.effective_top_n,
+        }
     metrics = json_loads(row.metrics_json, None)
     equity_curve = json_loads(row.equity_curve_json, _MISSING_OR_INVALID_JSON)
     signals = json_loads(row.signals_json, _MISSING_OR_INVALID_JSON)
@@ -280,14 +305,17 @@ def _load_liquidity_coverages(
     return coverages_by_run_id
 
 
-def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
+def persist_research_run_record(
+    payload: dict[str, Any], *, session: Any | None = None, commit: bool = True
+) -> dict[str, Any]:
     record = clone_payload(payload)
     record.setdefault("symbols", [])
     record.setdefault("warnings", [])
     record.setdefault("created_at", utc_now())
 
     try:
-        with SessionLocal() as session:
+        session_context = SessionLocal() if session is None else nullcontext(session)
+        with session_context as session:
             row = session.get(ResearchRun, record["run_id"]) or ResearchRun(
                 run_id=record["run_id"]
             )
@@ -474,8 +502,9 @@ def persist_research_run_record(payload: dict[str, Any]) -> dict[str, Any]:
                         json_dumps(item["bucket_coverages"]) or "[]"
                     )
                     session.add(observation)
-            session.commit()
-            session.refresh(row)
+            if commit:
+                session.commit()
+                session.refresh(row)
             return _attach_liquidity_coverages(session, _run_row_to_snapshot(row))
     except Exception as exc:
         logger.exception(

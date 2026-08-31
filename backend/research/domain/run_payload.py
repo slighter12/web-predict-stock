@@ -90,6 +90,11 @@ def build_research_run_payload(
         effective_strategy = {
             "threshold": _strategy_value(strategy_context, "threshold"),
             "top_n": _strategy_value(strategy_context, "top_n"),
+            "threshold_mode": _strategy_value(strategy_context, "threshold_mode")
+            or "static",
+            "dynamic_threshold_policy": _strategy_value(
+                strategy_context, "dynamic_threshold_policy"
+            ),
         }
 
     payload = {
