@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -41,6 +42,10 @@ from backend.research.contracts.runs import DateRange
 from backend.research.contracts.runs import StrategyConfig
 from backend.research.contracts.runtime_metadata import EffectiveStrategyConfig
 from backend.research.domain.version_pack import build_version_pack_payload
+from backend.research.policies.calibration import (
+    METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION,
+    METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION,
+)
 from backend.shared.analytics.pooled import (
     PooledModelReadyDataset,
     build_market_date_folds,
@@ -1385,7 +1390,8 @@ def test_method_selection_api_contract_includes_caveat_and_evidence(monkeypatch)
     response = MethodSelectionMatrixResponse(
         matrix_id="matrix_1", request_id="req_1", request=_request(),
         feature_registry_version="registry", dataset={"requested_symbol_count": 2},
-        final_holdout_policy_version="policy", final_holdout_market_dates=[],
+        final_holdout_policy_version=METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION,
+        final_holdout_market_dates=[],
         fold_policy_version="fold", policy_version="policy",
         feature_ablation_policy_version="ablation", ranking_policy_version="rank",
         screening_policy_version="screening", outer_stability_policy_version="stability",
@@ -1406,6 +1412,7 @@ def _matrix_response_with_final_results(
     result_maturities: list[date | None],
     result_run_ids: list[str],
     promoted_run_ids: list[str],
+    policy_version: str = METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION,
 ) -> MethodSelectionMatrixResponse:
     feature_sets, _ = service.build_feature_set_manifests()
     manifest = service.build_tuning_candidate_manifests(
@@ -1428,7 +1435,7 @@ def _matrix_response_with_final_results(
         request=_request(),
         feature_registry_version="registry",
         dataset={"requested_symbol_count": 2},
-        final_holdout_policy_version="final_holdout_policy",
+        final_holdout_policy_version=policy_version,
         final_holdout_market_dates=final_dates,
         fold_policy_version="fold",
         policy_version="policy",
@@ -1449,7 +1456,7 @@ def _matrix_response_with_final_results(
                 "shortlisted_candidate_id": candidate_id,
                 "final_candidate_id": manifest.candidate_id,
                 "final_candidate_manifest": manifest,
-                "final_holdout_policy_version": "final_holdout_policy",
+                "final_holdout_policy_version": policy_version,
                 "final_holdout_market_dates": final_dates,
                 "final_holdout_boundary": boundary,
                 "final_holdout_maturity_date": result_maturity,
@@ -1518,6 +1525,36 @@ def test_matrix_allows_missing_maturity_date_when_both_sides_are_missing():
 
     assert response.final_holdout_maturity_date is None
     assert response.final_holdout_results[0].final_holdout_maturity_date is None
+
+
+def test_matrix_contract_preserves_legacy_final_holdout_policy_version():
+    response = _matrix_response_with_final_results(
+        matrix_maturity=None,
+        result_maturities=[None],
+        result_run_ids=["run_legacy_policy"],
+        promoted_run_ids=["run_legacy_policy"],
+        policy_version=METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION,
+    )
+
+    assert (
+        response.final_holdout_policy_version
+        == METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION
+    )
+    assert (
+        response.final_holdout_results[0].final_holdout_policy_version
+        == METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION
+    )
+
+
+def test_matrix_contract_rejects_unknown_final_holdout_policy_version():
+    with pytest.raises(ValidationError):
+        _matrix_response_with_final_results(
+            matrix_maturity=None,
+            result_maturities=[None],
+            result_run_ids=["run_unknown_policy"],
+            promoted_run_ids=["run_unknown_policy"],
+            policy_version="unknown_final_holdout_policy",
+        )
 
 
 def test_method_selection_http_create_reload_and_promoted_run_artifacts(

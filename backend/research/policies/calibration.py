@@ -55,6 +55,9 @@ METHOD_SELECTION_POLICY_VERSION = "method_selection_matrix_v1"
 METHOD_SELECTION_FOLD_POLICY_VERSION = (
     "nested_outer5_10pct_inner3_20pct_target_end_purged_v1"
 )
+METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION = (
+    "final_holdout_252_market_dates_provisional_v1"
+)
 METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION = (
     "final_holdout_252_market_dates_matured_v2"
 )

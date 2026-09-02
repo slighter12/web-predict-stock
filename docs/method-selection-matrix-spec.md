@@ -146,7 +146,9 @@ and reconcile outcomes at their Horizons.
   daily `open_to_open` volatility times the square root of Horizon. The inner
   candidate grid is lookback `{20, 60, 252}` and multiplier `{0.5, 0.75, 1.0}`.
 - Use `top_n` `{5, 10, 20}` as the inner candidate grid. Preserve each chosen
-  value and the provisional policy version.
+  value and the active Final-Holdout policy version. New Matrices use
+  `final_holdout_252_market_dates_matured_v2`; legacy
+  `final_holdout_252_market_dates_provisional_v1` records remain unchanged.
 - Add Feature Catalog support for `MACD`, `BBANDS`, `ATR`, `STOCH`, `OBV`,
   `ADX`/`DMI`, `MFI`, and `CMF`. `MACD`, `BBANDS`, `STOCH`, and `OBV` use the
   installed indicator runtime; `ATR`, `ADX`/`DMI`, `MFI`, and `CMF` use local

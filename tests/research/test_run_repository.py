@@ -154,6 +154,46 @@ def test_invalid_dynamic_strategy_metadata_preserves_stricter_comparison_state()
     )
 
 
+def test_dynamic_request_rejects_static_effective_strategy_metadata():
+    projected = research_run_projection._project_reviewable_payload(
+        {
+            "run_id": "dynamic-static-mismatch",
+            "status": "succeeded",
+            "market": "US",
+            "request_payload": {
+                "strategy": {
+                    "threshold_mode": "dynamic",
+                    "top_n": 5,
+                    "dynamic_threshold_policy": _VALID_DYNAMIC_POLICY,
+                },
+                "validation": None,
+                "baselines": [],
+            },
+            "effective_strategy": {"threshold": 0.003, "top_n": 5},
+            "comparison_eligibility": "research_only_comparable",
+            "warnings": [],
+        },
+        artifact_presence={
+            "metrics": True,
+            "model_diagnostics": True,
+            "equity_curve": True,
+            "signals": True,
+            "validation": True,
+            "baselines": True,
+        },
+        summary_only=False,
+    )
+
+    assert projected["effective_strategy"] is None
+    assert projected["comparison_eligibility"] == "comparison_metadata_only"
+    assert projected["warnings"] == [INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA]
+    assert (
+        projected["comparison_caveats"][0]["code"]
+        == DYNAMIC_STRATEGY_METADATA_UNAVAILABLE_CAVEAT_CODE
+    )
+    assert projected["opinion_artifact"]["state"] == "no-opinion"
+
+
 def test_invalid_dynamic_strategy_metadata_keeps_complete_artifact_status():
     projected = research_run_projection._project_reviewable_payload(
         {

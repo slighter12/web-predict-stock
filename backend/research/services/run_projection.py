@@ -84,6 +84,8 @@ def _validated_effective_strategy(
         if not invalid_fields:
             invalid_fields.add("effective_strategy")
         return None, tuple(sorted(invalid_fields))
+    if validated.threshold_mode != "dynamic":
+        return None, ("threshold_mode",)
     return validated.model_dump(mode="json"), ()
 
 

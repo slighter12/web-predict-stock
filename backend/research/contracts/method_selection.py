@@ -14,15 +14,21 @@ from backend.research.contracts.runs import ComparisonCaveat, DateRange
 from backend.research.policies.calibration import (
     CALIBRATION_MAX_DATE_COUNT,
     CALIBRATION_MAX_SYMBOLS,
+    METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION,
+    METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION,
+    METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION,
     SUPPORTED_CALIBRATION_MODEL_FAMILIES,
     capacity_presets_for,
-    METHOD_SELECTION_FINAL_HOLDOUT_MATURITY_POLICY_VERSION,
 )
 from backend.shared.contracts.common import ModelType, RequestModel
 
 
 MethodSelectionStatus = Literal["succeeded"]
 MethodCandidateStatus = Literal["evaluated", "no_opinion", "not_evaluated"]
+FinalHoldoutPolicyVersion = Literal[
+    METHOD_SELECTION_FINAL_HOLDOUT_PROVISIONAL_POLICY_VERSION,
+    METHOD_SELECTION_FINAL_HOLDOUT_POLICY_VERSION,
+]
 
 
 class MethodSelectionMatrixCreateRequest(RequestModel):
@@ -180,7 +186,7 @@ class MethodSelectionFinalHoldoutResult(RequestModel):
         "computed", "deterministic_reused"
     ] = "computed"
     final_inner_selected_candidate_id: str | None = None
-    final_holdout_policy_version: str
+    final_holdout_policy_version: FinalHoldoutPolicyVersion
     final_holdout_market_dates: list[date] = Field(default_factory=list)
     final_holdout_boundary: MethodSelectionFoldBoundary
     final_holdout_maturity_policy_version: str = (
@@ -231,7 +237,7 @@ class MethodSelectionMatrixResponse(RequestModel):
     request: MethodSelectionMatrixCreateRequest
     feature_registry_version: str
     dataset: CalibrationDatasetSummary
-    final_holdout_policy_version: str
+    final_holdout_policy_version: FinalHoldoutPolicyVersion
     final_holdout_market_dates: list[date]
     fold_policy_version: str
     policy_version: str
