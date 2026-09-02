@@ -41,7 +41,7 @@ ValidationMethod = Literal[
 BaselineName = Literal["buy_and_hold", "naive_momentum", "ma_crossover"]
 RuntimeMode = Literal["runtime_compatibility_mode", "vnext_spec_mode"]
 DefaultBundleVersion = Literal["research_spec_v1"]
-ConfigValueSource = Literal["request_override", "spec_default"]
+ConfigValueSource = Literal["request_override", "spec_default", "derived_policy"]
 FallbackOutcome = Literal["not_needed", "accepted", "rejected"]
 ComparisonEligibility = Literal[
     "comparison_metadata_only",

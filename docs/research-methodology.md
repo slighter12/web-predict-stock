@@ -112,10 +112,11 @@ Family level where correlated Features can mask each other.
 - Horizon 5 and Horizon 20 are separate `open_to_open` Return Target families.
 - Validation uses chronological expanding Walk-Forward Evaluation and a final
   contiguous Holdout that is not opened during Method Candidate selection.
-- The final Holdout contains the latest 252 observed Market Dates: 2025-07-30
-  through 2026-08-12 in the current local dataset. It is recorded as
-  `final_holdout_252_market_dates_provisional_v1` until the research policy is
-  promoted or revised.
+- The final Holdout contains the exact last 252 official signal Market Dates
+  inside the request range. Its `open_to_open` labels require an official
+  post-range maturity buffer, which is recorded separately and cannot enter
+  selection, ranking, or refitting under
+  `final_holdout_252_market_dates_matured_v2`.
 - Candidate construction begins with Feature Ablation and incremental Feature
   additions/removals. It evaluates Feature Families before individual Features,
   then compares the resulting Feature sets with model configurations under the
@@ -165,12 +166,28 @@ Family level where correlated Features can mask each other.
 - A candidate with no Action Rows in any outer Fold produces `no-opinion` and
   is ineligible for the shortlist.
 - Outer-Fold results fix each Horizon's shortlist before any final-Holdout work.
-  Each shortlisted candidate then refits on all pre-final-Holdout data and is
-  evaluated once on the untouched final Holdout; that result cannot revise the
-  candidate configuration.
-- Before that final refit, each shortlisted recipe runs its three-Fold inner
-  selection against all pre-final-Holdout data to select its final Feature,
-  model, threshold, and strategy configuration.
+  The final Holdout is the exact last 252 official signal Market Dates inside
+  the requested range. Official Market Dates after the requested end are
+  fetched only to mature the `open_to_open` labels; they cannot enter selection,
+  ranking, or refitting. If the required maturity buffer is unavailable, Matrix
+  creation is rejected before persistence.
+- Before final refit, every shortlist lineage runs the complete final inner
+  catalog against all pre-final-Holdout rows: every Feature Set, requested model
+  family, all three capacity presets, and the existing lookback, multiplier, and
+  `top_n` grid. Deterministic internal reuse is recorded as reuse evidence, but
+  each lineage retains its own final-selection record and complete promoted
+  Research Run. If lineages select the same final configuration, a canonical
+  configuration group and non-independence caveat are persisted instead of
+  deduplicating the runs.
+- The final refit uses only pre-final-Holdout rows. Promoted Run weights use the
+  complete 252-date Holdout axis, all Holdout participants, and explicit zero
+  weights on no-signal dates, so persisted metrics, turnover, and equity curves
+  match the final Holdout evaluation.
+- A promoted Run carries structured dynamic threshold metadata rather than a
+  numeric placeholder: policy version, return target, Horizon, volatility
+  lookback, multiplier, estimator, `ddof`, complete-window requirement,
+  continuity policy, and Horizon scaling. Generic runtime replay rejects this
+  dynamic mode until a dedicated replay contract exists.
 - The initial catalog expansion adds `MACD`, `BBANDS`, `ATR`, `STOCH`, and
   `OBV`, `ADX`/`DMI`, `MFI`, and `CMF` as new technical Feature Families derived
   solely from daily OHLCV. `MACD`, `BBANDS`, `STOCH`, and `OBV` use the
@@ -208,6 +225,10 @@ Family level where correlated Features can mask each other.
 - A Method Selection Matrix persists the candidate manifest, Fold summaries,
   ranking, and rejection reasons. Only final shortlisted results become full
   Research Runs. Each Horizon's shortlist contains at most three candidates.
+- Final artifact, backtest, metric, or run-assembly failure is retained as a
+  `not_evaluated` final result with a reason; other shortlist lineages continue.
+  Promoted Research Runs and their Matrix are persisted in one transaction, so
+  a database failure rolls back the complete batch.
 - Method Selection uses two stages. Feature Family screening evaluates the
   existing six-Feature baseline, each baseline-plus-one-Family set, the full
   set, and each full-minus-one-Family set with the fixed Extra Trees balanced,

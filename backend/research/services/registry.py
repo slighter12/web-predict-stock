@@ -360,6 +360,105 @@ def _build_registry_payload(
     )
 
 
+def build_success_registry_payload(
+    *,
+    run_id: str,
+    request_id: str,
+    request: ResearchRunCreateRequest,
+    runtime_context: dict[str, Any],
+    response: ResearchRunResponse,
+    validation_summary: ValidationSummary | None,
+    warnings: list[str],
+    request_payload_extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    request_payload = _success_request_payload(run_id=run_id, request=request)
+    if request_payload_extra:
+        request_payload = {
+            **request_payload,
+            "method_selection": request_payload_extra,
+        }
+    return _build_registry_payload(
+        run_id=run_id,
+        request_id=request_id,
+        status="succeeded",
+        request_payload=request_payload,
+        runtime_context=runtime_context,
+        validation_outcome=validation_summary.model_dump(mode="json")
+        if validation_summary
+        else None,
+        metrics=response.metrics.model_dump(mode="json"),
+        equity_curve=[
+            item.model_dump(mode="json") for item in response.equity_curve
+        ],
+        signals=[item.model_dump(mode="json") for item in response.signals],
+        model_diagnostics=response.model_diagnostics.model_dump(mode="json")
+        if response.model_diagnostics
+        else None,
+        baselines=response.baselines,
+        warnings=warnings,
+        threshold_policy_version=response.threshold_policy_version,
+        price_basis_version=response.price_basis_version,
+        benchmark_comparability_gate=response.benchmark_comparability_gate,
+        comparison_eligibility=response.comparison_eligibility,
+        investability_screening_active=response.investability_screening_active,
+        capacity_screening_active=response.capacity_screening_active,
+        capacity_screening_version=response.capacity_screening_version,
+        adv_basis_version=response.adv_basis_version,
+        missing_feature_policy_version=response.missing_feature_policy_version,
+        execution_cost_model_version=response.execution_cost_model_version,
+        tradability_state=response.tradability_state,
+        tradability_contract_version=response.tradability_contract_version,
+        missing_feature_policy_state=response.missing_feature_policy_state,
+        corporate_event_state=response.corporate_event_state,
+        full_universe_count=response.full_universe_count,
+        execution_universe_count=response.execution_universe_count,
+        execution_universe_ratio=response.execution_universe_ratio,
+        liquidity_bucket_schema_version=response.liquidity_bucket_schema_version,
+        liquidity_bucket_coverages=[
+            item.model_dump(mode="json")
+            for item in response.liquidity_bucket_coverages
+        ],
+        stale_mark_days_with_open_positions=response.stale_mark_days_with_open_positions,
+        stale_risk_share=response.stale_risk_share,
+        monitor_profile_id=runtime_context.get("p3_summary", {}).get(
+            "monitor_profile_id"
+        ),
+        monitor_observation_status=response.monitor_observation_status,
+        microstructure_observations=runtime_context.get("p3_summary", {}).get(
+            "microstructure_observations",
+            [],
+        ),
+        comparison_review_matrix_version=response.comparison_review_matrix_version,
+        scheduled_review_cadence=response.scheduled_review_cadence,
+        model_family=response.model_family,
+        training_output_contract_version=response.training_output_contract_version,
+        adoption_comparison_policy_version=(
+            response.adoption_comparison_policy_version
+        ),
+        split_policy_version=response.split_policy_version,
+        bootstrap_policy_version=response.bootstrap_policy_version,
+        ic_overlap_policy_version=response.ic_overlap_policy_version,
+        factor_catalog_version=response.factor_catalog_version,
+        scoring_factor_ids=response.scoring_factor_ids,
+        external_signal_policy_version=response.external_signal_policy_version,
+        external_lineage_version=response.external_lineage_version,
+        cluster_snapshot_version=response.cluster_snapshot_version,
+        peer_policy_version=response.peer_policy_version,
+        peer_comparison_policy_version=response.peer_comparison_policy_version,
+        execution_route=response.execution_route,
+        simulation_profile_id=response.simulation_profile_id,
+        simulation_adapter_version=response.simulation_adapter_version,
+        live_control_profile_id=response.live_control_profile_id,
+        live_control_version=response.live_control_version,
+        adaptive_mode=response.adaptive_mode,
+        adaptive_profile_id=response.adaptive_profile_id,
+        adaptive_contract_version=response.adaptive_contract_version,
+        reward_definition_version=response.reward_definition_version,
+        state_definition_version=response.state_definition_version,
+        rollout_control_version=response.rollout_control_version,
+    )
+
+
 def record_success(
     *,
     run_id: str,
@@ -369,89 +468,19 @@ def record_success(
     response: ResearchRunResponse,
     validation_summary: ValidationSummary | None,
     warnings: list[str],
+    request_payload_extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     logger.info("Recording succeeded research run run_id=%s", run_id)
-    request_payload = _success_request_payload(run_id=run_id, request=request)
     return persist_research_run_record(
-        _build_registry_payload(
+        build_success_registry_payload(
             run_id=run_id,
             request_id=request_id,
-            status="succeeded",
-            request_payload=request_payload,
+            request=request,
             runtime_context=runtime_context,
-            validation_outcome=validation_summary.model_dump(mode="json")
-            if validation_summary
-            else None,
-            metrics=response.metrics.model_dump(mode="json"),
-            equity_curve=[
-                item.model_dump(mode="json") for item in response.equity_curve
-            ],
-            signals=[item.model_dump(mode="json") for item in response.signals],
-            model_diagnostics=response.model_diagnostics.model_dump(mode="json")
-            if response.model_diagnostics
-            else None,
-            baselines=response.baselines,
+            response=response,
+            validation_summary=validation_summary,
             warnings=warnings,
-            threshold_policy_version=response.threshold_policy_version,
-            price_basis_version=response.price_basis_version,
-            benchmark_comparability_gate=response.benchmark_comparability_gate,
-            comparison_eligibility=response.comparison_eligibility,
-            investability_screening_active=response.investability_screening_active,
-            capacity_screening_active=response.capacity_screening_active,
-            capacity_screening_version=response.capacity_screening_version,
-            adv_basis_version=response.adv_basis_version,
-            missing_feature_policy_version=response.missing_feature_policy_version,
-            execution_cost_model_version=response.execution_cost_model_version,
-            tradability_state=response.tradability_state,
-            tradability_contract_version=response.tradability_contract_version,
-            missing_feature_policy_state=response.missing_feature_policy_state,
-            corporate_event_state=response.corporate_event_state,
-            full_universe_count=response.full_universe_count,
-            execution_universe_count=response.execution_universe_count,
-            execution_universe_ratio=response.execution_universe_ratio,
-            liquidity_bucket_schema_version=response.liquidity_bucket_schema_version,
-            liquidity_bucket_coverages=[
-                item.model_dump(mode="json")
-                for item in response.liquidity_bucket_coverages
-            ],
-            stale_mark_days_with_open_positions=response.stale_mark_days_with_open_positions,
-            stale_risk_share=response.stale_risk_share,
-            monitor_profile_id=runtime_context.get("p3_summary", {}).get(
-                "monitor_profile_id"
-            ),
-            monitor_observation_status=response.monitor_observation_status,
-            microstructure_observations=runtime_context.get("p3_summary", {}).get(
-                "microstructure_observations",
-                [],
-            ),
-            comparison_review_matrix_version=response.comparison_review_matrix_version,
-            scheduled_review_cadence=response.scheduled_review_cadence,
-            model_family=response.model_family,
-            training_output_contract_version=response.training_output_contract_version,
-            adoption_comparison_policy_version=(
-                response.adoption_comparison_policy_version
-            ),
-            split_policy_version=response.split_policy_version,
-            bootstrap_policy_version=response.bootstrap_policy_version,
-            ic_overlap_policy_version=response.ic_overlap_policy_version,
-            factor_catalog_version=response.factor_catalog_version,
-            scoring_factor_ids=response.scoring_factor_ids,
-            external_signal_policy_version=response.external_signal_policy_version,
-            external_lineage_version=response.external_lineage_version,
-            cluster_snapshot_version=response.cluster_snapshot_version,
-            peer_policy_version=response.peer_policy_version,
-            peer_comparison_policy_version=response.peer_comparison_policy_version,
-            execution_route=response.execution_route,
-            simulation_profile_id=response.simulation_profile_id,
-            simulation_adapter_version=response.simulation_adapter_version,
-            live_control_profile_id=response.live_control_profile_id,
-            live_control_version=response.live_control_version,
-            adaptive_mode=response.adaptive_mode,
-            adaptive_profile_id=response.adaptive_profile_id,
-            adaptive_contract_version=response.adaptive_contract_version,
-            reward_definition_version=response.reward_definition_version,
-            state_definition_version=response.state_definition_version,
-            rollout_control_version=response.rollout_control_version,
+            request_payload_extra=request_payload_extra,
         )
     )
 

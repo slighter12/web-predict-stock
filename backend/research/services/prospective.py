@@ -20,6 +20,9 @@ from backend.market_data.services.research_inputs import (
 )
 from backend.platform.errors import UnsupportedConfigurationError
 from backend.research.contracts.runs import ResearchRunCreateRequest
+from backend.research.domain.result_caveats import (
+    INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA,
+)
 from backend.research.policies.prospective import (
     COHORT_2330,
     COHORT_ALL_ACTIVE,
@@ -35,7 +38,10 @@ from backend.research.services.execution import (
     build_forward_opinion_signals,
     load_symbol_data,
 )
-from backend.research.services.run_projection import project_persisted_snapshot
+from backend.research.services.run_projection import (
+    _validated_effective_strategy,
+    project_persisted_snapshot,
+)
 from backend.shared.analytics.strategy import resolve_runtime_strategy
 
 logger = logging.getLogger(__name__)
@@ -235,6 +241,10 @@ def _strict_run_issues(record: dict[str, Any], *, cohort_id: str) -> tuple[dict[
         issues.append("signal_frozen_at_not_on_basis_date")
     payload = record.get("request_payload") or {}
     if isinstance(payload, dict):
+        strategy = payload.get("strategy")
+        _, invalid_dynamic_fields = _validated_effective_strategy(record)
+        if isinstance(strategy, dict) and invalid_dynamic_fields:
+            issues.append(INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA)
         issues.extend(
             issue
             for issue in strict_recipe_issues(payload)

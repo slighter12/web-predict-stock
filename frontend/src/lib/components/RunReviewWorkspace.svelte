@@ -8,6 +8,11 @@
         getCapabilityDefinition,
         summarizeBaselineComparison,
     } from "../state/researchWorkflow";
+    import {
+        describeEffectiveStrategy,
+        getPayloadObject,
+        getRunStrategyPresentation,
+    } from "../state/strategy";
     import { stringifyJson } from "../state/mappers";
     import type {
         CapabilityReadinessState,
@@ -57,6 +62,8 @@
         priceBasisSignature: string;
         missingFeaturePolicyLabel: string;
         missingFeaturePolicySignature: string;
+        strategyLabel: string;
+        strategySignature: string;
         missingDimensions: string[];
     };
 
@@ -255,14 +262,6 @@
         }
     };
 
-    const getPayloadObject = (
-        payload: Record<string, unknown> | null | undefined,
-        key: string,
-    ) => {
-        const value = payload?.[key];
-        return isRecord(value) ? value : null;
-    };
-
     const getSymbols = (run: ResearchRunRecord) => {
         const payloadSymbols = getPayloadArray(run.request_payload, "symbols")
             .filter((symbol): symbol is string => typeof symbol === "string")
@@ -344,6 +343,7 @@
         const dateRange = getDateRangeParts(run.request_payload);
         const model = getModelFields(run.request_payload);
         const cost = getCostFields(run);
+        const strategy = getRunStrategyPresentation(run);
         const returnTarget = getPayloadText(
             run.request_payload,
             "return_target",
@@ -378,6 +378,9 @@
             run.missing_feature_policy_state,
             run.missing_feature_policy_version,
         ]);
+        addMissingDimension(missingDimensions, "strategy", [
+            strategy.missing ? null : strategy.signature,
+        ]);
 
         return {
             datasetLabel,
@@ -405,6 +408,8 @@
                 missing_feature_policy_version:
                     run.missing_feature_policy_version,
             }),
+            strategyLabel: `${strategy.label} / ${strategy.detail}`,
+            strategySignature: strategy.signature,
             missingDimensions,
         };
     };
@@ -447,6 +452,16 @@
                 label: "Target differs",
                 detail: "Return target or horizon does not match.",
                 severity: "blocker",
+            });
+        }
+        if (
+            uniqueValues(fields.map((field) => field.strategySignature)).length > 1
+        ) {
+            findings.push({
+                label: "Strategy configuration differs",
+                detail:
+                    "Threshold mode, policy metadata, or canonical candidate configuration does not match.",
+                severity: "note",
             });
         }
         if (uniqueValues(fields.map((field) => field.costSignature)).length > 1) {
@@ -564,6 +579,9 @@
             ? latestResult
             : selectedRecord;
     $: metadataRun = activeRun;
+    $: strategyPresentation = describeEffectiveStrategy(
+        activeRun?.effective_strategy,
+    );
     $: reviewSummary =
         latestSubmission && latestResult?.run_id === activeRunId
             ? latestSubmission
@@ -669,6 +687,11 @@
                             Load a run to populate the setup summary.
                         {/if}
                     </p>
+                </div>
+                <div class="summary-card">
+                    <span>Strategy</span>
+                    <strong>{strategyPresentation.label}</strong>
+                    <p>{strategyPresentation.detail}</p>
                 </div>
                 <div class="summary-card">
                     <span>Model Quality</span>
@@ -884,6 +907,7 @@
                                         <th>Target</th>
                                         <th>Features</th>
                                         <th>Model</th>
+                                        <th>Strategy</th>
                                         <th>Cost Basis</th>
                                         <th>Price Basis</th>
                                         <th>Missing Policy</th>
@@ -904,6 +928,7 @@
                                             <td>{comparison.targetLabel}</td>
                                             <td>{comparison.featureLabel}</td>
                                             <td>{comparison.modelLabel}</td>
+                                            <td>{comparison.strategyLabel}</td>
                                             <td>{comparison.costLabel}</td>
                                             <td>{comparison.priceBasisLabel}</td>
                                             <td>

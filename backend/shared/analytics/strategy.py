@@ -143,6 +143,11 @@ STRATEGY_RUNNERS: Dict[str, StrategyRunner] = {
 def resolve_strategy_config(
     strategy: StrategyConfig | ResearchStrategyConfig,
 ) -> ResearchStrategyConfig:
+    if getattr(strategy, "threshold_mode", "static") == "dynamic":
+        raise UnsupportedConfigurationError(
+            "Dynamic threshold strategies require Method Selection promotion metadata "
+            "and are not supported by generic runtime execution yet."
+        )
     return ResearchStrategyConfig(
         type=strategy.type,
         threshold=strategy.threshold,
@@ -159,6 +164,12 @@ def resolve_runtime_strategy(
     if runtime_mode not in {RUNTIME_COMPATIBILITY_MODE, VNEXT_SPEC_MODE}:
         raise UnsupportedConfigurationError(
             f"Unsupported runtime mode '{runtime_mode}'."
+        )
+
+    if strategy.threshold_mode == "dynamic":
+        raise UnsupportedConfigurationError(
+            "Dynamic threshold strategies require Method Selection promotion metadata "
+            "and are not supported by generic runtime execution yet."
         )
 
     threshold = strategy.threshold

@@ -41,6 +41,7 @@ from backend.research.policies.prospective import (
 )
 from .runtime_metadata import (
     ConfigSources,
+    DynamicThresholdPolicy,
     EffectiveStrategyConfig,
     FallbackAudit,
     FoundationMetadataMixin,
@@ -109,7 +110,26 @@ class StrategyConfig(RequestModel):
     )
     threshold: Optional[confloat(ge=0)] = None  # type: ignore[valid-type]
     top_n: Optional[conint(ge=1)] = None  # type: ignore[valid-type]
+    threshold_mode: Literal["static", "dynamic"] = "static"
+    dynamic_threshold_policy: Optional[DynamicThresholdPolicy] = None
     allow_proactive_sells: bool = True
+
+    @model_validator(mode="after")
+    def validate_threshold_contract(self) -> "StrategyConfig":
+        if self.threshold_mode == "dynamic":
+            if self.threshold is not None:
+                raise ValueError(
+                    "Dynamic strategy config must not contain a numeric threshold."
+                )
+            if self.dynamic_threshold_policy is None:
+                raise ValueError(
+                    "Dynamic strategy config requires threshold policy metadata."
+                )
+        elif self.dynamic_threshold_policy is not None:
+            raise ValueError(
+                "Static strategy config must not contain dynamic threshold metadata."
+            )
+        return self
 
 
 class ExecutionConfig(RequestModel):

@@ -331,6 +331,24 @@ Every run must persist:
 - version-pack fields that explain target, price, cost, split, bootstrap, and
   comparison semantics
 
+### SPEC-RUN-004: Dynamic effective-strategy reload fallback
+
+When a saved request declares `strategy.threshold_mode="dynamic"` but the
+persisted `top_n` or `dynamic_threshold_policy` is missing or invalid, the
+reload projection must return `effective_strategy=null` rather than a partial
+configuration or numeric threshold placeholder. It must add the warning code
+`invalid_dynamic_effective_strategy_metadata` and the blocker comparison caveat
+`DYNAMIC_STRATEGY_METADATA_UNAVAILABLE`.
+
+The projection must downgrade only `strategy_pair_comparable` and
+`research_only_comparable` to `comparison_metadata_only`; it must preserve
+existing quarantine or pending states. `artifact_completeness` continues to
+describe only the six review artifacts. For succeeded runs, the Opinion
+artifact must return `no-opinion` with the metadata limitation; non-succeeded
+runs retain their existing non-viable status behavior. Replay/prospective
+consumers must not use the invalid strategy. This is a read-time compatibility
+fallback and must not mutate the persisted record or invent defaults.
+
 ## Comparison Contract
 
 ### Comparison-State Overview

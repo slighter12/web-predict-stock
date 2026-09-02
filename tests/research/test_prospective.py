@@ -15,6 +15,9 @@ from backend.research.contracts.runs import (
     ProspectiveEvidenceMode,
     ResearchRunCreateRequest,
 )
+from backend.research.domain.result_caveats import (
+    INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA,
+)
 from backend.research.policies.prospective import COHORT_IDS, STRICT_MODE
 
 
@@ -409,6 +412,44 @@ def _strict_record(
             }
         ],
     }
+
+
+def test_invalid_dynamic_strategy_metadata_is_excluded_from_prospective_cohort():
+    record = _strict_record("invalid-dynamic")
+    record["request_payload"]["strategy"].update(
+        {
+            "threshold_mode": "dynamic",
+            "top_n": 5,
+            "dynamic_threshold_policy": {},
+        }
+    )
+    record["effective_strategy"] = None
+
+    _, issues = prospective_service._strict_run_issues(
+        record,
+        cohort_id=prospective_service.COHORT_2330,
+    )
+
+    assert INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA in issues
+
+
+def test_static_effective_strategy_is_excluded_for_dynamic_request():
+    record = _strict_record("static-effective-dynamic-request")
+    record["request_payload"]["strategy"].update(
+        {
+            "threshold_mode": "dynamic",
+            "top_n": 5,
+            "dynamic_threshold_policy": {},
+        }
+    )
+    record["effective_strategy"] = {"threshold": 0.003, "top_n": 5}
+
+    _, issues = prospective_service._strict_run_issues(
+        record,
+        cohort_id=prospective_service.COHORT_2330,
+    )
+
+    assert INVALID_DYNAMIC_EFFECTIVE_STRATEGY_METADATA in issues
 
 
 def _bars(

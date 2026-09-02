@@ -95,6 +95,17 @@ class _PreparedFoldRows:
     holdout: pd.DataFrame
 
 
+@dataclass(frozen=True)
+class CandidateActionSelection:
+    """The canonical threshold, gate, and top-N selection for one candidate."""
+
+    scored: pd.DataFrame
+    eligible: pd.DataFrame
+    gated: pd.DataFrame
+    actions: pd.DataFrame
+    thresholds: pd.Series
+
+
 def _candidate_id(
     *, horizon_days: int, lookback: int, multiplier: float, top_n: int
 ) -> str:
@@ -135,19 +146,23 @@ def _feature_config(
 
 def _load_market_frame(
     request: CalibrationMatrixCreateRequest,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> tuple[pd.DataFrame, tuple[date, ...]]:
+    query_start = start_date or request.date_range.start
+    query_end = end_date or request.date_range.end
     frame = data_service.get_data(
         symbols=request.symbols,
-        start_date=request.date_range.start,
-        end_date=request.date_range.end,
+        start_date=query_start,
+        end_date=query_end,
         market=request.market,
     )
     if frame.empty:
         return frame, ()
 
     official_no_data_dates = data_service.load_official_no_data_dates(
-        start_date=request.date_range.start,
-        end_date=request.date_range.end,
+        start_date=query_start,
+        end_date=query_end,
     )
     if "source" in frame.columns:
         normalized = frame.reset_index()
@@ -159,8 +174,8 @@ def _load_market_frame(
             official_no_data_dates,
         ).reset_index(drop=True)
     market_dates = data_service.load_tw_market_dates(
-        start_date=request.date_range.start,
-        end_date=request.date_range.end,
+        start_date=query_start,
+        end_date=query_end,
         official_no_data_dates=official_no_data_dates,
     )
     return frame, market_dates
@@ -276,6 +291,35 @@ def _candidate_thresholds(
     return volatility * candidate.multiplier * math.sqrt(candidate.horizon_days)
 
 
+def _positive_class_probabilities(
+    classifier: Any,
+    features: pd.DataFrame,
+) -> np.ndarray:
+    probabilities = np.asarray(classifier.predict_proba(features))
+    if probabilities.ndim != 2 or probabilities.shape[0] != len(features):
+        raise ValueError("Direction Gate produced misaligned probabilities.")
+
+    classes = getattr(classifier, "classes_", None)
+    if classes is not None:
+        class_values = list(np.asarray(classes).reshape(-1))
+        if len(class_values) != probabilities.shape[1]:
+            raise ValueError("Direction Gate classes do not match probability columns.")
+        if 1 not in class_values:
+            raise ValueError("Direction Gate classifier has no positive class.")
+        positive_index = class_values.index(1)
+    elif probabilities.shape[1] == 1:
+        # Compatibility with lightweight test doubles and legacy classifiers that
+        # do not expose classes_. Real sklearn classifiers expose classes_.
+        positive_index = 0
+    else:
+        positive_index = 1
+
+    result = probabilities[:, positive_index].reshape(-1)
+    if len(result) != len(features) or not np.isfinite(result).all():
+        raise ValueError("Direction Gate produced invalid probabilities.")
+    return result
+
+
 def _class_counts(labels: pd.Series) -> dict[str, int]:
     return {
         "negative": int((labels == 0).sum()),
@@ -373,6 +417,51 @@ def _select_scored_rows(rows: pd.DataFrame, *, top_n: int) -> pd.DataFrame:
     )
 
 
+def select_candidate_actions(
+    *,
+    candidate: CalibrationCandidateManifest,
+    holdout: pd.DataFrame,
+    scores: np.ndarray,
+    probabilities: np.ndarray | None,
+) -> CandidateActionSelection:
+    """Apply the frozen threshold -> gate -> top-N action-row semantics."""
+    scored = holdout.copy()
+    normalized_scores = np.asarray(scores).reshape(-1)
+    if len(normalized_scores) != len(scored):
+        raise ValueError("Candidate scores are not aligned with holdout rows.")
+    scored["score"] = normalized_scores
+    thresholds = _candidate_thresholds(scored, candidate)
+    scored["threshold"] = thresholds
+    threshold_available = np.isfinite(thresholds)
+    eligible = scored.loc[
+        threshold_available
+        & np.isfinite(pd.to_numeric(scored["score"], errors="coerce"))
+    ].copy()
+    if probabilities is None:
+        gated = scored.iloc[0:0].copy()
+    else:
+        normalized_probabilities = np.asarray(probabilities).reshape(-1)
+        if len(normalized_probabilities) != len(scored):
+            raise ValueError("Direction Gate probabilities are not aligned with holdout rows.")
+        scored["probability"] = normalized_probabilities
+        gated = scored.loc[
+            threshold_available
+            & np.isfinite(pd.to_numeric(scored["score"], errors="coerce"))
+            & np.isfinite(pd.to_numeric(scored["probability"], errors="coerce"))
+            & (
+                scored["probability"]
+                >= CALIBRATION_DIRECTION_PROBABILITY_CUTOFF
+            )
+        ].copy()
+    return CandidateActionSelection(
+        scored=scored,
+        eligible=eligible,
+        gated=gated,
+        actions=_select_scored_rows(gated, top_n=candidate.top_n),
+        thresholds=thresholds,
+    )
+
+
 def _candidate_status(folds: list[CalibrationCandidateFoldResult]) -> str:
     statuses = {item.status for item in folds}
     if "evaluated" in statuses:
@@ -417,13 +506,18 @@ def _evaluate_candidate_fold(
     unavailable_reason: str | None,
     evidence: CalibrationDirectionCalibrationEvidence | None,
 ) -> CalibrationCandidateFoldResult:
-    scored = holdout.copy()
-    scored["score"] = scores
-    thresholds = _candidate_thresholds(scored, candidate)
+    selection = select_candidate_actions(
+        candidate=candidate,
+        holdout=holdout,
+        scores=scores,
+        probabilities=probabilities,
+    )
+    scored = selection.scored
+    eligible = selection.eligible
+    gated = selection.gated
+    actions = selection.actions
+    thresholds = selection.thresholds
     threshold_available = np.isfinite(thresholds)
-    eligible = scored.loc[
-        threshold_available & np.isfinite(pd.to_numeric(scored["score"], errors="coerce"))
-    ].copy()
     reference = _select_scored_rows(eligible, top_n=candidate.top_n)
     reference_outcomes, _ = _outcome_metrics(reference)
     diagnostics = {
@@ -440,14 +534,6 @@ def _evaluate_candidate_fold(
             eligible_date_reference_baseline_outcomes=reference_outcomes,
             direction_calibration=evidence,
         )
-    scored["probability"] = probabilities
-    scored["threshold"] = thresholds
-    gated = scored.loc[
-        threshold_available
-        & np.isfinite(pd.to_numeric(scored["probability"], errors="coerce"))
-        & (scored["probability"] >= CALIBRATION_DIRECTION_PROBABILITY_CUTOFF)
-    ]
-    actions = _select_scored_rows(gated, top_n=candidate.top_n)
     gate_pass_dates = int(gated["date"].nunique())
     gate_diagnostics = {
         **diagnostics,
@@ -629,14 +715,10 @@ def _evaluate_model_family(
                 probabilities: np.ndarray | None = None
                 if classifier is not None:
                     try:
-                        probabilities = np.asarray(
-                            classifier.predict_proba(holdout.loc[:, list(feature_names)])
-                        )[:, 1]
-                        if (
-                            len(probabilities) != len(holdout)
-                            or not np.isfinite(probabilities).all()
-                        ):
-                            raise ValueError("Direction Gate produced invalid probabilities.")
+                        probabilities = _positive_class_probabilities(
+                            classifier,
+                            holdout.loc[:, list(feature_names)],
+                        )
                     except Exception as exc:
                         logger.exception(
                             "Calibration Direction Gate prediction failed "

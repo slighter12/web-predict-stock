@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, conint, confloat, field_validator, model_validator
 
 from backend.shared.contracts.common import (
     AdaptiveMode,
@@ -13,6 +13,7 @@ from backend.shared.contracts.common import (
     FallbackOutcome,
     MissingFeaturePolicyState,
     MonitorObservationStatus,
+    ReturnTarget,
     TradabilityContractVersion,
     TradabilityState,
     VersionFieldStatus,
@@ -42,9 +43,56 @@ class FallbackAudit(BaseModel):
     strategy: StrategyFallbackAudit
 
 
+class DynamicThresholdPolicy(BaseModel):
+    """Frozen metadata required to reproduce a dynamic Direction Gate threshold."""
+
+    policy_version: str
+    return_target: ReturnTarget
+    horizon_days: conint(ge=1)  # type: ignore[valid-type]
+    lookback: conint(ge=2)  # type: ignore[valid-type]
+    multiplier: confloat(gt=0)  # type: ignore[valid-type]
+    estimator: Literal["sample_standard_deviation"]
+    ddof: conint(ge=0) = 1  # type: ignore[valid-type]
+    complete_window_required: bool = True
+    continuity_policy_version: str
+    horizon_scaling: Literal["square_root"] = "square_root"
+
+    @model_validator(mode="after")
+    def require_complete_window(self) -> "DynamicThresholdPolicy":
+        if not self.complete_window_required:
+            raise ValueError(
+                "Dynamic threshold policies must require a complete volatility window."
+            )
+        return self
+
+
 class EffectiveStrategyConfig(BaseModel):
-    threshold: float
+    threshold: float | None
     top_n: int
+    threshold_mode: Literal["static", "dynamic"] = "static"
+    dynamic_threshold_policy: DynamicThresholdPolicy | None = None
+
+    @model_validator(mode="after")
+    def validate_threshold_contract(self) -> "EffectiveStrategyConfig":
+        if self.threshold_mode == "dynamic":
+            if self.threshold is not None:
+                raise ValueError(
+                    "Dynamic effective strategy config must not contain a numeric threshold."
+                )
+            if self.dynamic_threshold_policy is None:
+                raise ValueError(
+                    "Dynamic effective strategy config requires threshold policy metadata."
+                )
+        else:
+            if self.threshold is None:
+                raise ValueError(
+                    "Static effective strategy config requires a numeric threshold."
+                )
+            if self.dynamic_threshold_policy is not None:
+                raise ValueError(
+                    "Static effective strategy config must not contain dynamic threshold metadata."
+                )
+        return self
 
 
 class VersionPackMixin(BaseModel):
